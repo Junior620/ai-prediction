@@ -1,0 +1,14 @@
+{
+  "timestamp": "20260521_175959",
+  "model_type": "nhits",
+  "description": "N-HiTS (NeuralForecast) - 3eme moteur de prediction",
+  "framework": "neuralforecast",
+  "data_period": "2020-2026",
+  "training_points": 1576,
+  "validation_points": 30,
+  "horizon": 30,
+  "input_size": 60,
+  "val_rmse": 445.87634287346776,
+  "val_mae": 321.6650003255208,
+  "val_mape": 7.921018036370714
+}

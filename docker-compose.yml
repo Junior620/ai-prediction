@@ -1,0 +1,79 @@
+
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: cocoa-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./config/redis_config.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.10.2
+    container_name: cocoa-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlruns:/mlflow/mlruns
+      - mlartifacts:/mlflow/mlartifacts
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow/mlruns/mlflow.db
+      --default-artifact-root /mlflow/mlartifacts
+      --host 0.0.0.0
+      --port 5000
+      --workers 1
+      --gunicorn-opts "--timeout 120 --graceful-timeout 30"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cocoa-api
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TRADINGVIEW_WEBHOOK_SECRET=${TRADINGVIEW_WEBHOOK_SECRET:-}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_REGISTRY_URI=http://mlflow:5000
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./.env:/app/.env:ro
+      - ./logs:/app/logs
+      - ./models:/app/models
+      - mlruns:/app/mlruns
+    depends_on:
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    restart: unless-stopped
+    command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000
+
+volumes:
+  redis_data:
+  mlruns:
+  mlartifacts:

@@ -1,0 +1,67 @@
+{
+  "timestamp": "2026-06-11T14:55:30.457481",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "XGBoost uses frozen lags for h>1 (matches production inference).",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 268,
+    "horizons": [
+      1,
+      7,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 1389.3597869702746,
+          "mae": 670.6396427377189,
+          "mape": 10.28337284427555,
+          "directional_accuracy": 0.5136186770428015,
+          "n_predictions": 257
+        },
+        "7": {
+          "rmse": 1448.9416683181842,
+          "mae": 722.0039960488506,
+          "mape": 11.345926794733924,
+          "directional_accuracy": 0.48659003831417624,
+          "n_predictions": 261
+        },
+        "30": {
+          "rmse": 1812.0633528900426,
+          "mae": 1030.4688338938827,
+          "mape": 16.13686094373943,
+          "directional_accuracy": 0.4980694980694981,
+          "n_predictions": 259
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 957.624460403265,
+          "mae": 593.8979383660142,
+          "mape": 10.357865762977633,
+          "directional_accuracy": 0.4785992217898833,
+          "n_predictions": 257
+        },
+        "7": {
+          "rmse": 1100.6467835130798,
+          "mae": 696.006395032975,
+          "mape": 12.368677351375934,
+          "directional_accuracy": 0.5134099616858238,
+          "n_predictions": 261
+        },
+        "30": {
+          "rmse": 1534.7270161508825,
+          "mae": 996.5801536835066,
+          "mape": 18.156574243220675,
+          "directional_accuracy": 0.5212355212355212,
+          "n_predictions": 259
+        }
+      }
+    }
+  }
+}

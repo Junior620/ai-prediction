@@ -1,0 +1,29 @@
+{
+  "source_report": "20260703_141553",
+  "calibrated_at": "2026-07-03T14:17:11.402702",
+  "coverage_level": 0.9,
+  "asymmetric": false,
+  "by_horizon": {
+    "1": {
+      "margin_lower": 417.795959729915,
+      "margin_upper": 417.795959729915,
+      "empirical_coverage": 0.909433962264151,
+      "mean_interval_width": 835.59191945983,
+      "n": 265
+    },
+    "7": {
+      "margin_lower": 484.0844618039728,
+      "margin_upper": 484.0844618039728,
+      "empirical_coverage": 0.9097744360902256,
+      "mean_interval_width": 968.1689236079455,
+      "n": 266
+    },
+    "30": {
+      "margin_lower": 606.2808460134465,
+      "margin_upper": 606.2808460134465,
+      "empirical_coverage": 0.9076923076923077,
+      "mean_interval_width": 1212.561692026893,
+      "n": 260
+    }
+  }
+}

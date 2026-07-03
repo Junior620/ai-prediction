@@ -1,0 +1,135 @@
+{
+  "timestamp": "2026-06-11T16:16:34.454672",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "xgb_pred uses frozen lags for h>1; xgb_pred_recursive uses multi-step simulation.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 268,
+    "horizons": [
+      1,
+      7,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 1389.3597869702746,
+          "mae": 670.6396427377189,
+          "mape": 10.28337284427555,
+          "directional_accuracy": 0.5136186770428015,
+          "n_predictions": 257
+        },
+        "7": {
+          "rmse": 1448.9416683181842,
+          "mae": 722.0039960488506,
+          "mape": 11.345926794733924,
+          "directional_accuracy": 0.48659003831417624,
+          "n_predictions": 261
+        },
+        "30": {
+          "rmse": 1812.0633528900426,
+          "mae": 1030.4688338938827,
+          "mape": 16.13686094373943,
+          "directional_accuracy": 0.4980694980694981,
+          "n_predictions": 259
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 957.624460403265,
+          "mae": 593.8979383660142,
+          "mape": 10.357865762977633,
+          "directional_accuracy": 0.4785992217898833,
+          "n_predictions": 257
+        },
+        "7": {
+          "rmse": 1100.6467835130798,
+          "mae": 696.006395032975,
+          "mape": 12.368677351375934,
+          "directional_accuracy": 0.5134099616858238,
+          "n_predictions": 261
+        },
+        "30": {
+          "rmse": 1534.7270161508825,
+          "mae": 996.5801536835066,
+          "mape": 18.156574243220675,
+          "directional_accuracy": 0.5212355212355212,
+          "n_predictions": 259
+        }
+      },
+      "xgb_pred_recursive": {
+        "1": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        },
+        "7": {
+          "rmse": 1628.523233750242,
+          "mae": 904.3361891238626,
+          "mape": 14.49971940493328,
+          "directional_accuracy": 0.5134099616858238,
+          "n_predictions": 261
+        },
+        "30": {
+          "rmse": 2038.405582800893,
+          "mae": 1251.735577793195,
+          "mape": 20.49840981208078,
+          "directional_accuracy": 0.4942084942084942,
+          "n_predictions": 259
+        }
+      }
+    },
+    "recursive_vs_frozen": {
+      "1": {
+        "frozen_mape": 10.28337284427555,
+        "recursive_mape": NaN
+      },
+      "7": {
+        "frozen_mape": 11.345926794733924,
+        "recursive_mape": 14.49971940493328
+      },
+      "30": {
+        "frozen_mape": 16.13686094373943,
+        "recursive_mape": 20.49840981208078
+      }
+    }
+  },
+  "ensemble_calibration": {
+    "source_report": "20260611_161634",
+    "calibrated_at": "2026-06-11T16:16:34.519724",
+    "by_horizon": {
+      "1": {
+        "xgb": 0.4,
+        "prophet": 0.6,
+        "nhits": 0.0
+      },
+      "7": {
+        "xgb": 0.5,
+        "prophet": 0.5,
+        "nhits": 0.0
+      },
+      "30": {
+        "xgb": 0.5,
+        "prophet": 0.5,
+        "nhits": 0.0
+      }
+    },
+    "fixed_baseline_mape": {
+      "1": 9.050265586595629,
+      "7": 10.343807130190259,
+      "30": 14.903435211934205
+    },
+    "calibrated_mape": {
+      "1": 8.751284670291573,
+      "7": 10.16790655191865,
+      "30": 14.80838153659355
+    }
+  }
+}

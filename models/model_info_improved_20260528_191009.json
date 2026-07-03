@@ -1,0 +1,31 @@
+{
+  "timestamp": "20260528_191009",
+  "model_type": "hybrid_improved",
+  "description": "XGBoost principal avec Prophet comme feature secondaire",
+  "data_period": "2020-2026",
+  "training_points": 1240,
+  "validation_points": 311,
+  "train_mape": 0.10468070757779302,
+  "val_mape": 4.326689033577071,
+  "val_rmse": 310.7347097475297,
+  "val_mae": 225.3944388062701,
+  "feature_importance": {
+    "price_lag_14": 0.4433254897594452,
+    "price_lag_7": 0.19520366191864014,
+    "price_ma_7": 0.11007998883724213,
+    "price_lag_3": 0.10090294480323792,
+    "price_lag_1": 0.09455613791942596,
+    "price_ma_30": 0.01780657283961773,
+    "price_ma_14": 0.01598495990037918,
+    "prophet_yhat": 0.007711240090429783,
+    "price_ma_60": 0.004457715433090925,
+    "price_change_1d": 0.0029292143881320953,
+    "price_change_7d": 0.002774957101792097,
+    "price_change_30d": 0.001280925003811717,
+    "day_of_year": 0.000544392445590347,
+    "price_std_7": 0.0005320503260008991,
+    "price_std_30": 0.0005028706509619951
+  },
+  "prophet_weight": 0.007711240090429783,
+  "price_lag_1_weight": 0.09455613791942596
+}

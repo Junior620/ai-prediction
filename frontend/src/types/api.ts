@@ -1,0 +1,114 @@
+export interface PredictionItem {
+  horizon: number;
+  price: number;
+  confidence_interval: [number, number];
+  confidence_level: number;
+  timestamp: string;
+  components?: {
+    baseline?: number;
+    nhits?: number | null;
+    prophet?: number;
+    ensemble?: number;
+    residual?: number;
+    sentiment?: number;
+    garch_annualized_volatility?: number | null;
+    high_volatility_regime?: boolean;
+  };
+}
+
+export interface PredictionResponse {
+  predictions: PredictionItem[];
+  model_version: string;
+  sentiment_score: number | null;
+  market: string;
+  current_price?: number;
+  current_date?: string;
+  historical_prices?: { date: string; price: number }[];
+}
+
+export interface PredictionRequest {
+  market: string;
+  horizons: number[];
+  include_sentiment: boolean;
+}
+
+export interface ApiError {
+  error: string;
+  message: string;
+  detail?: string;
+}
+
+export interface HorizonValidationMetrics {
+  horizon: number;
+  mape?: number | null;
+  rmse?: number | null;
+  mae?: number | null;
+  directional_accuracy?: number | null;
+  n_predictions?: number | null;
+}
+
+export interface ValidationMetricsResponse {
+  report_timestamp?: string | null;
+  validation_type: string;
+  n_origins?: number | null;
+  horizons: number[];
+  xgb_metrics: HorizonValidationMetrics[];
+  legacy_holdout_mape_1step?: number | null;
+}
+
+export interface MarketBriefContent {
+  signal: 'BUY' | 'SELL' | 'HOLD';
+  confidence: 'low' | 'medium' | 'high';
+  trend: 'bullish' | 'bearish' | 'neutral';
+  summary: string;
+  outlook_7d?: string;
+  key_levels?: { support?: number | null; resistance?: number | null };
+  risks: string[];
+  recommendation?: string;
+  disclaimer?: string;
+  _meta?: Record<string, unknown>;
+}
+
+export interface MarketIntelligenceResponse {
+  market: string;
+  market_display_name: string;
+  unit: string;
+  tradingview_symbol?: string | null;
+  current_price?: number | null;
+  current_date?: string | null;
+  model_version?: string | null;
+  sentiment_score?: number | null;
+  predictions?: PredictionItem[];
+  brief: MarketBriefContent;
+  mode: string;
+  opus_remaining: number;
+  generated_at: string;
+  cached?: boolean;
+}
+
+export interface BriefRequest {
+  market: string;
+  mode?: 'standard' | 'advanced';
+  question?: string;
+  force_refresh?: boolean;
+}
+
+export interface MarketInfo {
+  market_id: string;
+  display_name: string;
+  api_markets: string[];
+  unit: string;
+  source: string;
+  contract_symbol?: string | null;
+  garch_enabled: boolean;
+  tradingview_symbol?: string | null;
+  tradingview_embed_symbol?: string | null;
+  tradingview_embed_label?: string | null;
+  tradingview_alert_symbol?: string | null;
+  available: boolean;
+  model_version?: string | null;
+}
+
+export interface MarketsResponse {
+  markets: MarketInfo[];
+}

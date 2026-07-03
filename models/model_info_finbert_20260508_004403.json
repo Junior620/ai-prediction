@@ -1,0 +1,25 @@
+{
+  "timestamp": "20260508_004403",
+  "prophet_rmse": 247.55009135397356,
+  "prophet_mae": 182.16932465202146,
+  "prophet_mape": 9.202064141316022,
+  "xgb_train_rmse": 27.385553842358977,
+  "xgb_val_rmse": 2659.086487599296,
+  "xgb_val_mae": 1372.5070343310613,
+  "xgb_val_mape": 17.54590253118174,
+  "feature_importance": {
+    "price_lag_1": 0.9009615182876587,
+    "price_ma_7": 0.09710133820772171,
+    "prophet_pred": 0.0008400133810937405,
+    "price_ma_30": 0.0001958617358468473,
+    "price_std_7": 0.00019520753994584084,
+    "day_of_year": 0.00018024783639702946,
+    "price_lag_7": 0.0001776179560692981,
+    "month": 0.00012213742593303323,
+    "day_of_week": 0.00011512851779116318,
+    "year": 0.00011082697164965793
+  },
+  "training_data_points": 14578,
+  "validation_data_points": 3645,
+  "finbert_tested": true
+}

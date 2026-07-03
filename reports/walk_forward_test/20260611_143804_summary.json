@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-06-11T14:38:04.317731",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "XGBoost uses frozen lags for h>1 (matches production inference).",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 3,
+    "horizons": [
+      1,
+      7
+    ],
+    "min_train_days": 100,
+    "step_size": 25,
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 52.00649520329811,
+          "mae": 46.6902901146456,
+          "mape": 1.3312886234463326,
+          "directional_accuracy": 0.6666666666666666,
+          "n_predictions": 3
+        },
+        "7": {
+          "rmse": 45.20375881778507,
+          "mae": 39.3020101993925,
+          "mape": 1.1111091740169279,
+          "directional_accuracy": 0.3333333333333333,
+          "n_predictions": 3
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 40.929843818132056,
+          "mae": 39.83798405809542,
+          "mape": 1.1209152096113415,
+          "directional_accuracy": 0.3333333333333333,
+          "n_predictions": 3
+        },
+        "7": {
+          "rmse": 425.5807473028085,
+          "mae": 397.89735135167274,
+          "mape": 11.311499539303329,
+          "directional_accuracy": 0.6666666666666666,
+          "n_predictions": 3
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "timestamp": "20260703_133705",
+  "model_type": "nhits",
+  "market": "coffee_robusta",
+  "description": "N-HiTS (NeuralForecast) - 3eme moteur de prediction",
+  "framework": "neuralforecast",
+  "data_period": "2020-2026",
+  "training_points": 1611,
+  "validation_points": 30,
+  "horizon": 30,
+  "input_size": 60,
+  "val_rmse": 345.8432967942273,
+  "val_mae": 277.0841979980469,
+  "val_mape": 7.822338259752561
+}

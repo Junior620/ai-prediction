@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design Tokens ────────────────────────────────────── */
+:root {
+  --bg-primary: #06091a;
+  --bg-card: rgba(15, 23, 42, 0.65);
+  --border-subtle: rgba(148, 163, 184, 0.08);
+  --accent-amber: #f59e0b;
+  --accent-emerald: #10b981;
+  --accent-rose: #f43f5e;
+}
+
+/* ─── Base ─────────────────────────────────────────────── */
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg-primary);
+  color: #e2e8f0;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Glassmorphism Card ───────────────────────────────── */
+@layer components {
+  .glass-card {
+    @apply relative rounded-2xl border border-white/[0.06]
+           bg-gradient-to-b from-white/[0.04] to-white/[0.01]
+           backdrop-blur-xl shadow-lg;
+  }
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300
+           hover:border-white/[0.12] hover:shadow-xl hover:shadow-white/[0.02]
+           hover:-translate-y-0.5;
+  }
+}
+
+/* ─── TradingView embed ─────────────────────────────────── */
+.tradingview-widget-container,
+.tradingview-widget-container__widget {
+  width: 100% !important;
+}
+
+.tradingview-widget-container iframe {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: inherit;
+}
+
+/* ─── Glow Effects ─────────────────────────────────────── */
+.glow-amber  { box-shadow: 0 0 40px -8px rgba(245, 158, 11, 0.25); }
+.glow-green  { box-shadow: 0 0 40px -8px rgba(16, 185, 129, 0.25); }
+.glow-red    { box-shadow: 0 0 40px -8px rgba(244, 63, 94, 0.25); }
+.glow-blue   { box-shadow: 0 0 40px -8px rgba(59, 130, 246, 0.25); }
+.glow-purple { box-shadow: 0 0 40px -8px rgba(139, 92, 246, 0.25); }
+
+/* ─── Gradient Text ────────────────────────────────────── */
+.text-gradient-gold {
+  @apply bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-300
+         bg-clip-text text-transparent;
+}
+
+/* ─── Subtle Grid Background ──────────────────────────── */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ─── Shimmer Loading ──────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.04) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* ─── Pulse Ring ───────────────────────────────────────── */
+@keyframes pulse-ring {
+  0%   { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.pulse-ring::before {
+  content: '';
+  @apply absolute inset-0 rounded-full;
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ─── Count-up mono ────────────────────────────────────── */
+.font-mono-price {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+/* ─── Tooltip override for recharts ────────────────────── */
+.recharts-default-tooltip {
+  @apply !rounded-xl !border-white/10 !shadow-2xl;
+  background: rgba(15, 23, 42, 0.95) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+/* ─── Scrollbar ────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.3); }
+
+/* ─── Selection ────────────────────────────────────────── */
+::selection {
+  background: rgba(245, 158, 11, 0.3);
+  color: #fff;
+}

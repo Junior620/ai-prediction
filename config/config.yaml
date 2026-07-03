@@ -1,0 +1,419 @@
+# Cocoa Price Prediction System Configuration
+# This file contains all system parameters, model hyperparameters, and data source configurations
+
+# System Settings
+system:
+  name: "Cocoa Price Prediction Hybrid System"
+  version: "1.0.0"
+  environment: "production"  # development, staging, production
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  timezone: "UTC"
+
+# Prediction Settings
+prediction:
+  horizons: [1, 7, 30]  # Days ahead to predict
+  confidence_level: 0.90  # 90% conformal prediction interval
+  conformal_intervals_file: "config/conformal_intervals.json"
+  sentiment_weight: 0.1  # Weight for sentiment adjustment (0-1)
+  multi_step_mode: recursive  # recursive | frozen (for h>1 when no direct model)
+  ensemble_weights_file: "config/ensemble_weights.json"
+  ensemble_fallback:
+    xgb: 0.4
+    nhits: 0.4
+    prophet: 0.2
+  price_bounds:
+    min: 1000  # USD per metric ton
+    max: 10000  # USD per metric ton
+  cache_ttl: 3600  # Cache predictions for 1 hour (seconds)
+
+# Markets Registry
+# Each market defines its data source, Supabase table, model directory and calibration files.
+markets:
+  cocoa:
+    display_name: "Cacao (ICE NY)"
+    price_table: "cocoa_prices"
+    source: "yahoo_finance"
+    yahoo_symbol: "CC=F"
+    unit: "USD/MT"
+    price_bounds:
+      min: 1000
+      max: 10000
+    models_dir: "models"
+    ensemble_weights_file: "config/ensemble_weights.json"
+    conformal_intervals_file: "config/conformal_intervals.json"
+    nhits_unique_id: "cocoa_ice_ny"
+    api_markets: ["ICE_NY", "ICE_London"]
+    garch_enabled: false
+    # Embed UI uniquement (widget dashboard) — ne pas changer
+    tradingview_symbol: "PEPPERSTONE:COCOA"
+    tradingview_embed_symbol: "PEPPERSTONE:COCOA"
+    tradingview_embed_label: "Cocoa Cash Contract (Pepperstone CFD)"
+    # Source Pine / alertes / lecture de marche pour Claude (futures Londres)
+    tradingview_alert_symbol: "ICEEUR:C1!"
+  coffee_robusta:
+    display_name: "Café Robusta (ICE London)"
+    price_table: "coffee_robusta_prices"
+    source: "investing_com"
+    investing_url: "https://www.investing.com/commodities/london-coffee"
+    contract_symbol: "RCU6"  # front month (rollover auto-detected from page title)
+    unit: "USD/T"
+    price_bounds:
+      min: 1000
+      max: 8000
+    models_dir: "models/coffee_robusta"
+    ensemble_weights_file: "config/coffee_robusta/ensemble_weights.json"
+    conformal_intervals_file: "config/coffee_robusta/conformal_intervals.json"
+    nhits_unique_id: "coffee_robusta_ice"
+    api_markets: ["COFFEE_ROBUSTA"]
+    garch_enabled: true
+    tradingview_symbol: "ICEEUR:RC1!"
+    tradingview_embed_symbol: "ROBCOFFEE"
+    tradingview_embed_label: "Robusta Coffee Cash (CMC Markets CFD)"
+
+# Claude AI — intelligence marché (briefs, pas de prédiction de prix)
+claude:
+  model_standard: "claude-sonnet-4-6"    # briefs quotidiens, conseils simples
+  model_advanced: "claude-opus-4-8"      # raisonnement approfondi (quota utilisateur)
+  opus_daily_limit: 3
+  brief_cache_ttl: 86400                       # 24 h pour brief standard
+  max_tokens_standard: 1200
+  max_tokens_advanced: 2500
+
+# Data Collection Settings
+data_collection:
+  frequency: "daily"  # hourly, daily, weekly
+  retry_attempts: 3
+  retry_delay: 300  # 5 minutes in seconds
+  timeout: 30  # seconds
+  
+  # Price Data Sources
+  price_sources:
+    yahoo_finance:
+      enabled: true
+      symbol: "CC=F"
+      url: "https://finance.yahoo.com"
+    investing_com:
+      enabled: true
+      url: "https://www.investing.com/commodities/us-cocoa"
+  
+  # Econometric Data Sources
+  econometric_sources:
+    weather:
+      enabled: true
+      api_key_env: "WEATHER_API_KEY"
+      locations:
+        - "Douala,Cameroon"
+        - "Yaounde,Cameroon"
+        - "Abidjan,Ivory Coast"
+        - "Yamoussoukro,Ivory Coast"
+        - "Accra,Ghana"
+        - "Kumasi,Ghana"
+        - "Lagos,Nigeria"
+        - "Ibadan,Nigeria"
+        - "Guayaquil,Ecuador"
+        - "Salvador,Brazil"
+        - "New York,USA"
+        - "London,UK"
+    
+    fx_rates:
+      enabled: true
+      api_key_env: "FX_API_KEY"
+      base_currency: "USD"
+      target_currencies: ["XAF", "GBP", "EUR"]
+  
+  # News Sources
+  news_sources:
+    newsapi:
+      enabled: true
+      api_key_env: "NEWS_API_KEY"
+      query: "cocoa OR cacao OR chocolate"
+      max_articles: 100
+      language: "en"
+
+# Prophet Model Configuration
+prophet:
+  seasonality_mode: "multiplicative"  # additive or multiplicative
+  yearly_seasonality: true
+  weekly_seasonality: false
+  daily_seasonality: false
+  changepoint_prior_scale: 0.05  # Flexibility of trend (0.001-0.5)
+  seasonality_prior_scale: 10.0  # Strength of seasonality (0.01-10)
+  holidays_prior_scale: 10.0
+  changepoint_range: 0.8  # Proportion of history for changepoints
+  n_changepoints: 25
+  interval_width: 0.95  # Confidence interval width
+  mcmc_samples: 0  # Use MAP estimation (0) or MCMC sampling (>0)
+  uncertainty_samples: 1000
+
+# XGBoost Model Configuration
+xgboost:
+  n_estimators: 100  # Number of boosting rounds
+  max_depth: 6  # Maximum tree depth
+  learning_rate: 0.1  # Step size shrinkage (0.01-0.3)
+  min_child_weight: 1  # Minimum sum of instance weight
+  subsample: 0.8  # Subsample ratio of training instances
+  colsample_bytree: 0.8  # Subsample ratio of columns
+  gamma: 0  # Minimum loss reduction for split
+  reg_alpha: 0  # L1 regularization
+  reg_lambda: 1  # L2 regularization
+  objective: "reg:squarederror"
+  eval_metric: "rmse"
+  early_stopping_rounds: 10
+  random_state: 42
+  n_jobs: -1  # Use all CPU cores
+
+# FinBERT NLP Configuration
+finbert:
+  model_name: "ProsusAI/finbert"
+  max_length: 512  # Maximum token length
+  batch_size: 32
+  device: "auto"  # auto, cpu, cuda
+  sentiment_threshold: -0.6  # Flag articles below this score
+  keyword_threshold: 2  # Minimum keywords for high-risk flag
+  aggregation_window: 24  # Hours for sentiment aggregation
+  
+  # Market shock keywords
+  shock_keywords:
+    - "disease"
+    - "swollen shoot"
+    - "black pod"
+    - "el nino"
+    - "la nina"
+    - "drought"
+    - "flood"
+    - "policy"
+    - "export ban"
+    - "import restriction"
+    - "speculation"
+    - "hedge fund"
+    - "crisis"
+    - "shortage"
+    - "surplus"
+
+# Data Preprocessing Configuration
+preprocessing:
+  missing_values:
+    price: "forward_fill"
+    temperature: "interpolate"
+    rainfall: "interpolate"
+    stock_level: "forward_fill"
+    production: "forward_fill"
+    fx_rates: "forward_fill"
+  
+  normalization:
+    method: "standard"  # standard or minmax
+    features:
+      - "temperature"
+      - "rainfall"
+      - "stock_level"
+      - "production"
+      - "fx_rate_xaf_usd"
+      - "fx_rate_gbp_usd"
+      - "fx_rate_eur_usd"
+  
+  train_val_split:
+    validation_size: 0.2  # 20% for validation
+    shuffle: false  # Keep chronological order for time series
+  
+  outlier_detection:
+    method: "zscore"  # zscore or iqr
+    threshold: 3.0  # Standard deviations
+    retain_during_shocks: true  # Keep outliers during market shocks
+  
+  market_shock:
+    threshold: 0.05  # 5% daily price change
+
+# Model Training Configuration
+training:
+  cross_validation:
+    n_folds: 5
+    scoring: "neg_root_mean_squared_error"
+  
+  feature_engineering:
+    time_features:
+      - "day_of_week"
+      - "day_of_month"
+      - "month"
+      - "quarter"
+      - "is_month_start"
+      - "is_month_end"
+      - "days_since_shock"
+
+# Model Performance Monitoring
+monitoring:
+  metrics:
+    - "rmse"
+    - "mae"
+    - "mape"
+    - "directional_accuracy"
+    - "coverage_rate"
+    - "mean_interval_width"
+  
+  degradation_threshold: 0.15  # 15% performance drop triggers alert
+  
+  alerts:
+    enabled: true
+    channels:
+      - "log"  # Always log
+      # - "email"  # Uncomment to enable email alerts
+      # - "slack"  # Uncomment to enable Slack alerts
+
+# Model Retraining Configuration
+retraining:
+  frequency: "monthly"  # daily, weekly, monthly
+  auto_trigger: true
+  min_new_data_days: 30  # Minimum days of new data before retraining
+  validation_required: true  # Validate before deploying
+  retain_if_worse: true  # Keep current model if new one performs worse
+  max_model_versions: 5  # Keep last 5 versions
+
+# MLflow Configuration
+mlflow:
+  tracking_uri: "http://localhost:5000"  # MLflow tracking server
+  registry_uri: "http://localhost:5000"  # MLflow model registry
+  experiment_name: "cocoa_price_prediction"
+  
+  model_names:
+    prophet: "cocoa_prophet_model"
+    xgboost: "cocoa_xgboost_model"
+    finbert: "cocoa_finbert_model"
+    hybrid: "cocoa_hybrid_model"
+  
+  artifact_location: "./mlruns"
+
+# Database Configuration (Supabase)
+database:
+  provider: "supabase"
+  url_env: "SUPABASE_URL"
+  key_env: "SUPABASE_SERVICE_KEY"
+  
+  tables:
+    price_data: "cocoa_prices"
+    econometric_data: "econometric_data"
+    news_articles: "news_articles"
+    predictions: "predictions"
+    model_metrics: "model_metrics"
+    market_sentiment: "market_sentiment"
+    weather_data: "weather_data"
+    fx_rates: "fx_rates"
+
+# Cache Configuration (Redis)
+cache:
+  provider: "redis"
+  host: "localhost"
+  port: 6379
+  db: 0
+  password_env: "REDIS_PASSWORD"
+  ttl: 3600  # Default TTL in seconds
+  enabled: true
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  title: "Cocoa Price Prediction API"
+  version: "1.0.0"
+  description: "Hybrid ML system for cocoa price prediction"
+  
+  authentication:
+    enabled: true
+    type: "bearer"  # bearer or api_key
+    token_env: "API_SECRET_KEY"
+  
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 60
+  
+  cors:
+    enabled: true
+    origins:
+      - "http://localhost:3000"
+      - "http://localhost:8080"
+  
+  response_timeout: 2  # seconds (Requirement 10.4)
+
+# Security Configuration
+security:
+  encryption:
+    at_rest: true  # Supabase handles this
+    in_transit: true  # TLS 1.3
+  
+  tls:
+    version: "1.3"
+    cert_path: "./certs/cert.pem"
+    key_path: "./certs/key.pem"
+  
+  logging:
+    log_access: true
+    log_user_id: true
+    log_timestamp: true
+    log_ip_address: true
+  
+  access_control:
+    block_unauthorized: true
+    max_failed_attempts: 5
+    lockout_duration: 300  # 5 minutes in seconds
+
+# Visualization Configuration
+visualization:
+  dashboard:
+    enabled: true
+    refresh_interval: 300  # 5 minutes in seconds
+  
+  reports:
+    frequency: "weekly"
+    format: "pdf"  # pdf, html, json
+    include_charts: true
+  
+  charts:
+    prediction_vs_actual:
+      enabled: true
+      show_confidence_bands: true
+    
+    performance_metrics:
+      enabled: true
+      metrics: ["rmse", "mae", "mape", "directional_accuracy"]
+    
+    market_shocks:
+      enabled: true
+      highlight_color: "red"
+    
+    feature_importance:
+      enabled: true
+      top_n: 10
+
+# Validation Rules
+validation:
+  price_data:
+    min_price: 1000
+    max_price: 10000
+    max_gap_days: 7  # Maximum days between data points
+  
+  econometric_data:
+    temperature:
+      min: -10
+      max: 50
+    rainfall:
+      min: 0
+      max: 500
+    stock_level:
+      min: 0
+    fx_rates:
+      min: 0.0001
+  
+  predictions:
+    max_horizon_days: 90
+    min_confidence_level: 0.80
+    max_confidence_level: 0.99
+
+  walk_forward:
+    horizons: [1, 7, 30]
+    min_train_days: 252
+    step_size: 5
+    max_origins: null
+    output_dir: "reports/walk_forward"
+    nhits:
+      enabled: true
+      n_windows: 12
+      val_size: 30
+      step_size: 5

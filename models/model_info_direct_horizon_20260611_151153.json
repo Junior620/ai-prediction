@@ -1,0 +1,13 @@
+{
+  "horizons": {
+    "7": {
+      "n_samples": 1522,
+      "model_path": "E:\\prediction\\models\\xgboost_h7_20260611_151153.pkl"
+    },
+    "30": {
+      "n_samples": 1500,
+      "model_path": "E:\\prediction\\models\\xgboost_h30_20260611_151153.pkl"
+    }
+  },
+  "trained_at": "2026-06-11T15:11:48.912627"
+}

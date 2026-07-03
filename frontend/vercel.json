@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["cdg1"],
+  "functions": {
+    "src/app/api/webhooks/tradingview/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
