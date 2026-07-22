@@ -1,5 +1,22 @@
 # Deploiement Vercel (frontend) + Webhook TradingView
 
+## Erreur FastAPI / `src/main.py`
+
+Si le build affiche :
+
+```text
+Found src/main.py but it does not define a top-level "app" FastAPI instance
+```
+
+Vercel a pris le **backend Python** au lieu du frontend. Corrige ainsi :
+
+1. Vercel → ton projet → **Settings** → **General**
+2. **Root Directory** → **Edit** → tape `frontend` → **Save**
+3. **Framework Preset** → **Next.js** (pas FastAPI)
+4. **Deployments** → dernier deploy → **Redeploy**
+
+Le dossier `frontend/` contient Next.js. Le reste du repo (API FastAPI) est ignore.
+
 ## Architecture
 
 ```

@@ -18,7 +18,7 @@ supabase = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY'))
 # Month codes: F=Jan, G=Feb, H=Mar, J=Apr, K=May, M=Jun, N=Jul, Q=Aug, U=Sep, V=Oct, X=Nov, Z=Dec
 # Cocoa delivery months: Mar(H), May(K), Jul(N), Sep(U), Dec(Z)
 FUTURES_CONTRACTS = [
-    {'symbol': 'CCN26.NYB', 'label': 'Jul 2026'},
+    # Jul 2026 (CCN26) expire / deliste — ne plus interroger
     {'symbol': 'CCU26.NYB', 'label': 'Sep 2026'},
     {'symbol': 'CCZ26.NYB', 'label': 'Dec 2026'},
     {'symbol': 'CCH27.NYB', 'label': 'Mar 2027'},
@@ -26,6 +26,7 @@ FUTURES_CONTRACTS = [
     {'symbol': 'CCN27.NYB', 'label': 'Jul 2027'},
     {'symbol': 'CCU27.NYB', 'label': 'Sep 2027'},
     {'symbol': 'CCZ27.NYB', 'label': 'Dec 2027'},
+    {'symbol': 'CCH28.NYB', 'label': 'Mar 2028'},
 ]
 
 
