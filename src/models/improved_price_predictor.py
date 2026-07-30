@@ -255,12 +255,11 @@ class ImprovedPricePredictor:
             weights = get_weights_for_horizon(
                 horizon, self._ensemble_weights, self.ensemble_fallback
             )
-            if nhits_price is not None:
-                ensemble_price = combine_ensemble(
-                    xgb_price, prophet_yhat_future, nhits_price, weights
-                )
-            else:
-                ensemble_price = xgb_price
+            # Toujours passer par combine_ensemble : si N-HiTS est absent,
+            # les poids xgb/prophet sont renormalises (ne pas retomber sur xgb seul).
+            ensemble_price = combine_ensemble(
+                xgb_price, prophet_yhat_future, nhits_price, weights
+            )
 
             sentiment_adjustment = sentiment_score * self.sentiment_weight * ensemble_price
             final_price = ensemble_price + sentiment_adjustment
