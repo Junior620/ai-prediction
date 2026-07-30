@@ -1,6 +1,6 @@
 'use client';
 
-import { formatPercentage, formatPrice } from '@/lib/utils';
+import { formatPercentage, formatPrice, formatPriceGbp } from '@/lib/utils';
 import {
   deriveConfidenceScore,
   deriveDirectionalProbability,
@@ -8,6 +8,7 @@ import {
   uncertaintyLevel,
   uncertaintyLabels,
 } from '@/lib/marketAnalytics';
+import { useUsdGbpRate } from '@/hooks/useUsdGbpRate';
 import type { HorizonValidationMetrics, PredictionItem } from '@/types/api';
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -42,6 +43,7 @@ export function PredictionHorizonCard({
     pct,
     validation?.directional_accuracy,
   );
+  const usdGbp = useUsdGbpRate();
 
   return (
     <div className="glass-card-hover p-4 flex flex-col h-full">
@@ -55,7 +57,10 @@ export function PredictionHorizonCard({
         </span>
       </div>
 
-      <p className="text-xl font-black text-white font-mono-price mb-3">{formatPrice(pred.price)}</p>
+      <p className="text-xl font-black text-white font-mono-price">{formatPrice(pred.price)}</p>
+      <p className="text-[11px] text-slate-400 font-mono-price mb-3">
+        ≈ {formatPriceGbp(pred.price, usdGbp)} / t
+      </p>
 
       <div className="flex flex-wrap gap-1.5 mb-3">
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${sigStyle.class}`}>

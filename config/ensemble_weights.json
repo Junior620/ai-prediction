@@ -1,31 +1,22 @@
 {
-  "source_report": "20260611_165259",
-  "calibrated_at": "2026-06-11T15:57:06.217733",
+  "source_report": "manual_reweight_20260730",
+  "calibrated_at": "2026-07-30T18:00:00",
+  "note": "Prophet temporarily down-weighted: yhat lagged far below spot (~3000 vs ~5100). Prefer XGB+N-HiTS until recalibration.",
   "by_horizon": {
     "1": {
-      "xgb": 0.4,
-      "prophet": 0.6,
-      "nhits": 0.0
+      "xgb": 0.45,
+      "nhits": 0.45,
+      "prophet": 0.10
     },
     "7": {
-      "xgb": 0.5,
-      "prophet": 0.5,
-      "nhits": 0.0
+      "xgb": 0.40,
+      "nhits": 0.45,
+      "prophet": 0.15
     },
     "30": {
-      "xgb": 0.5,
-      "prophet": 0.5,
-      "nhits": 0.0
+      "xgb": 0.35,
+      "nhits": 0.50,
+      "prophet": 0.15
     }
-  },
-  "fixed_baseline_mape": {
-    "1": 9.050265586595629,
-    "7": 10.343807130190259,
-    "30": 14.903435211934205
-  },
-  "calibrated_mape": {
-    "1": 8.751284670291573,
-    "7": 10.16790655191865,
-    "30": 14.80838153659355
   }
 }

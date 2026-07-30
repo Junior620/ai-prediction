@@ -14,6 +14,23 @@ export function formatPrice(price: number): string {
   }).format(price);
 }
 
+/** Convertit un prix USD/tonne en GBP/tonne (taux = GBP par 1 USD, i.e. USDGBP). */
+export function usdToGbp(priceUsd: number, usdGbpRate: number): number {
+  return priceUsd * usdGbpRate;
+}
+
+export function formatPriceGbp(priceUsd: number, usdGbpRate: number | null): string {
+  if (usdGbpRate == null || !Number.isFinite(usdGbpRate) || usdGbpRate <= 0) {
+    return '—';
+  }
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'GBP',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(usdToGbp(priceUsd, usdGbpRate));
+}
+
 export function formatPercentage(value: number): string {
   return new Intl.NumberFormat('fr-FR', {
     style: 'percent',
