@@ -21,14 +21,15 @@ export function usdToGbp(priceUsd: number, usdGbpRate: number): number {
 
 export function formatPriceGbp(priceUsd: number, usdGbpRate: number | null): string {
   if (usdGbpRate == null || !Number.isFinite(usdGbpRate) || usdGbpRate <= 0) {
-    return '—';
+    return 'n/d £';
   }
-  return new Intl.NumberFormat('fr-FR', {
-    style: 'currency',
-    currency: 'GBP',
+  // Format explicite « 3 844,12 £ » (évite ambiguïté $US / symbole locale)
+  const gbp = usdToGbp(priceUsd, usdGbpRate);
+  const amount = new Intl.NumberFormat('fr-FR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(usdToGbp(priceUsd, usdGbpRate));
+  }).format(gbp);
+  return `${amount} £`;
 }
 
 export function formatPercentage(value: number): string {
