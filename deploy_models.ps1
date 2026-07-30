@@ -41,9 +41,13 @@ $RemotePath = if ($env:DEPLOY_VPS_PATH) { $env:DEPLOY_VPS_PATH } else { "/opt/pr
 $HealthUrl = if ($env:DEPLOY_API_HEALTH_URL) { $env:DEPLOY_API_HEALTH_URL } else { "https://api.market.ste-scpb.com/health" }
 $SshTarget = "${User}@${HostName}"
 
-$SshArgs = @("-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15")
+$SshArgs = @("-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15")
 if ($env:DEPLOY_SSH_KEY -and (Test-Path $env:DEPLOY_SSH_KEY)) {
+    Write-Host ('[INFO] Cle SSH: ' + $env:DEPLOY_SSH_KEY)
     $SshArgs = @("-i", $env:DEPLOY_SSH_KEY) + $SshArgs
+} else {
+    Write-Host '[AVERTISSEMENT] DEPLOY_SSH_KEY absent ou introuvable.'
+    Write-Host '         Ajoute dans .env.deploy : DEPLOY_SSH_KEY=C:\Users\Christian\.ssh\id_ed25519'
 }
 
 function Invoke-Ssh([string]$RemoteCommand) {
@@ -86,9 +90,16 @@ function Get-LatestDir([string]$Dir, [string]$Pattern) {
 
 Write-Host ""
 Write-Host "================================================================================"
-Write-Host "  DEPLOY MODELES -> VPS ($SshTarget)"
+Write-Host ("  DEPLOY MODELES -> VPS (" + $SshTarget + ")")
 Write-Host "================================================================================"
 Write-Host ""
+
+Write-Host '[INFO] Test SSH...'
+try {
+    Invoke-Ssh "echo OK"
+} catch {
+    throw ("SSH vers " + $SshTarget + " impossible. Verifie la cle dans .env.deploy (DEPLOY_SSH_KEY) et: ssh " + $SshTarget)
+}
 
 # --- Discover latest artifacts ---
 $cocoaDir = Join-Path $Root "models"
@@ -109,26 +120,28 @@ if (-not $robustaProphet -or -not $robustaXgb) {
     throw "Modeles robusta introuvables (prophet/xgboost) dans models/coffee_robusta/"
 }
 
-Write-Host "[INFO] Cacao Prophet : $($cocoaProphet.Name)"
-Write-Host "[INFO] Cacao XGBoost: $($cocoaXgb.Name)"
-Write-Host "[INFO] Cacao N-HiTS : $(if ($cocoaNhits) { $cocoaNhits.Name } else { '(aucun)' })"
-Write-Host "[INFO] Robusta Prophet : $($robustaProphet.Name)"
-Write-Host "[INFO] Robusta XGBoost: $($robustaXgb.Name)"
-Write-Host "[INFO] Robusta N-HiTS : $(if ($robustaNhits) { $robustaNhits.Name } else { '(aucun)' })"
+Write-Host ('[INFO] Cacao Prophet : ' + $cocoaProphet.Name)
+Write-Host ('[INFO] Cacao XGBoost: ' + $cocoaXgb.Name)
+$cocoaNhitsLabel = if ($cocoaNhits) { $cocoaNhits.Name } else { '(aucun)' }
+Write-Host ('[INFO] Cacao N-HiTS : ' + $cocoaNhitsLabel)
+Write-Host ('[INFO] Robusta Prophet : ' + $robustaProphet.Name)
+Write-Host ('[INFO] Robusta XGBoost: ' + $robustaXgb.Name)
+$robustaNhitsLabel = if ($robustaNhits) { $robustaNhits.Name } else { '(aucun)' }
+Write-Host ('[INFO] Robusta N-HiTS : ' + $robustaNhitsLabel)
 Write-Host ""
 
 # --- Ensure remote dirs ---
-Write-Host "[INFO] Preparation des dossiers distants..."
+Write-Host '[INFO] Preparation des dossiers distants...'
 Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/config/coffee_robusta"
 
 # --- Upload models ---
-Write-Host "[INFO] Upload modeles cacao..."
+Write-Host '[INFO] Upload modeles cacao...'
 Invoke-Scp -Sources @($cocoaProphet.FullName, $cocoaXgb.FullName) -Destination "$RemotePath/models/"
 if ($cocoaNhits) {
     Invoke-Scp -Recurse -Sources @($cocoaNhits.FullName) -Destination "$RemotePath/models/"
 }
 
-Write-Host "[INFO] Upload modeles robusta..."
+Write-Host '[INFO] Upload modeles robusta...'
 Invoke-Scp -Sources @($robustaProphet.FullName, $robustaXgb.FullName) -Destination "$RemotePath/models/coffee_robusta/"
 if ($robustaNhits) {
     Invoke-Scp -Recurse -Sources @($robustaNhits.FullName) -Destination "$RemotePath/models/coffee_robusta/"
@@ -144,37 +157,43 @@ $configFiles = @(
 foreach ($item in $configFiles) {
     $localPath = Join-Path $Root $item.Local
     if (Test-Path $localPath) {
-        Write-Host "[INFO] Upload $($item.Local)"
+        Write-Host ('[INFO] Upload ' + $item.Local)
         Invoke-Scp -Sources @($localPath) -Destination $item.Remote
     }
 }
 
-# --- Restart API ---
+# --- Flush prediction cache + restart API ---
 if (-not $SkipRestart) {
-    Write-Host "[INFO] Redemarrage API Docker sur le VPS..."
+    Write-Host '[INFO] Flush Redis (predictions cache)...'
+    try {
+        Invoke-Ssh "cd $RemotePath && docker compose exec -T redis redis-cli FLUSHDB"
+    } catch {
+        Write-Host ('[AVERTISSEMENT] Flush Redis echoue (non bloquant): ' + $_.Exception.Message)
+    }
+    Write-Host '[INFO] Redemarrage API Docker sur le VPS...'
     Invoke-Ssh "cd $RemotePath && docker compose restart api"
-    Write-Host "[INFO] Attente demarrage API (25s)..."
+    Write-Host '[INFO] Attente demarrage API (25s)...'
     Start-Sleep -Seconds 25
 }
 
 # --- Health check ---
 if (-not $SkipHealth) {
-    Write-Host "[INFO] Health check: $HealthUrl"
+    Write-Host ('[INFO] Health check: ' + $HealthUrl)
     try {
         $health = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 30
         $markets = ($health.markets_loaded -join ", ")
-        Write-Host "[OK] status=$($health.status)  markets=[$markets]  predictor=$($health.services.price_predictor)"
+        Write-Host ('[OK] status=' + $health.status + '  markets=' + $markets + '  predictor=' + $health.services.price_predictor)
         if ($health.status -ne "healthy" -or -not $health.services.price_predictor) {
-            Write-Host "[AVERTISSEMENT] API degradee — verifier: ssh $SshTarget 'cd $RemotePath && docker compose logs api --tail 40'"
+            Write-Host ('[AVERTISSEMENT] API degradee — verifier: ssh ' + $SshTarget + " 'cd $RemotePath && docker compose logs api --tail 40'")
             exit 2
         }
     } catch {
-        Write-Host "[AVERTISSEMENT] Health check echoue: $($_.Exception.Message)"
+        Write-Host ('[AVERTISSEMENT] Health check echoue: ' + $_.Exception.Message)
         exit 2
     }
 }
 
 Write-Host ""
-Write-Host "[OK] Deploy VPS termine"
+Write-Host '[OK] Deploy VPS termine'
 Write-Host "================================================================================"
 exit 0

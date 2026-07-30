@@ -1,9 +1,10 @@
 //@version=5
 // CocoaTrack — lecture de marche pour alertes / Brief IA
 // IMPORTANT: ajouter cet indicateur UNIQUEMENT sur le symbole ICEEUR:C1!
+// Chart: https://www.tradingview.com/chart/?symbol=ICEEUR%3AC1%21
 // (Cacao futures Londres). Le dashboard affiche PEPPERSTONE:COCOA pour le
 // graphique uniquement ; les alertes et briefs Claude partent de Londres.
-indicator("CocoaTrack Market Reading", overlay=true, max_labels_count=50)
+indicator("CocoaTrack Market Reading", overlay=true, max_labels_count=50, max_lines_count=10)
 
 // ── Parametres ──────────────────────────────────────────
 lenMaFast   = input.int(20, "MA rapide")
@@ -11,6 +12,8 @@ lenMaSlow   = input.int(50, "MA lente")
 lenRsi      = input.int(14, "RSI")
 lenSupport  = input.int(20, "Lookback support/resistance")
 volLen      = input.int(20, "Lookback volume")
+// Colle ici TRADINGVIEW_WEBHOOK_SECRET depuis ton .env (Settings de l'indicateur)
+webhookSecret = input.string("REMPLACER_PAR_VOTRE_SECRET", "Webhook secret", group="API SCPB")
 
 // Symbole attendu pour les alertes (futures cacao Londres)
 ALERT_TICKER = "ICEEUR:C1!"
@@ -47,19 +50,28 @@ breakResistance = ta.crossover(close, resistLvl)
 trendFlipUp     = ta.crossover(maFast, maSlow)
 trendFlipDown   = ta.crossunder(maFast, maSlow)
 
-plot(maFast, "MA rapide", color=color.new(color.orange, 0))
-plot(maSlow, "MA lente", color=color.new(color.blue, 30))
-plot(supportLvl, "Support", color=color.new(color.green, 50))
-plot(resistLvl, "Resistance", color=color.new(color.red, 50))
+plot(maFast, "MA rapide", color=color.new(color.orange, 0), linewidth=2)
+plot(maSlow, "MA lente", color=color.new(color.blue, 30), linewidth=2)
+
+// Support / resistance : lignes horizontales courantes uniquement
+// (plotter toute l'historique cree des "murs" verticaux sur le contrat continu C1!)
+var line supportLine = na
+var line resistLine = na
+if barstate.islast
+    if not na(supportLine)
+        line.delete(supportLine)
+    if not na(resistLine)
+        line.delete(resistLine)
+    supportLine := line.new(bar_index - lenSupport, supportLvl, bar_index + 10, supportLvl, color=color.new(color.green, 20), width=1, style=line.style_dashed, extend=extend.none)
+    resistLine := line.new(bar_index - lenSupport, resistLvl, bar_index + 10, resistLvl, color=color.new(color.red, 20), width=1, style=line.style_dashed, extend=extend.none)
 
 // Avertissement visuel si le script n'est pas sur ICEEUR:C1!
 bgcolor(isTargetSymbol ? na : color.new(color.red, 92), title="Mauvais symbole")
 
 // ── Alertes JSON (webhook -> API -> Claude) ─────────────
-// Remplacer REMPLACER_PAR_VOTRE_SECRET par TRADINGVIEW_WEBHOOK_SECRET (.env)
-
 f_alert_json(signalType) =>
-    '{"secret":"REMPLACER_PAR_VOTRE_SECRET","market":"' + API_MARKET +
+    '{"secret":"' + webhookSecret +
+     '","market":"' + API_MARKET +
      '","signal_type":"' + signalType +
      '","price":' + str.tostring(close, "#.##") +
      ',"tf":"' + timeframe.period +
