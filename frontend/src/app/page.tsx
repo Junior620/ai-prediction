@@ -8,7 +8,7 @@ export default function Dashboard() {
       config={{
         market: 'ICE_NY',
         tradingViewDisplayName: 'Cocoa Cash Contract',
-        title: 'Cocoa Intelligence',
+        title: 'Cacao',
         subtitle: 'ICE New York · Hybrid AI',
         accent: 'amber',
         includeSentiment: true,

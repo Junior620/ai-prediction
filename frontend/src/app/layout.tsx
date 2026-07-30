@@ -8,11 +8,73 @@ const inter = Inter({
   display: "swap",
 });
 
+const siteUrl = "https://forecast.ste-scpb.com";
+const siteName = "SCPB Market Forecast";
+const siteDescription =
+  "Prévisions professionnelles des prix cacao et café robusta — modèles hybrides IA (Prophet, XGBoost, N-HiTS, FinBERT).";
+
 export const metadata: Metadata = {
-  title: "Cocoa Intelligence Platform — AI-Powered Price Predictions",
-  description:
-    "Real-time cocoa price predictions powered by a hybrid AI model (Prophet + XGBoost + FinBERT). ICE New York market analytics dashboard.",
-  keywords: ["cocoa", "prediction", "AI", "trading", "commodity", "dashboard"],
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: siteName,
+    template: `%s · ${siteName}`,
+  },
+  description: siteDescription,
+  applicationName: siteName,
+  keywords: [
+    "SCPB",
+    "SCPB Market Forecast",
+    "cacao",
+    "café",
+    "robusta",
+    "prédiction",
+    "marché",
+    "commodities",
+    "ICE",
+  ],
+  authors: [{ name: "STE-SCPB" }],
+  creator: "STE-SCPB",
+  publisher: "STE-SCPB",
+  robots: {
+    index: true,
+    follow: true,
+  },
+  icons: {
+    icon: [{ url: "/logo.png", type: "image/png" }],
+    apple: [{ url: "/logo.png", type: "image/png" }],
+    shortcut: "/logo.png",
+  },
+  openGraph: {
+    type: "website",
+    locale: "fr_FR",
+    url: siteUrl,
+    siteName,
+    title: siteName,
+    description: siteDescription,
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "SCPB Market Forecast — logo et prévisions marché",
+      },
+      {
+        url: "/logo.png",
+        width: 512,
+        height: 512,
+        alt: "Logo SCPB Market Forecast",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteName,
+    description: siteDescription,
+    images: ["/twitter-image", "/logo.png"],
+  },
+  alternates: {
+    canonical: siteUrl,
+  },
 };
 
 export default function RootLayout({

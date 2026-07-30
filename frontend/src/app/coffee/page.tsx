@@ -8,7 +8,7 @@ export default function CoffeeDashboard() {
       config={{
         market: 'COFFEE_ROBUSTA',
         tradingViewDisplayName: 'Robusta Coffee Futures',
-        title: 'Coffee Intelligence · Robusta',
+        title: 'Café Robusta',
         subtitle: 'ICE London · Hybrid AI + GARCH',
         accent: 'emerald',
         includeSentiment: false,

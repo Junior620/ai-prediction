@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import type {
@@ -197,13 +198,26 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
     <div className="min-h-screen bg-[#06091a] bg-grid">
       <header className="sticky top-0 z-50 glass-card !rounded-none border-x-0 border-t-0">
         <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${theme.gradient} flex items-center justify-center shadow-lg ${theme.shadow}`}>
-              <theme.Icon className="w-5 h-5 text-white" strokeWidth={2.5} />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-white tracking-tight">{config.title}</h1>
-              <p className="text-[11px] text-slate-500 font-medium">{config.subtitle}</p>
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href="/" className="shrink-0 rounded-xl overflow-hidden ring-1 ring-white/10 bg-black/40">
+              <Image
+                src="/logo.png"
+                alt="SCPB Market Forecast"
+                width={40}
+                height={40}
+                className="w-10 h-10 object-contain"
+                priority
+              />
+            </Link>
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold text-white tracking-tight truncate">
+                SCPB Market Forecast
+              </h1>
+              <p className="text-[11px] text-slate-500 font-medium truncate">
+                {config.title}
+                <span className="text-slate-600"> · </span>
+                {config.subtitle}
+              </p>
             </div>
           </div>
 
