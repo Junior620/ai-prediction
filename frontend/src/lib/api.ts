@@ -8,6 +8,8 @@ import type {
   MarketsResponse,
   LatestTradingViewAlert,
   RecentTradingViewAlertsResponse,
+  DashboardNotification,
+  NotificationsListResponse,
 } from '@/types/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -100,5 +102,37 @@ export const api = {
     } catch {
       return [];
     }
+  },
+
+  async getNotifications(
+    market: string,
+    opts?: { limit?: number; unread_only?: boolean },
+  ): Promise<NotificationsListResponse> {
+    const response = await apiClient.get<NotificationsListResponse>('/api/v1/notifications', {
+      params: {
+        market,
+        limit: opts?.limit ?? 30,
+        unread_only: opts?.unread_only ?? false,
+      },
+    });
+    return response.data;
+  },
+
+  async markNotificationRead(id: string): Promise<void> {
+    await apiClient.post(`/api/v1/notifications/${id}/read`);
+  },
+
+  async markAllNotificationsRead(market: string): Promise<void> {
+    await apiClient.post('/api/v1/notifications/read-all', null, { params: { market } });
+  },
+
+  notificationsWsUrl(market: string): string | null {
+    if (!API_TOKEN) return null;
+    const base = API_URL.replace(/\/$/, '');
+    const wsBase = base.startsWith('https')
+      ? base.replace(/^https/, 'wss')
+      : base.replace(/^http/, 'ws');
+    const q = new URLSearchParams({ token: API_TOKEN, market });
+    return `${wsBase}/api/v1/ws/notifications?${q.toString()}`;
   },
 };

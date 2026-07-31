@@ -412,3 +412,23 @@ class RecentTradingViewAlertsResponse(BaseModel):
 
     market: str
     alerts: List[LatestTradingViewAlert]
+
+
+class DashboardNotification(BaseModel):
+    """Notification persistée pour le dashboard."""
+
+    id: str
+    market: str
+    source: str = "tradingview"
+    kind: str
+    title: str
+    body: Optional[str] = None
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    is_read: bool = False
+    created_at: str
+
+
+class NotificationsListResponse(BaseModel):
+    market: str
+    notifications: List[DashboardNotification]
+    unread_count: int

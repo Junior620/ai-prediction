@@ -16,8 +16,8 @@ import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonC
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
 import { TradingViewAlertPopup } from '@/components/TradingViewAlertPopup';
-import { TradingViewAlertCenter } from '@/components/TradingViewAlertCenter';
-import { useTradingViewAlertPoll } from '@/hooks/useTradingViewAlertPoll';
+import { NotificationsPanel } from '@/components/NotificationsPanel';
+import { useDashboardNotifications } from '@/hooks/useDashboardNotifications';
 import {
   RefreshCw, AlertTriangle, BarChart3, Coffee, Bell,
 } from 'lucide-react';
@@ -193,28 +193,27 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   useEffect(() => { fetchAll(); }, [config.market]);
 
   const onNewTvAlert = useCallback(() => {
-    // Rafraîchir le brief (déjà régénéré par le webhook) sans forcer Claude
     void loadBrief(false);
   }, [loadBrief]);
 
   const {
-    latestAlert,
-    history,
+    items: notifications,
+    unreadCount,
     popupAlert,
     dismissPopup,
     showAlert,
-    muted,
-    setMuted,
-    filters,
-    toggleFilter,
-    unreadCount,
+    wsStatus,
     panelOpen,
     openPanel,
     closePanel,
+    briefFlash,
+    muted,
+    setMuted,
     notifEnabled,
     setNotifEnabled,
-    briefFlash,
-  } = useTradingViewAlertPoll(config.market, onNewTvAlert);
+    markRead,
+    markAllRead,
+  } = useDashboardNotifications(config.market, onNewTvAlert);
 
   const currentPrice = data?.current_price ?? 0;
   const garchVol = data?.predictions?.[0]?.components?.garch_annualized_volatility;
@@ -270,14 +269,26 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
               type="button"
               onClick={openPanel}
               className="relative hidden md:inline-flex items-center gap-1.5 text-[10px] text-slate-300 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.07] transition-colors"
-              title={latestAlert ? `Dernière alerte: ${latestAlert.signal_type}` : 'Alertes TradingView'}
+              title={
+                wsStatus === 'live'
+                  ? 'Notifications temps réel (WebSocket)'
+                  : 'Notifications (reconnexion…)'
+              }
             >
               <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                <span
+                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${
+                    wsStatus === 'live' ? 'bg-emerald-400' : 'bg-slate-500'
+                  }`}
+                />
+                <span
+                  className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                    wsStatus === 'live' ? 'bg-emerald-400' : 'bg-slate-500'
+                  }`}
+                />
               </span>
               <Bell className="w-3 h-3" />
-              Alertes live
+              Notifications
               {unreadCount > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-[10px] font-bold text-white flex items-center justify-center">
                   {unreadCount > 9 ? '9+' : unreadCount}
@@ -308,18 +319,37 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
         onToggleMute={() => setMuted(!muted)}
       />
 
-      <TradingViewAlertCenter
+      <NotificationsPanel
         open={panelOpen}
         onClose={closePanel}
-        history={history}
-        filters={filters}
-        onToggleFilter={toggleFilter}
+        items={notifications}
+        unreadCount={unreadCount}
+        wsStatus={wsStatus}
         muted={muted}
         onToggleMute={() => setMuted(!muted)}
         notifEnabled={notifEnabled}
         onToggleNotif={(v) => void setNotifEnabled(v)}
-        onSelectAlert={(a) => {
-          showAlert(a);
+        onMarkRead={(id) => void markRead(id)}
+        onMarkAllRead={() => void markAllRead()}
+        onSelect={(n) => {
+          const p = (n.payload || {}) as Record<string, unknown>;
+          showAlert({
+            id: String(p.id ?? n.id),
+            market: n.market,
+            signal_type: String(p.signal_type ?? n.kind),
+            price: typeof p.price === 'number' ? p.price : null,
+            tf: typeof p.tf === 'string' ? p.tf : null,
+            ticker: typeof p.ticker === 'string' ? p.ticker : null,
+            message: n.body,
+            trend: typeof p.trend === 'string' ? p.trend : null,
+            momentum: typeof p.momentum === 'string' ? p.momentum : null,
+            support: typeof p.support === 'number' ? p.support : null,
+            resistance: typeof p.resistance === 'number' ? p.resistance : null,
+            change_pct: typeof p.change_pct === 'number' ? p.change_pct : null,
+            received_at: n.created_at,
+            brief_signal: typeof p.brief_signal === 'string' ? p.brief_signal : null,
+            brief_summary: typeof p.brief_summary === 'string' ? p.brief_summary : n.body,
+          });
           closePanel();
         }}
       />

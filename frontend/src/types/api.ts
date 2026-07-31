@@ -135,3 +135,21 @@ export interface RecentTradingViewAlertsResponse {
   market: string;
   alerts: LatestTradingViewAlert[];
 }
+
+export interface DashboardNotification {
+  id: string;
+  market: string;
+  source: string;
+  kind: string;
+  title: string;
+  body?: string | null;
+  payload?: Record<string, unknown>;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface NotificationsListResponse {
+  market: string;
+  notifications: DashboardNotification[];
+  unread_count: number;
+}

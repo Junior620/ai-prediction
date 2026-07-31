@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 import uuid
 import sys
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -40,9 +40,20 @@ from src.api.models import (
     TradingViewAlertResponse,
     LatestTradingViewAlert,
     RecentTradingViewAlertsResponse,
+    DashboardNotification,
+    NotificationsListResponse,
 )
-from src.api.auth import verify_token, verify_admin_token
+from src.api.auth import verify_token, verify_admin_token, decode_token
 from src.api.cache import RedisCache
+from src.api.ws_hub import notification_hub
+from src.api.notification_service import (
+    create_tv_notification_record,
+    persist_notification,
+    publish_notification,
+    list_notifications,
+    mark_notification_read,
+    mark_all_notifications_read,
+)
 from src.models.price_predictor import PricePredictor
 from src.models.improved_price_predictor import ImprovedPricePredictor
 from src.models.direct_horizon_trainer import DirectHorizonTrainer
@@ -270,6 +281,14 @@ async def startup_event():
             logger.info("Redis cache initialized successfully")
         else:
             logger.warning("Redis cache health check failed")
+        # Live notifications: Redis pub/sub -> WebSocket fan-out
+        if redis_cache is not None:
+            notification_hub.start_redis_subscriber(
+                settings.redis_host,
+                settings.redis_port,
+                settings.redis_password if settings.redis_password else None,
+                settings.redis_db,
+            )
     except Exception as e:
         logger.error(f"Failed to initialize Redis cache: {e}")
         redis_cache = None
@@ -453,6 +472,11 @@ async def shutdown_event():
     Cleanup on application shutdown.
     """
     logger.info("Shutting down Cocoa Price Prediction API...")
+
+    try:
+        await notification_hub.stop()
+    except Exception as e:
+        logger.error(f"Error stopping notification hub: {e}")
     
     # Close Redis connection
     if redis_cache and redis_cache.redis_client:
@@ -795,6 +819,15 @@ async def tradingview_webhook(payload: TradingViewAlert) -> TradingViewAlertResp
         }
         if redis_cache:
             redis_cache.set_latest_tv_alert(api_market, snapshot)
+
+        # Persist + push live notification (WebSocket via Redis pub/sub)
+        notif_record = create_tv_notification_record(snapshot)
+        saved = persist_notification(supabase_client, notif_record) or {
+            "id": snapshot["id"],
+            **notif_record,
+        }
+        publish_notification(redis_cache, saved)
+
         return TradingViewAlertResponse(
             received=True,
             alert_id=alert_id,
@@ -920,6 +953,94 @@ async def get_recent_tradingview_alerts(
             logger.warning(f"Lecture alertes recentes Supabase echouee: {e}")
 
     return RecentTradingViewAlertsResponse(market=resolved, alerts=alerts)
+
+
+@app.websocket("/api/v1/ws/notifications")
+async def notifications_ws(
+    websocket: WebSocket,
+    token: str = Query(...),
+    market: str = Query("ICE_NY"),
+):
+    """
+    WebSocket live notifications.
+    Connect: wss://api.../api/v1/ws/notifications?token=JWT&market=ICE_NY
+    """
+    try:
+        payload = decode_token(token)
+        _ = payload.get("sub")
+    except HTTPException:
+        await websocket.close(code=4401)
+        return
+    except Exception:
+        await websocket.close(code=4401)
+        return
+
+    resolved = _resolve_market_key_for_alerts(market)
+    await notification_hub.connect(websocket, resolved)
+    try:
+        await websocket.send_json(
+            {"type": "connected", "market": resolved, "ts": datetime.utcnow().isoformat() + "Z"}
+        )
+        while True:
+            # Keepalive / ignore client pings
+            msg = await websocket.receive_text()
+            if msg in ("ping", '{"type":"ping"}'):
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        await notification_hub.disconnect(websocket, resolved)
+    except Exception:
+        await notification_hub.disconnect(websocket, resolved)
+
+
+@app.get(
+    "/api/v1/notifications",
+    response_model=NotificationsListResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+async def get_notifications(
+    market: str = "ICE_NY",
+    limit: int = 30,
+    unread_only: bool = False,
+    user: str = Depends(verify_token),
+) -> NotificationsListResponse:
+    resolved = _resolve_market_key_for_alerts(market)
+    limit = max(1, min(int(limit), 100))
+    rows = list_notifications(supabase_client, resolved, limit=limit, unread_only=unread_only)
+    unread = sum(1 for r in rows if not r.get("is_read"))
+    if not unread_only:
+        # unread_count should reflect full unread, not just page
+        all_unread = list_notifications(supabase_client, resolved, limit=100, unread_only=True)
+        unread = len(all_unread)
+    return NotificationsListResponse(
+        market=resolved,
+        notifications=[DashboardNotification(**r) for r in rows],
+        unread_count=unread,
+    )
+
+
+@app.post(
+    "/api/v1/notifications/{notification_id}/read",
+    responses={401: {"model": ErrorResponse}},
+)
+async def read_notification(
+    notification_id: str,
+    user: str = Depends(verify_token),
+):
+    ok = mark_notification_read(supabase_client, notification_id)
+    return {"ok": ok, "id": notification_id}
+
+
+@app.post(
+    "/api/v1/notifications/read-all",
+    responses={401: {"model": ErrorResponse}},
+)
+async def read_all_notifications(
+    market: str = "ICE_NY",
+    user: str = Depends(verify_token),
+):
+    resolved = _resolve_market_key_for_alerts(market)
+    updated = mark_all_notifications_read(supabase_client, resolved)
+    return {"ok": True, "market": resolved, "updated": updated}
 
 
 def _resolve_market_key_for_alerts(market: str) -> str:
