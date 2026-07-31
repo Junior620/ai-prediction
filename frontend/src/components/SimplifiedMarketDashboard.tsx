@@ -16,7 +16,6 @@ import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonC
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
 import { TradingViewAlertPopup } from '@/components/TradingViewAlertPopup';
-import { NotificationsPanel } from '@/components/NotificationsPanel';
 import { useDashboardNotifications } from '@/hooks/useDashboardNotifications';
 import {
   RefreshCw, AlertTriangle, BarChart3, Coffee, Bell,
@@ -197,22 +196,13 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   }, [loadBrief]);
 
   const {
-    items: notifications,
     unreadCount,
     popupAlert,
     dismissPopup,
-    showAlert,
     wsStatus,
-    panelOpen,
-    openPanel,
-    closePanel,
     briefFlash,
     muted,
     setMuted,
-    notifEnabled,
-    setNotifEnabled,
-    markRead,
-    markAllRead,
   } = useDashboardNotifications(config.market, onNewTvAlert);
 
   const currentPrice = data?.current_price ?? 0;
@@ -265,14 +255,13 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 </>
               )}
             </nav>
-            <button
-              type="button"
-              onClick={openPanel}
+            <Link
+              href={`/notifications?market=${encodeURIComponent(config.market)}`}
               className="relative hidden md:inline-flex items-center gap-1.5 text-[10px] text-slate-300 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.07] transition-colors"
               title={
                 wsStatus === 'live'
-                  ? 'Notifications temps réel (WebSocket)'
-                  : 'Notifications (reconnexion…)'
+                  ? 'Historique notifications (temps réel)'
+                  : 'Historique notifications'
               }
             >
               <span className="relative flex h-1.5 w-1.5">
@@ -294,7 +283,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
-            </button>
+            </Link>
             {lastUpdate && (
               <span className="text-xs text-slate-500 hidden sm:block">
                 {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
@@ -317,41 +306,6 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
         onDismiss={dismissPopup}
         muted={muted}
         onToggleMute={() => setMuted(!muted)}
-      />
-
-      <NotificationsPanel
-        open={panelOpen}
-        onClose={closePanel}
-        items={notifications}
-        unreadCount={unreadCount}
-        wsStatus={wsStatus}
-        muted={muted}
-        onToggleMute={() => setMuted(!muted)}
-        notifEnabled={notifEnabled}
-        onToggleNotif={(v) => void setNotifEnabled(v)}
-        onMarkRead={(id) => void markRead(id)}
-        onMarkAllRead={() => void markAllRead()}
-        onSelect={(n) => {
-          const p = (n.payload || {}) as Record<string, unknown>;
-          showAlert({
-            id: String(p.id ?? n.id),
-            market: n.market,
-            signal_type: String(p.signal_type ?? n.kind),
-            price: typeof p.price === 'number' ? p.price : null,
-            tf: typeof p.tf === 'string' ? p.tf : null,
-            ticker: typeof p.ticker === 'string' ? p.ticker : null,
-            message: n.body,
-            trend: typeof p.trend === 'string' ? p.trend : null,
-            momentum: typeof p.momentum === 'string' ? p.momentum : null,
-            support: typeof p.support === 'number' ? p.support : null,
-            resistance: typeof p.resistance === 'number' ? p.resistance : null,
-            change_pct: typeof p.change_pct === 'number' ? p.change_pct : null,
-            received_at: n.created_at,
-            brief_signal: typeof p.brief_signal === 'string' ? p.brief_signal : null,
-            brief_summary: typeof p.brief_summary === 'string' ? p.brief_summary : n.body,
-          });
-          closePanel();
-        }}
       />
 
       <main className="max-w-[1400px] mx-auto px-6 py-8">

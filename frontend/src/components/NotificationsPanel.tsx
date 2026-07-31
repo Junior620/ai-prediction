@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import type { DashboardNotification } from '@/types/api';
-import { Bell, CheckCheck, Wifi, WifiOff, X } from 'lucide-react';
+import { Bell, CheckCheck, Wifi, WifiOff, X, ExternalLink } from 'lucide-react';
 
 interface NotificationsPanelProps {
   open: boolean;
@@ -16,6 +17,7 @@ interface NotificationsPanelProps {
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onSelect?: (n: DashboardNotification) => void;
+  historyHref?: string;
 }
 
 export function NotificationsPanel({
@@ -31,6 +33,7 @@ export function NotificationsPanel({
   onMarkRead,
   onMarkAllRead,
   onSelect,
+  historyHref,
 }: NotificationsPanelProps) {
   if (!open) return null;
 
@@ -139,6 +142,19 @@ export function NotificationsPanel({
             ))
           )}
         </div>
+
+        {historyHref && (
+          <div className="p-4 border-t border-white/[0.06]">
+            <Link
+              href={historyHref}
+              onClick={onClose}
+              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+            >
+              Voir tout l’historique
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        )}
       </aside>
     </div>
   );
