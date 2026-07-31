@@ -8,35 +8,85 @@ const SEEN_KEY = 'scpb_tv_alert_seen';
 const MUTE_KEY = 'scpb_tv_alert_mute';
 const POLL_MS = 20_000;
 
-function playAlertTone(signalType: string) {
+let sharedAudioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const Ctx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return null;
+  if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+    sharedAudioCtx = new Ctx();
+  }
+  return sharedAudioCtx;
+}
+
+/** Débloque l’audio après un geste utilisateur (requis par Chrome/Safari). */
+export async function unlockAlertAudio(): Promise<boolean> {
+  const ctx = getAudioContext();
+  if (!ctx) return false;
   try {
-    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+    return ctx.state === 'running';
+  } catch {
+    return false;
+  }
+}
+
+export async function playAlertTone(signalType: string): Promise<boolean> {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return false;
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+    if (ctx.state !== 'running') return false;
+
     const now = ctx.currentTime;
-    const freqs =
-      signalType.includes('buy') || signalType.includes('resistance')
-        ? [523.25, 659.25, 783.99]
-        : signalType.includes('sell') || signalType.includes('support')
-          ? [392.0, 311.13, 261.63]
-          : [440, 554.37];
+    const bearish =
+      signalType.includes('sell') ||
+      signalType.includes('support') ||
+      signalType.includes('bear');
+    const bullish =
+      signalType.includes('buy') ||
+      signalType.includes('resistance') ||
+      signalType.includes('bull');
+
+    // Séquence plus audible (square + gain plus fort)
+    const freqs = bullish
+      ? [587.33, 739.99, 880.0]
+      : bearish
+        ? [349.23, 293.66, 220.0]
+        : [523.25, 659.25];
 
     freqs.forEach((freq, i) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = 'sine';
+      osc.type = 'square';
       osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.12, now + 0.03 + i * 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28 + i * 0.12);
+      const t0 = now + i * 0.18;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.start(now + i * 0.12);
-      osc.stop(now + 0.35 + i * 0.12);
+      osc.start(t0);
+      osc.stop(t0 + 0.25);
     });
-    window.setTimeout(() => ctx.close().catch(() => undefined), 1200);
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate(bullish ? [80, 40, 80] : [120, 60, 120, 60, 120]);
+      } catch {
+        /* ignore */
+      }
+    }
+    return true;
   } catch {
-    // navigateurs bloquant l'audio sans geste utilisateur
+    return false;
   }
 }
 
@@ -47,6 +97,7 @@ export function useTradingViewAlertPoll(
   const [alert, setAlert] = useState<LatestTradingViewAlert | null>(null);
   const [popupAlert, setPopupAlert] = useState<LatestTradingViewAlert | null>(null);
   const [muted, setMutedState] = useState(false);
+  const [audioReady, setAudioReady] = useState(false);
   const seenRef = useRef<string | null>(null);
   const primedRef = useRef(false);
   const onNewAlertRef = useRef(onNewAlert);
@@ -56,12 +107,29 @@ export function useTradingViewAlertPoll(
     if (typeof window === 'undefined') return;
     seenRef.current = sessionStorage.getItem(`${SEEN_KEY}:${market}`);
     setMutedState(sessionStorage.getItem(MUTE_KEY) === '1');
+
+    const arm = () => {
+      void unlockAlertAudio().then((ok) => {
+        if (ok) setAudioReady(true);
+      });
+    };
+    window.addEventListener('pointerdown', arm, { passive: true });
+    window.addEventListener('keydown', arm, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', arm);
+      window.removeEventListener('keydown', arm);
+    };
   }, [market]);
 
   const setMuted = useCallback((value: boolean) => {
     setMutedState(value);
     if (typeof window !== 'undefined') {
       sessionStorage.setItem(MUTE_KEY, value ? '1' : '0');
+    }
+    if (!value) {
+      void unlockAlertAudio().then((ok) => {
+        if (ok) setAudioReady(true);
+      });
     }
   }, []);
 
@@ -95,7 +163,7 @@ export function useTradingViewAlertPoll(
 
     setPopupAlert(latest);
     if (sessionStorage.getItem(MUTE_KEY) !== '1') {
-      playAlertTone(latest.signal_type || '');
+      void playAlertTone(latest.signal_type || '');
     }
     onNewAlertRef.current?.(latest);
   }, [market]);
@@ -115,6 +183,7 @@ export function useTradingViewAlertPoll(
     dismissPopup,
     muted,
     setMuted,
+    audioReady,
     pollNow: poll,
   };
 }

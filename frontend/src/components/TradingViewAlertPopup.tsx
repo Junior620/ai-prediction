@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { LatestTradingViewAlert } from '@/types/api';
+import { playAlertTone, unlockAlertAudio } from '@/hooks/useTradingViewAlertPoll';
 import {
   BellRing, TrendingDown, TrendingUp, Activity, X, Volume2, VolumeX,
 } from 'lucide-react';
@@ -43,11 +44,30 @@ export function TradingViewAlertPopup({
   muted,
   onToggleMute,
 }: TradingViewAlertPopupProps) {
+  const [soundHint, setSoundHint] = useState(false);
+
   useEffect(() => {
-    if (!alert) return;
-    const t = window.setTimeout(onDismiss, 25_000);
-    return () => window.clearTimeout(t);
-  }, [alert, onDismiss]);
+    if (!alert || muted) {
+      setSoundHint(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const ok = await playAlertTone(alert.signal_type || '');
+      if (!cancelled && !ok) setSoundHint(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [alert, muted]);
+
+  const enableSound = async () => {
+    await unlockAlertAudio();
+    if (alert) {
+      const ok = await playAlertTone(alert.signal_type || '');
+      if (ok) setSoundHint(false);
+    }
+  };
 
   const briefTone = alert?.brief_signal;
   const border =
@@ -174,12 +194,30 @@ export function TradingViewAlertPopup({
                 </div>
               )}
 
-              <p className="text-[10px] text-slate-600">
-                Reçue {new Date(alert.received_at).toLocaleString('fr-FR', {
-                  day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-                })}
-                {' · '}fermeture auto 25 s
-              </p>
+              {soundHint && !muted && (
+                <button
+                  type="button"
+                  onClick={() => void enableSound()}
+                  className="w-full text-xs font-semibold py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 transition-colors"
+                >
+                  Cliquer pour activer le son des alertes
+                </button>
+              )}
+
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] text-slate-600">
+                  Reçue {new Date(alert.received_at).toLocaleString('fr-FR', {
+                    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                  })}
+                </p>
+                <button
+                  type="button"
+                  onClick={onDismiss}
+                  className="text-[11px] font-semibold text-slate-300 hover:text-white px-2.5 py-1 rounded-lg border border-white/[0.08] hover:bg-white/[0.06]"
+                >
+                  Fermer
+                </button>
+              </div>
             </div>
           </div>
         </motion.div>
