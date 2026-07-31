@@ -119,7 +119,13 @@ export function MarketKPIBar({
           <>
             <span>·</span>
             <span>
-              Dernière MAJ : {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              Dernière MAJ :{' '}
+              {lastUpdate.toLocaleTimeString('fr-FR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+              })}
             </span>
           </>
         )}

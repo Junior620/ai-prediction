@@ -145,7 +145,6 @@ async function showBrowserNotification(alert: LatestTradingViewAlert) {
     const n = new Notification(title, {
       body,
       tag: fingerprint(alert),
-      renotify: true,
       icon: '/logo.png',
     });
     n.onclick = () => {
