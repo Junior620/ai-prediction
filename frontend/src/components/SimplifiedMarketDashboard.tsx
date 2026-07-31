@@ -165,9 +165,12 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
     }
   };
 
-  const fetchAll = async () => {
-    setLoading(true);
-    setError(null);
+  const fetchAll = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [predRes, valRes] = await Promise.all([
         api.getPredictions({
@@ -181,19 +184,39 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
       setValidation(valRes);
       setLastUpdate(new Date());
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string; message?: string } } };
-      setError(e.response?.data?.detail || e.response?.data?.message || 'Impossible de charger les prédictions');
+      if (!silent) {
+        const e = err as { response?: { data?: { detail?: string; message?: string } } };
+        setError(e.response?.data?.detail || e.response?.data?.message || 'Impossible de charger les prédictions');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-    loadBrief();
-  };
+    void loadBrief(false);
+  }, [config.market, config.includeSentiment, loadBrief]);
 
-  useEffect(() => { fetchAll(); }, [config.market]);
+  useEffect(() => {
+    void fetchAll();
+    // Auto-refresh silencieux toutes les 60 s (onglet visible)
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void fetchAll({ silent: true });
+      }
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [fetchAll]);
+
+  // Rafraîchit l’affichage de l’heure toutes les 15 s
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setClockTick((t) => t + 1), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const onNewTvAlert = useCallback(() => {
     void loadBrief(false);
-  }, [loadBrief]);
+    setLastUpdate(new Date());
+    void fetchAll({ silent: true });
+  }, [loadBrief, fetchAll]);
 
   const {
     unreadCount,
@@ -285,12 +308,15 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
               )}
             </Link>
             {lastUpdate && (
-              <span className="text-xs text-slate-500 hidden sm:block">
-                {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              <span
+                className="text-xs text-slate-500 hidden sm:block tabular-nums"
+                title="Dernière mise à jour automatique des données"
+              >
+                MAJ {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
             <button
-              onClick={fetchAll}
+              onClick={() => void fetchAll()}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-white/[0.06] border border-white/[0.08] text-slate-300 hover:bg-white/[0.1] hover:text-white transition-all disabled:opacity-40"
             >
