@@ -230,10 +230,18 @@ class RedisCache:
             return False
 
     def set_latest_tv_alert(self, market: str, alert: dict, ttl: int = 7 * 24 * 3600) -> bool:
-        """Store latest TradingView alert snapshot for dashboard polling."""
+        """Store latest TradingView alert snapshot + keep a short recent list."""
         try:
-            key = f"tv_alert:latest:{market.upper()}"
-            self.redis_client.setex(key, ttl, json.dumps(alert, default=str))
+            market_key = market.upper()
+            latest_key = f"tv_alert:latest:{market_key}"
+            list_key = f"tv_alert:recent:{market_key}"
+            payload = json.dumps(alert, default=str)
+            pipe = self.redis_client.pipeline()
+            pipe.setex(latest_key, ttl, payload)
+            pipe.lpush(list_key, payload)
+            pipe.ltrim(list_key, 0, 19)
+            pipe.expire(list_key, ttl)
+            pipe.execute()
             return True
         except Exception as e:
             logger.error(f"Error storing latest TV alert: {e}")
@@ -250,3 +258,23 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Error reading latest TV alert: {e}")
             return None
+
+    def get_recent_tv_alerts(self, market: str, limit: int = 5) -> list:
+        """Return recent TradingView alerts (newest first)."""
+        try:
+            key = f"tv_alert:recent:{market.upper()}"
+            rows = self.redis_client.lrange(key, 0, max(0, limit - 1))
+            out = []
+            for raw in rows or []:
+                try:
+                    out.append(json.loads(raw))
+                except Exception:
+                    continue
+            if out:
+                return out
+            # Fallback: single latest
+            latest = self.get_latest_tv_alert(market)
+            return [latest] if latest else []
+        except Exception as e:
+            logger.error(f"Error reading recent TV alerts: {e}")
+            return []

@@ -405,3 +405,10 @@ class LatestTradingViewAlert(BaseModel):
     received_at: str
     brief_signal: Optional[str] = None
     brief_summary: Optional[str] = None
+
+
+class RecentTradingViewAlertsResponse(BaseModel):
+    """Liste des alertes TradingView recentes."""
+
+    market: str
+    alerts: List[LatestTradingViewAlert]

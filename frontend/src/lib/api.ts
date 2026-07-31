@@ -7,6 +7,7 @@ import type {
   BriefRequest,
   MarketsResponse,
   LatestTradingViewAlert,
+  RecentTradingViewAlertsResponse,
 } from '@/types/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -83,6 +84,21 @@ export const api = {
       return response.data ?? null;
     } catch {
       return null;
+    }
+  },
+
+  async getRecentTradingViewAlerts(
+    market: string,
+    limit = 5,
+  ): Promise<LatestTradingViewAlert[]> {
+    try {
+      const response = await apiClient.get<RecentTradingViewAlertsResponse>(
+        '/api/v1/tradingview/alerts/recent',
+        { params: { market, limit } },
+      );
+      return response.data?.alerts ?? [];
+    } catch {
+      return [];
     }
   },
 };

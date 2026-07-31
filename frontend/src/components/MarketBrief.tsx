@@ -17,6 +17,8 @@ interface MarketBriefProps {
   onAdvanced: (question: string) => Promise<void>;
   advancedLoading?: boolean;
   sticky?: boolean;
+  /** Surbrillance temporaire après une alerte TradingView */
+  highlight?: boolean;
 }
 
 const signalStyles = {
@@ -98,6 +100,7 @@ export function MarketBrief({
   onAdvanced,
   advancedLoading = false,
   sticky = true,
+  highlight = false,
 }: MarketBriefProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [question, setQuestion] = useState('');
@@ -110,7 +113,15 @@ export function MarketBrief({
   };
 
   return (
-    <div className={`glass-card p-5 ${sticky ? 'lg:shadow-xl lg:shadow-black/20' : ''}`}>
+    <div
+      className={`glass-card p-5 transition-all duration-500 ${
+        sticky ? 'lg:shadow-xl lg:shadow-black/20' : ''
+      } ${
+        highlight
+          ? 'ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/20 scale-[1.01]'
+          : ''
+      }`}
+    >
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-bold text-white flex items-center gap-2">
           <Brain className={`w-4 h-4 ${accentClass}`} />

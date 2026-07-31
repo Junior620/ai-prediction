@@ -16,6 +16,7 @@ import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonC
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
 import { TradingViewAlertPopup } from '@/components/TradingViewAlertPopup';
+import { TradingViewAlertCenter } from '@/components/TradingViewAlertCenter';
 import { useTradingViewAlertPoll } from '@/hooks/useTradingViewAlertPoll';
 import {
   RefreshCw, AlertTriangle, BarChart3, Coffee, Bell,
@@ -198,10 +199,21 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
 
   const {
     latestAlert,
+    history,
     popupAlert,
     dismissPopup,
+    showAlert,
     muted,
     setMuted,
+    filters,
+    toggleFilter,
+    unreadCount,
+    panelOpen,
+    openPanel,
+    closePanel,
+    notifEnabled,
+    setNotifEnabled,
+    briefFlash,
   } = useTradingViewAlertPoll(config.market, onNewTvAlert);
 
   const currentPrice = data?.current_price ?? 0;
@@ -254,9 +266,11 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 </>
               )}
             </nav>
-            <span
-              className="hidden md:inline-flex items-center gap-1.5 text-[10px] text-slate-400 px-2 py-1 rounded-lg border border-white/[0.06] bg-white/[0.03]"
-              title={latestAlert ? `Dernière alerte: ${latestAlert.signal_type}` : 'Écoute des alertes TradingView'}
+            <button
+              type="button"
+              onClick={openPanel}
+              className="relative hidden md:inline-flex items-center gap-1.5 text-[10px] text-slate-300 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.07] transition-colors"
+              title={latestAlert ? `Dernière alerte: ${latestAlert.signal_type}` : 'Alertes TradingView'}
             >
               <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
@@ -264,7 +278,12 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
               </span>
               <Bell className="w-3 h-3" />
               Alertes live
-            </span>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-[10px] font-bold text-white flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
             {lastUpdate && (
               <span className="text-xs text-slate-500 hidden sm:block">
                 {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
@@ -287,6 +306,22 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
         onDismiss={dismissPopup}
         muted={muted}
         onToggleMute={() => setMuted(!muted)}
+      />
+
+      <TradingViewAlertCenter
+        open={panelOpen}
+        onClose={closePanel}
+        history={history}
+        filters={filters}
+        onToggleFilter={toggleFilter}
+        muted={muted}
+        onToggleMute={() => setMuted(!muted)}
+        notifEnabled={notifEnabled}
+        onToggleNotif={(v) => void setNotifEnabled(v)}
+        onSelectAlert={(a) => {
+          showAlert(a);
+          closePanel();
+        }}
       />
 
       <main className="max-w-[1400px] mx-auto px-6 py-8">
@@ -389,6 +424,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                   onAdvanced={runAdvanced}
                   advancedLoading={advancedLoading}
                   sticky
+                  highlight={briefFlash}
                 />
               </div>
             </div>

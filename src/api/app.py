@@ -39,6 +39,7 @@ from src.api.models import (
     TradingViewAlert,
     TradingViewAlertResponse,
     LatestTradingViewAlert,
+    RecentTradingViewAlertsResponse,
 )
 from src.api.auth import verify_token, verify_admin_token
 from src.api.cache import RedisCache
@@ -861,6 +862,64 @@ async def get_latest_tradingview_alert(
             logger.warning(f"Lecture derniere alerte Supabase echouee: {e}")
 
     return None
+
+
+@app.get(
+    "/api/v1/tradingview/alerts/recent",
+    response_model=RecentTradingViewAlertsResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+async def get_recent_tradingview_alerts(
+    market: str = "ICE_NY",
+    limit: int = 5,
+    user: str = Depends(verify_token),
+) -> RecentTradingViewAlertsResponse:
+    """Historique court des alertes TradingView (polling / panneau dashboard)."""
+    resolved = _resolve_market_key_for_alerts(market)
+    limit = max(1, min(int(limit), 20))
+    alerts: List[LatestTradingViewAlert] = []
+
+    if redis_cache:
+        for row in redis_cache.get_recent_tv_alerts(resolved, limit):
+            try:
+                alerts.append(LatestTradingViewAlert(**row))
+            except Exception:
+                continue
+
+    if not alerts and supabase_client is not None:
+        try:
+            resp = (
+                supabase_client.table("tradingview_alerts")
+                .select("*")
+                .eq("market", resolved)
+                .order("received_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            for row in resp.data or []:
+                alerts.append(
+                    LatestTradingViewAlert(
+                        id=str(row.get("id")),
+                        market=row.get("market") or resolved,
+                        signal_type=row.get("signal_type") or "custom",
+                        price=row.get("price"),
+                        tf=row.get("tf"),
+                        ticker=row.get("ticker"),
+                        message=row.get("message"),
+                        trend=row.get("trend"),
+                        momentum=row.get("momentum"),
+                        support=row.get("support"),
+                        resistance=row.get("resistance"),
+                        change_pct=row.get("change_pct"),
+                        received_at=str(
+                            row.get("received_at") or datetime.utcnow().isoformat()
+                        ),
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"Lecture alertes recentes Supabase echouee: {e}")
+
+    return RecentTradingViewAlertsResponse(market=resolved, alerts=alerts)
 
 
 def _resolve_market_key_for_alerts(market: str) -> str:

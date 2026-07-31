@@ -130,3 +130,8 @@ export interface LatestTradingViewAlert {
   brief_signal?: string | null;
   brief_summary?: string | null;
 }
+
+export interface RecentTradingViewAlertsResponse {
+  market: string;
+  alerts: LatestTradingViewAlert[];
+}
