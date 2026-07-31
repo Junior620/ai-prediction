@@ -112,3 +112,21 @@ export interface MarketInfo {
 export interface MarketsResponse {
   markets: MarketInfo[];
 }
+
+export interface LatestTradingViewAlert {
+  id: string;
+  market: string;
+  signal_type: string;
+  price?: number | null;
+  tf?: string | null;
+  ticker?: string | null;
+  message?: string | null;
+  trend?: string | null;
+  momentum?: string | null;
+  support?: number | null;
+  resistance?: number | null;
+  change_pct?: number | null;
+  received_at: string;
+  brief_signal?: string | null;
+  brief_summary?: string | null;
+}

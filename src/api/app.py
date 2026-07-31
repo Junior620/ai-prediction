@@ -38,6 +38,7 @@ from src.api.models import (
     MarketIntelligenceResponse,
     TradingViewAlert,
     TradingViewAlertResponse,
+    LatestTradingViewAlert,
 )
 from src.api.auth import verify_token, verify_admin_token
 from src.api.cache import RedisCache
@@ -772,6 +773,27 @@ async def tradingview_webhook(payload: TradingViewAlert) -> TradingViewAlertResp
             f"Webhook TradingView traite: market={api_market} signal={payload.signal_type} "
             f"mode={payload.mode} alert_id={alert_id}"
         )
+        brief = result.get("brief") or {}
+        summary = brief.get("summary") or ""
+        snapshot = {
+            "id": alert_id or f"tv-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            "market": api_market,
+            "signal_type": payload.signal_type,
+            "price": payload.price,
+            "tf": payload.tf,
+            "ticker": payload.ticker,
+            "message": payload.message,
+            "trend": payload.trend,
+            "momentum": payload.momentum,
+            "support": payload.support,
+            "resistance": payload.resistance,
+            "change_pct": payload.change_pct,
+            "received_at": datetime.utcnow().isoformat() + "Z",
+            "brief_signal": brief.get("signal"),
+            "brief_summary": summary[:280] if isinstance(summary, str) else None,
+        }
+        if redis_cache:
+            redis_cache.set_latest_tv_alert(api_market, snapshot)
         return TradingViewAlertResponse(
             received=True,
             alert_id=alert_id,
@@ -786,6 +808,73 @@ async def tradingview_webhook(payload: TradingViewAlert) -> TradingViewAlertResp
     except Exception as e:
         logger.error(f"Webhook TradingView failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(
+    "/api/v1/tradingview/alerts/latest",
+    response_model=Optional[LatestTradingViewAlert],
+    responses={401: {"model": ErrorResponse}},
+)
+async def get_latest_tradingview_alert(
+    market: str = "ICE_NY",
+    user: str = Depends(verify_token),
+) -> Optional[LatestTradingViewAlert]:
+    """
+    Derniere alerte TradingView pour un marche (polling dashboard).
+    Source: Redis (ecrit a chaque webhook). Fallback Supabase si Redis vide.
+    """
+    resolved = _resolve_market_key_for_alerts(market)
+
+    if redis_cache:
+        cached = redis_cache.get_latest_tv_alert(resolved)
+        if cached:
+            return LatestTradingViewAlert(**cached)
+
+    if supabase_client is not None:
+        try:
+            resp = (
+                supabase_client.table("tradingview_alerts")
+                .select("*")
+                .eq("market", resolved)
+                .order("received_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if resp.data:
+                row = resp.data[0]
+                return LatestTradingViewAlert(
+                    id=str(row.get("id")),
+                    market=row.get("market") or resolved,
+                    signal_type=row.get("signal_type") or "custom",
+                    price=row.get("price"),
+                    tf=row.get("tf"),
+                    ticker=row.get("ticker"),
+                    message=row.get("message"),
+                    trend=row.get("trend"),
+                    momentum=row.get("momentum"),
+                    support=row.get("support"),
+                    resistance=row.get("resistance"),
+                    change_pct=row.get("change_pct"),
+                    received_at=str(row.get("received_at") or datetime.utcnow().isoformat()),
+                )
+        except Exception as e:
+            logger.warning(f"Lecture derniere alerte Supabase echouee: {e}")
+
+    return None
+
+
+def _resolve_market_key_for_alerts(market: str) -> str:
+    """Map ticker / alias to API market id used when persisting alerts."""
+    try:
+        return _resolve_market_from_alert(
+            TradingViewAlert(
+                secret="x",
+                market=market,
+                signal_type="custom",
+            )
+        )
+    except HTTPException:
+        return market.upper()
 
 
 @app.post(

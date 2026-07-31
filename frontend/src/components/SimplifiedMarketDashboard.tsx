@@ -15,8 +15,10 @@ import { MarketKPIBar } from '@/components/dashboard/MarketKPIBar';
 import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonCard';
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
+import { TradingViewAlertPopup } from '@/components/TradingViewAlertPopup';
+import { useTradingViewAlertPoll } from '@/hooks/useTradingViewAlertPoll';
 import {
-  RefreshCw, AlertTriangle, BarChart3, Coffee,
+  RefreshCw, AlertTriangle, BarChart3, Coffee, Bell,
 } from 'lucide-react';
 
 export interface MarketDashboardConfig {
@@ -189,6 +191,19 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
 
   useEffect(() => { fetchAll(); }, [config.market]);
 
+  const onNewTvAlert = useCallback(() => {
+    // Rafraîchir le brief (déjà régénéré par le webhook) sans forcer Claude
+    void loadBrief(false);
+  }, [loadBrief]);
+
+  const {
+    latestAlert,
+    popupAlert,
+    dismissPopup,
+    muted,
+    setMuted,
+  } = useTradingViewAlertPoll(config.market, onNewTvAlert);
+
   const currentPrice = data?.current_price ?? 0;
   const garchVol = data?.predictions?.[0]?.components?.garch_annualized_volatility;
   const highVolRegime = Boolean(data?.predictions?.some(p => p.components?.high_volatility_regime));
@@ -239,6 +254,17 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 </>
               )}
             </nav>
+            <span
+              className="hidden md:inline-flex items-center gap-1.5 text-[10px] text-slate-400 px-2 py-1 rounded-lg border border-white/[0.06] bg-white/[0.03]"
+              title={latestAlert ? `Dernière alerte: ${latestAlert.signal_type}` : 'Écoute des alertes TradingView'}
+            >
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+              </span>
+              <Bell className="w-3 h-3" />
+              Alertes live
+            </span>
             {lastUpdate && (
               <span className="text-xs text-slate-500 hidden sm:block">
                 {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
@@ -255,6 +281,13 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
           </div>
         </div>
       </header>
+
+      <TradingViewAlertPopup
+        alert={popupAlert}
+        onDismiss={dismissPopup}
+        muted={muted}
+        onToggleMute={() => setMuted(!muted)}
+      />
 
       <main className="max-w-[1400px] mx-auto px-6 py-8">
         {error && (

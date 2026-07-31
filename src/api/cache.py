@@ -228,3 +228,25 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Redis health check failed: {e}")
             return False
+
+    def set_latest_tv_alert(self, market: str, alert: dict, ttl: int = 7 * 24 * 3600) -> bool:
+        """Store latest TradingView alert snapshot for dashboard polling."""
+        try:
+            key = f"tv_alert:latest:{market.upper()}"
+            self.redis_client.setex(key, ttl, json.dumps(alert, default=str))
+            return True
+        except Exception as e:
+            logger.error(f"Error storing latest TV alert: {e}")
+            return False
+
+    def get_latest_tv_alert(self, market: str) -> Optional[dict]:
+        """Return latest TradingView alert snapshot, or None."""
+        try:
+            key = f"tv_alert:latest:{market.upper()}"
+            raw = self.redis_client.get(key)
+            if not raw:
+                return None
+            return json.loads(raw)
+        except Exception as e:
+            logger.error(f"Error reading latest TV alert: {e}")
+            return None

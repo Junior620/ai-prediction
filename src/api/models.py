@@ -385,3 +385,23 @@ class TradingViewAlertResponse(BaseModel):
     market: str
     signal_type: str
     intelligence: MarketIntelligenceResponse
+
+
+class LatestTradingViewAlert(BaseModel):
+    """Derniere alerte TradingView (pour polling dashboard)."""
+
+    id: str
+    market: str
+    signal_type: str
+    price: Optional[float] = None
+    tf: Optional[str] = None
+    ticker: Optional[str] = None
+    message: Optional[str] = None
+    trend: Optional[str] = None
+    momentum: Optional[str] = None
+    support: Optional[float] = None
+    resistance: Optional[float] = None
+    change_pct: Optional[float] = None
+    received_at: str
+    brief_signal: Optional[str] = None
+    brief_summary: Optional[str] = None
