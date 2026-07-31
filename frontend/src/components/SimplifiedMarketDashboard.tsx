@@ -205,10 +205,10 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
     return () => window.clearInterval(id);
   }, [fetchAll]);
 
-  // Rafraîchit l’affichage de l’heure toutes les 15 s
-  const [, setClockTick] = useState(0);
+  // Horloge live HH:MM:SS (tick chaque seconde)
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = window.setInterval(() => setClockTick((t) => t + 1), 15_000);
+    const id = window.setInterval(() => setNow(new Date()), 1_000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -307,14 +307,21 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 </span>
               )}
             </Link>
-            {lastUpdate && (
-              <span
-                className="text-xs text-slate-500 hidden sm:block tabular-nums"
-                title="Dernière mise à jour automatique des données"
-              >
-                MAJ {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
+            <span
+              className="text-xs text-slate-400 hidden sm:block tabular-nums tracking-wide"
+              title={
+                lastUpdate
+                  ? `Dernière MAJ données : ${lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+                  : 'Heure locale'
+              }
+            >
+              {now.toLocaleTimeString('fr-FR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+              })}
+            </span>
             <button
               onClick={() => void fetchAll()}
               disabled={loading}
