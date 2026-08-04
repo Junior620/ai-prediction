@@ -172,23 +172,35 @@ if (-not $SkipRestart) {
     }
     Write-Host '[INFO] Redemarrage API Docker sur le VPS...'
     Invoke-Ssh "cd $RemotePath && docker compose restart api"
-    Write-Host '[INFO] Attente demarrage API (25s)...'
-    Start-Sleep -Seconds 25
+    # FinBERT + modeles peuvent prendre 45-90s avant /health 200 via nginx
+    Write-Host '[INFO] Attente demarrage API (45s)...'
+    Start-Sleep -Seconds 45
 }
 
-# --- Health check ---
+# --- Health check (retries: 502 pendant le boot FinBERT est normal) ---
 if (-not $SkipHealth) {
     Write-Host ('[INFO] Health check: ' + $HealthUrl)
-    try {
-        $health = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 30
-        $markets = ($health.markets_loaded -join ", ")
-        Write-Host ('[OK] status=' + $health.status + '  markets=' + $markets + '  predictor=' + $health.services.price_predictor)
-        if ($health.status -ne "healthy" -or -not $health.services.price_predictor) {
-            Write-Host ('[AVERTISSEMENT] API degradee — verifier: ssh ' + $SshTarget + " 'cd $RemotePath && docker compose logs api --tail 40'")
-            exit 2
+    $healthOk = $false
+    $lastErr = $null
+    for ($i = 1; $i -le 12; $i++) {
+        try {
+            $health = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 20
+            $markets = ($health.markets_loaded -join ", ")
+            if ($health.status -eq "healthy" -and $health.services.price_predictor) {
+                Write-Host ('[OK] status=' + $health.status + '  markets=' + $markets + '  predictor=' + $health.services.price_predictor)
+                $healthOk = $true
+                break
+            }
+            Write-Host ('[INFO] API pas encore healthy... (' + $i + '/12)')
+        } catch {
+            $lastErr = $_.Exception.Message
+            Write-Host ('[INFO] Health pas pret (' + $i + '/12): ' + $lastErr)
         }
-    } catch {
-        Write-Host ('[AVERTISSEMENT] Health check echoue: ' + $_.Exception.Message)
+        Start-Sleep -Seconds 10
+    }
+    if (-not $healthOk) {
+        Write-Host ('[AVERTISSEMENT] Health check echoue apres retries: ' + $lastErr)
+        Write-Host ('         Verifier: ssh ' + $SshTarget + " 'cd $RemotePath && docker compose logs api --tail 40'")
         exit 2
     }
 }

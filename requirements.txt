@@ -6,6 +6,8 @@ scikit-learn>=1.4.0
 pandas>=2.2.0
 numpy>=1.26.0,<2.0.0
 scipy>=1.11.0
+# NeuralForecast datasets need pyarrow>=17; mlflow 2.10 pins <16 — prefer N-HiTS in API
+pyarrow>=17.0.0
 
 # NLP and Transformers
 textblob>=0.20.0

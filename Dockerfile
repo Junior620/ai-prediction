@@ -31,6 +31,9 @@ RUN pip install --no-cache-dir --timeout=1000 --retries=10 neuralforecast>=3.1.0
 # Install remaining packages
 RUN pip install --no-cache-dir --timeout=1000 --retries=10 -r requirements.txt
 
+# NeuralForecast datasets need pyarrow>=17 (overrides mlflow 2.10 pin <16)
+RUN pip install --no-cache-dir --timeout=1000 --retries=10 "pyarrow>=17.0.0"
+
 # Copy application code
 COPY src/ ./src/
 COPY config/ ./config/

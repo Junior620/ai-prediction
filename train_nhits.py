@@ -53,15 +53,31 @@ supabase = create_client(
 all_data = []
 page_size = 1000
 offset = 0
+max_retries = 4
 
 while True:
-    response = (
-        supabase.table(market.price_table)
-        .select("date, price")
-        .order("date")
-        .range(offset, offset + page_size - 1)
-        .execute()
-    )
+    response = None
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = (
+                supabase.table(market.price_table)
+                .select("date, price")
+                .order("date")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            break
+        except Exception as e:
+            last_err = e
+            wait_s = attempt * 2
+            print("   [WARN] Supabase page offset=%s attempt %s/%s: %s — retry in %ss" % (
+                offset, attempt, max_retries, e, wait_s
+            ))
+            import time
+            time.sleep(wait_s)
+    if response is None:
+        raise RuntimeError("Supabase fetch failed after retries: %s" % last_err)
     if not response.data:
         break
     all_data.extend(response.data)
