@@ -41,7 +41,14 @@ $RemotePath = if ($env:DEPLOY_VPS_PATH) { $env:DEPLOY_VPS_PATH } else { "/opt/pr
 $HealthUrl = if ($env:DEPLOY_API_HEALTH_URL) { $env:DEPLOY_API_HEALTH_URL } else { "https://api.market.ste-scpb.com/health" }
 $SshTarget = "${User}@${HostName}"
 
-$SshArgs = @("-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15")
+$SshArgs = @(
+    "-o", "BatchMode=yes",
+    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", "ConnectTimeout=15",
+    "-o", "ServerAliveInterval=10",
+    "-o", "ServerAliveCountMax=6",
+    "-o", "IPQoS=none"
+)
 if ($env:DEPLOY_SSH_KEY -and (Test-Path $env:DEPLOY_SSH_KEY)) {
     Write-Host ('[INFO] Cle SSH: ' + $env:DEPLOY_SSH_KEY)
     $SshArgs = @("-i", $env:DEPLOY_SSH_KEY) + $SshArgs
@@ -63,14 +70,18 @@ function Invoke-Scp {
         [Parameter(Mandatory = $true)][string]$Destination,
         [switch]$Recurse
     )
-    $argsList = @()
-    $argsList += $SshArgs
-    if ($Recurse) { $argsList += "-r" }
-    $argsList += $Sources
-    $argsList += "${SshTarget}:${Destination}"
-    & scp.exe @argsList
-    if ($LASTEXITCODE -ne 0) {
-        throw "SCP failed ($LASTEXITCODE) -> $Destination"
+    # Un fichier a la fois : le scp Windows OpenSSH bloque souvent
+    # sur le 2e fichier d'un transfert multiple (progress 0% ETA --).
+    foreach ($src in $Sources) {
+        $argsList = @("-O") + $SshArgs
+        if ($Recurse) { $argsList += "-r" }
+        $argsList += $src
+        $argsList += "${SshTarget}:${Destination}"
+        Write-Host ('[INFO] SCP ' + (Split-Path $src -Leaf) + ' -> ' + $Destination)
+        & scp.exe @argsList
+        if ($LASTEXITCODE -ne 0) {
+            throw "SCP failed ($LASTEXITCODE) " + (Split-Path $src -Leaf) + " -> $Destination"
+        }
     }
 }
 
