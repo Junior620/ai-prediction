@@ -153,3 +153,28 @@ export interface NotificationsListResponse {
   notifications: DashboardNotification[];
   unread_count: number;
 }
+
+export interface FuturesHorizonPrediction {
+  horizon: number;
+  price: number;
+  method: string;
+  change_pct?: number | null;
+}
+
+export interface FuturesContractItem {
+  contract: string;
+  symbol: string;
+  yahoo_symbol?: string | null;
+  price_usd: number;
+  change?: number | null;
+  volume?: number | null;
+  predictions: FuturesHorizonPrediction[];
+}
+
+export interface FuturesCurveResponse {
+  contracts: FuturesContractItem[];
+  collected_at?: string | null;
+  source?: string | null;
+  model_version?: string | null;
+  spot_pct_by_horizon?: Record<string, number> | null;
+}

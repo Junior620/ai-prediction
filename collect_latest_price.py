@@ -137,13 +137,22 @@ except Exception as e:
 
 print("\n" + "=" * 80)
 
-# Collecter les contrats à terme
+# Collecter les contrats à terme (Investing.com, fallback Yahoo)
 print("\n📊 COLLECTE DES CONTRATS A TERME (FUTURES)")
 print("=" * 80)
 try:
-    store_futures()
+    from collect_cocoa_futures_investing import store_cocoa_futures_investing
+    n = store_cocoa_futures_investing(supabase)
+    if n == 0:
+        print("   Fallback Yahoo Finance...")
+        store_futures()
 except Exception as e:
-    print(f"⚠️  Erreur collecte futures (non bloquant): {e}")
+    print(f"⚠️  Investing.com futures failed: {e}")
+    try:
+        print("   Fallback Yahoo Finance...")
+        store_futures()
+    except Exception as e2:
+        print(f"⚠️  Erreur collecte futures (non bloquant): {e2}")
 
 print("\n" + "=" * 80)
 print("✅ COLLECTE TERMINÉE")

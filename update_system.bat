@@ -124,6 +124,15 @@ if errorlevel 1 (
 )
 echo.
 
+echo --- CACAO COURBE A TERME (XGBoost contrats) ---
+call venv_py311\Scripts\python.exe train_futures_curve.py
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Modeles futures non entraines — fallback spot_shift
+) else (
+    echo [OK] Courbe a terme cacao entrainee
+)
+echo.
+
 REM ================================================================================
 REM ETAPE 4: REDEMARRAGE API
 REM ================================================================================

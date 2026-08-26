@@ -8,6 +8,7 @@ import type {
   MarketIntelligenceResponse,
   PredictionResponse,
   ValidationMetricsResponse,
+  FuturesCurveResponse,
 } from '@/types/api';
 import { TradingViewEmbed } from '@/components/TradingViewEmbed';
 import { MarketBrief } from '@/components/MarketBrief';
@@ -15,6 +16,7 @@ import { MarketKPIBar } from '@/components/dashboard/MarketKPIBar';
 import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonCard';
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
+import { FuturesCurvePanel } from '@/components/dashboard/FuturesCurvePanel';
 import { TradingViewAlertPopup } from '@/components/TradingViewAlertPopup';
 import { useDashboardNotifications } from '@/hooks/useDashboardNotifications';
 import {
@@ -80,6 +82,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const [data, setData] = useState<PredictionResponse | null>(null);
   const [intelligence, setIntelligence] = useState<MarketIntelligenceResponse | null>(null);
   const [validation, setValidation] = useState<ValidationMetricsResponse | null>(null);
+  const [futures, setFutures] = useState<FuturesCurveResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [briefLoading, setBriefLoading] = useState(true);
   const [advancedLoading, setAdvancedLoading] = useState(false);
@@ -182,6 +185,16 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
       ]);
       setData(predRes);
       setValidation(valRes);
+      if (config.market === 'ICE_NY') {
+        try {
+          const fut = await api.getFutures(true);
+          setFutures(fut);
+        } catch {
+          if (!silent) setFutures(null);
+        }
+      } else {
+        setFutures(null);
+      }
       setLastUpdate(new Date());
     } catch (err: unknown) {
       if (!silent) {
@@ -401,6 +414,14 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 accentClass={theme.accentClass}
                 brief={intelligence?.brief}
               />
+
+              {config.market === 'ICE_NY' && (
+                <FuturesCurvePanel
+                  data={futures}
+                  loading={loading && !futures}
+                  accentClass={theme.accentClass}
+                />
+              )}
 
               <AnalysisPanel
                 predictions={data.predictions}

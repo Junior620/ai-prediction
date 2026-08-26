@@ -10,6 +10,7 @@ import type {
   RecentTradingViewAlertsResponse,
   DashboardNotification,
   NotificationsListResponse,
+  FuturesCurveResponse,
 } from '@/types/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -41,8 +42,10 @@ export const api = {
     return response.data;
   },
 
-  async getFutures(): Promise<any> {
-    const response = await apiClient.get('/api/v1/futures');
+  async getFutures(includePredictions = true): Promise<FuturesCurveResponse> {
+    const response = await apiClient.get<FuturesCurveResponse>('/api/v1/futures', {
+      params: { include_predictions: includePredictions },
+    });
     return response.data;
   },
 

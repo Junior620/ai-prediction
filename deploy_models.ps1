@@ -143,7 +143,7 @@ Write-Host ""
 
 # --- Ensure remote dirs ---
 Write-Host '[INFO] Preparation des dossiers distants...'
-Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/config/coffee_robusta"
+Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/models/futures $RemotePath/config/coffee_robusta"
 
 # --- Upload models ---
 Write-Host '[INFO] Upload modeles cacao...'
@@ -156,6 +156,15 @@ Write-Host '[INFO] Upload modeles robusta...'
 Invoke-Scp -Sources @($robustaProphet.FullName, $robustaXgb.FullName) -Destination "$RemotePath/models/coffee_robusta/"
 if ($robustaNhits) {
     Invoke-Scp -Recurse -Sources @($robustaNhits.FullName) -Destination "$RemotePath/models/coffee_robusta/"
+}
+
+$futuresDir = Join-Path $Root "models\futures"
+if (Test-Path $futuresDir) {
+    Write-Host '[INFO] Upload modeles futures (courbe a terme)...'
+    $futuresFiles = Get-ChildItem -Path $futuresDir -File -ErrorAction SilentlyContinue
+    foreach ($ff in $futuresFiles) {
+        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures/"
+    }
 }
 
 # --- Upload config weights / conformal (if present) ---

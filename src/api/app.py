@@ -42,6 +42,9 @@ from src.api.models import (
     RecentTradingViewAlertsResponse,
     DashboardNotification,
     NotificationsListResponse,
+    FuturesCurveResponse,
+    FuturesContractItem,
+    FuturesHorizonPrediction,
 )
 from src.api.auth import verify_token, verify_admin_token, decode_token
 from src.api.cache import RedisCache
@@ -59,6 +62,7 @@ from src.models.improved_price_predictor import ImprovedPricePredictor
 from src.models.direct_horizon_trainer import DirectHorizonTrainer
 from src.models.time_series_model import TimeSeriesModel
 from src.models.ml_model import MLModel
+from src.models.futures_curve_predictor import FuturesCurvePredictor
 from src.nlp.nlp_analyzer import NLPAnalyzer
 from src.models.model_manager import ModelManager
 from src.monitoring.performance_monitor import PerformanceMonitor
@@ -124,6 +128,7 @@ performance_monitor: Optional[PerformanceMonitor] = None
 price_predictor: Optional[PricePredictor] = None  # alias for the cocoa predictor
 predictors: dict = {}  # market_id -> ImprovedPricePredictor
 brief_service: Optional[BriefService] = None
+futures_curve_predictor: Optional[FuturesCurvePredictor] = None
 alert_system = get_alert_system()
 
 
@@ -267,7 +272,7 @@ async def startup_event():
     
     Implements structured error handling with CRITICAL alerts (Requirement 12.4).
     """
-    global redis_cache, supabase_client, model_manager, performance_monitor, price_predictor, brief_service
+    global redis_cache, supabase_client, model_manager, performance_monitor, price_predictor, brief_service, futures_curve_predictor
     
     logger.info("Starting up Cocoa Price Prediction API...")
     
@@ -381,6 +386,16 @@ async def startup_event():
         )
     else:
         logger.info(f"✅ Predictors loaded for markets: {sorted(predictors)}")
+
+    try:
+        futures_curve_predictor = FuturesCurvePredictor()
+        logger.info(
+            "FuturesCurvePredictor ready (%d symbols)",
+            len(getattr(futures_curve_predictor, "_models", {}) or {}),
+        )
+    except Exception as e:
+        futures_curve_predictor = None
+        logger.warning(f"FuturesCurvePredictor not loaded: {e}")
 
     brief_service = BriefService(redis_cache=redis_cache)
     logger.info("BriefService (Claude) initialized")
@@ -1425,25 +1440,104 @@ async def get_prediction_history(
         )
 
 
-@app.get("/api/v1/futures")
+@app.get("/api/v1/futures", response_model=FuturesCurveResponse)
 async def get_futures(
-    token_payload: dict = Depends(verify_token)
+    include_predictions: bool = True,
+    token_payload: dict = Depends(verify_token),
 ):
-    """Return the latest cocoa futures contracts from the database."""
+    """Return the latest cocoa futures curve, optionally with J+1/J+7/J+30 predictions."""
     try:
         result = supabase_client.table("cocoa_futures").select(
             "data,collected_at,source"
         ).order("collected_at", desc=True).limit(1).execute()
 
         if not result.data:
-            return {"contracts": [], "collected_at": None}
+            return FuturesCurveResponse(contracts=[], collected_at=None)
 
         row = result.data[0]
-        return {
-            "contracts": row["data"],
-            "collected_at": row["collected_at"],
-            "source": row.get("source", "investing.com")
-        }
+        raw_contracts = row.get("data") or []
+
+        spot_pct: dict = {}
+        model_version = None
+        if include_predictions and price_predictor is not None:
+            try:
+                current = None
+                hist = (
+                    supabase_client.table("cocoa_prices")
+                    .select("price")
+                    .order("date", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if hist.data:
+                    current = float(hist.data[0]["price"])
+                preds = price_predictor.predict(
+                    horizons=[1, 7, 30],
+                    recent_news=[],
+                )
+                model_version = getattr(price_predictor, "model_version", None)
+                if current and current > 0:
+                    for p in preds:
+                        spot_pct[int(p.horizon)] = (float(p.price) / current) - 1.0
+            except Exception as e:
+                logger.warning(f"Spot pct for futures curve unavailable: {e}")
+
+        if include_predictions and futures_curve_predictor is not None:
+            enriched = futures_curve_predictor.predict_curve(
+                raw_contracts,
+                spot_pct_by_horizon=spot_pct or None,
+            )
+        else:
+            enriched = []
+            for c in raw_contracts:
+                price = float(c.get("price_usd") or c.get("price") or 0)
+                preds = []
+                if include_predictions and price > 0:
+                    for h, pct in spot_pct.items():
+                        p_price = round(price * (1.0 + pct), 2)
+                        preds.append(
+                            {
+                                "horizon": h,
+                                "price": p_price,
+                                "method": "spot_shift",
+                                "change_pct": round(pct * 100, 2),
+                            }
+                        )
+                enriched.append(
+                    {
+                        "contract": c.get("contract") or c.get("symbol"),
+                        "symbol": c.get("symbol"),
+                        "yahoo_symbol": None,
+                        "price_usd": price,
+                        "change": c.get("change"),
+                        "volume": c.get("volume"),
+                        "predictions": preds,
+                    }
+                )
+
+        contracts = [
+            FuturesContractItem(
+                contract=str(c.get("contract") or c.get("symbol") or ""),
+                symbol=str(c.get("symbol") or ""),
+                yahoo_symbol=c.get("yahoo_symbol"),
+                price_usd=float(c.get("price_usd") or 0),
+                change=c.get("change"),
+                volume=c.get("volume"),
+                predictions=[
+                    FuturesHorizonPrediction(**p) for p in (c.get("predictions") or [])
+                ],
+            )
+            for c in enriched
+        ]
+
+        return FuturesCurveResponse(
+            contracts=contracts,
+            collected_at=row.get("collected_at"),
+            source=row.get("source", "unknown"),
+            model_version=model_version
+            or (futures_curve_predictor._meta.get("trained_at") if futures_curve_predictor else None),
+            spot_pct_by_horizon={str(k): round(v, 6) for k, v in spot_pct.items()} or None,
+        )
     except Exception as e:
         logger.error(f"Failed to retrieve futures: {e}")
         raise HTTPException(

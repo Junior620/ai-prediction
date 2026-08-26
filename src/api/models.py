@@ -432,3 +432,28 @@ class NotificationsListResponse(BaseModel):
     market: str
     notifications: List[DashboardNotification]
     unread_count: int
+
+
+class FuturesHorizonPrediction(BaseModel):
+    horizon: int
+    price: float
+    method: str = "xgboost"
+    change_pct: Optional[float] = None
+
+
+class FuturesContractItem(BaseModel):
+    contract: str
+    symbol: str
+    yahoo_symbol: Optional[str] = None
+    price_usd: float
+    change: Optional[float] = None
+    volume: Optional[float] = None
+    predictions: List[FuturesHorizonPrediction] = Field(default_factory=list)
+
+
+class FuturesCurveResponse(BaseModel):
+    contracts: List[FuturesContractItem]
+    collected_at: Optional[str] = None
+    source: Optional[str] = None
+    model_version: Optional[str] = None
+    spot_pct_by_horizon: Optional[Dict[str, float]] = None

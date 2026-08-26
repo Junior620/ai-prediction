@@ -50,6 +50,7 @@ markets:
     tradingview_embed_label: "Cocoa Cash Contract (Pepperstone CFD)"
     # Source Pine / alertes / lecture de marche pour Claude (futures Londres)
     tradingview_alert_symbol: "ICEEUR:C1!"
+    investing_futures_url: "https://fr.investing.com/commodities/us-cocoa-contracts"
   coffee_robusta:
     display_name: "Café Robusta (ICE London)"
     price_table: "coffee_robusta_prices"
