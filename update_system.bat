@@ -13,6 +13,16 @@ REM ============================================================================
 
 set PYTHONIOENCODING=utf-8
 
+REM Charger API_TOKEN depuis .env (pas de JWT en dur dans le repo)
+if not defined API_TOKEN (
+    for /f "usebackq eol=# tokens=1,* delims==" %%a in (`findstr /b /c:"API_TOKEN=" "%~dp0.env" 2^>nul`) do set "API_TOKEN=%%b"
+)
+if not defined API_TOKEN (
+    echo [ERREUR] API_TOKEN absent. Ajoutez API_TOKEN=... dans .env ^(generate_jwt_token.py^).
+    pause
+    exit /b 1
+)
+
 echo.
 echo ================================================================================
 echo   MISE A JOUR COMPLETE — CACAO + CAFE ROBUSTA
@@ -133,6 +143,18 @@ if errorlevel 1 (
 )
 echo.
 
+echo [INFO] Nettoyage des anciens modeles ^(garde 5 derniers^)...
+call venv_py311\Scripts\python.exe scripts\cleanup_old_models.py --keep 5
+
+echo [INFO] Evaluation predictions vs prix reels...
+call venv_py311\Scripts\python.exe evaluate_predictions.py
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Evaluation precision echouee — non bloquant
+) else (
+    echo [OK] Metriques de precision mises a jour
+)
+echo.
+
 REM ================================================================================
 REM ETAPE 4: REDEMARRAGE API
 REM ================================================================================
@@ -180,11 +202,11 @@ echo ===========================================================================
 echo.
 
 echo [INFO] Test prediction CACAO (ICE_NY)...
-powershell -Command "$headers = @{'Authorization' = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwicm9sZSI6InVzZXIiLCJleHAiOjE4MTAzNzA2NjQsImlhdCI6MTc3ODgzNDY2NCwidHlwZSI6ImFjY2VzcyJ9.vXlvjeNqJ-eXmUEDKqXpWZSdpOJbfAxIeoF7TE1Knvw'; 'Content-Type' = 'application/json'}; $body = @{market = 'ICE_NY'; horizons = @(1); include_sentiment = $true} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 60; Write-Host ('  Prix: $' + $r.current_price + '  J+1: $' + $r.predictions[0].price) } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
+powershell -NoProfile -Command "$t=$env:API_TOKEN; $headers = @{'Authorization' = \"Bearer $t\"; 'Content-Type' = 'application/json'}; $body = @{market = 'ICE_NY'; horizons = @(1); include_sentiment = $true} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 60; Write-Host ('  Prix: $' + $r.current_price + '  J+1: $' + $r.predictions[0].price) } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
 
 echo.
 echo [INFO] Test prediction CAFE ROBUSTA (COFFEE_ROBUSTA)...
-powershell -Command "$headers = @{'Authorization' = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwicm9sZSI6InVzZXIiLCJleHAiOjE4MTAzNzA2NjQsImlhdCI6MTc3ODgzNDY2NCwidHlwZSI6ImFjY2VzcyJ9.vXlvjeNqJ-eXmUEDKqXpWZSdpOJbfAxIeoF7TE1Knvw'; 'Content-Type' = 'application/json'}; $body = @{market = 'COFFEE_ROBUSTA'; horizons = @(1); include_sentiment = $false} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 60; Write-Host ('  Prix: $' + $r.current_price + ' USD/T  J+1: $' + $r.predictions[0].price) } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
+powershell -NoProfile -Command "$t=$env:API_TOKEN; $headers = @{'Authorization' = \"Bearer $t\"; 'Content-Type' = 'application/json'}; $body = @{market = 'COFFEE_ROBUSTA'; horizons = @(1); include_sentiment = $false} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 60; Write-Host ('  Prix: $' + $r.current_price + ' USD/T  J+1: $' + $r.predictions[0].price) } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
 
 echo.
 echo [INFO] Marches disponibles: GET http://localhost:8000/api/v1/markets

@@ -64,17 +64,24 @@ Tous les accès sont loggés avec :
 
 Les tokens sont sauvegardés dans **`JWT_TOKENS.txt`**
 
-### Token de Test (7 jours) - Recommandé
+### Token de service — ne jamais committer
+
+Générez un token avec :
+
+```bash
+python generate_jwt_token.py
+```
+
+Puis stockez-le dans `.env` :
 
 ```
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwicm9sZSI6InVzZXIiLCJleHAiOjE3Nzg4MDY3ODMsImlhdCI6MTc3ODIwMTk4MywidHlwZSI6ImFjY2VzcyJ9.07Vp5BKUfSUhiV_jUAdbl6t82WLhS3M1VFOxYX767hU
+API_TOKEN=<API_TOKEN>
 ```
 
 **Utilisation:**
-- User ID: test@example.com
+- User ID: service@dashboard (token service 1 an) ou test@example.com
 - Role: user
-- Expiration: 7 jours
-- Idéal pour les tests
+- Ne jamais versionner le JWT dans git
 
 ---
 
@@ -98,8 +105,9 @@ curl -X POST "http://localhost:8000/api/v1/predict" \
 ```python
 import requests
 
-# Token de test (7 jours)
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwicm9sZSI6InVzZXIiLCJleHAiOjE3Nzg4MDY3ODMsImlhdCI6MTc3ODIwMTk4MywidHlwZSI6ImFjY2VzcyJ9.07Vp5BKUfSUhiV_jUAdbl6t82WLhS3M1VFOxYX767hU"
+# Token depuis .env (jamais en dur dans le code)
+import os
+TOKEN = os.environ["API_TOKEN"]  # ou "<API_TOKEN>"
 
 headers = {
     "Authorization": f"Bearer {TOKEN}",

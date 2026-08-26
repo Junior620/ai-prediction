@@ -399,18 +399,17 @@ class TestNewsArticle:
             )
         assert "sentiment_score" in str(exc_info.value)
     
-    def test_invalid_source(self):
-        """Test that invalid news source is rejected."""
-        with pytest.raises(PydanticValidationError) as exc_info:
-            NewsArticle(
-                id="article_123",
-                source="invalid_source",
-                title="Test article",
-                content="Content",
-                published_at=datetime.now(timezone.utc),
-                url="https://example.com"
-            )
-        assert "Source must be one of" in str(exc_info.value)
+    def test_arbitrary_source_accepted(self):
+        """Test that source is a free-form string (any value accepted)."""
+        article = NewsArticle(
+            id="article_123",
+            source="invalid_source",
+            title="Test article",
+            content="Content",
+            published_at=datetime.now(timezone.utc),
+            url="https://example.com"
+        )
+        assert article.source == "invalid_source"
     
     def test_empty_title(self):
         """Test that empty title is rejected."""
@@ -425,18 +424,17 @@ class TestNewsArticle:
             )
         assert "title" in str(exc_info.value)
     
-    def test_empty_content(self):
-        """Test that empty content is rejected."""
-        with pytest.raises(PydanticValidationError) as exc_info:
-            NewsArticle(
-                id="article_123",
-                source="reuters",
-                title="Test article",
-                content="",  # Empty
-                published_at=datetime.now(timezone.utc),
-                url="https://example.com"
-            )
-        assert "content" in str(exc_info.value)
+    def test_empty_content_allowed(self):
+        """Test that empty content is allowed (defaults to empty string)."""
+        article = NewsArticle(
+            id="article_123",
+            source="reuters",
+            title="Test article",
+            content="",
+            published_at=datetime.now(timezone.utc),
+            url="https://example.com"
+        )
+        assert article.content == ""
     
     def test_sentiment_score_boundary_minimum(self):
         """Test that sentiment score at minimum boundary (-1) is accepted."""
@@ -464,17 +462,17 @@ class TestNewsArticle:
         )
         assert article.sentiment_score == 1.0
     
-    def test_source_case_normalization(self):
-        """Test that source is normalized to lowercase."""
+    def test_source_case_preserved(self):
+        """Test that source case is preserved (no forced lowercase)."""
         article = NewsArticle(
             id="article_123",
-            source="REUTERS",  # Uppercase
+            source="REUTERS",
             title="Test article",
             content="Content",
             published_at=datetime.now(timezone.utc),
             url="https://example.com"
         )
-        assert article.source == "reuters"  # Should be normalized to lowercase
+        assert article.source == "REUTERS"
     
     def test_optional_sentiment_fields(self):
         """Test that sentiment_score and is_high_risk can be None."""
@@ -604,16 +602,16 @@ class TestPrediction:
         assert "horizon" in str(exc_info.value)
     
     def test_price_out_of_range(self):
-        """Test that predicted price outside valid range is rejected."""
+        """Test that predicted price outside valid range (500-15000) is rejected."""
         with pytest.raises(PydanticValidationError) as exc_info:
             Prediction(
                 horizon=7,
-                price=500.0,  # Below minimum
-                confidence_interval=(400.0, 600.0),
+                price=100.0,  # Below minimum (ge=500)
+                confidence_interval=(1000.0, 2000.0),
                 confidence_level=0.95,
                 timestamp=datetime.now(timezone.utc),
                 model_version="v1.0.0",
-                components={"baseline": 500.0, "residual": 0.0, "sentiment": 0.0}
+                components={"baseline": 100.0, "residual": 0.0, "sentiment": 0.0}
             )
         assert "price" in str(exc_info.value)
     

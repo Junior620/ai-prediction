@@ -121,21 +121,16 @@ export function useDashboardNotifications(
 
   // WebSocket live
   useEffect(() => {
-    const url = api.notificationsWsUrl(market);
-    if (!url) {
-      setWsStatus('offline');
-      return;
-    }
-
     let ws: WebSocket | null = null;
     let closed = false;
     let retry: number | undefined;
     let ping: number | undefined;
+    let wsUrl: string | null = null;
 
     const connect = () => {
-      if (closed) return;
+      if (closed || !wsUrl) return;
       setWsStatus('connecting');
-      ws = new WebSocket(url);
+      ws = new WebSocket(wsUrl);
       ws.onopen = () => {
         setWsStatus('live');
         ping = window.setInterval(() => {
@@ -172,7 +167,15 @@ export function useDashboardNotifications(
       };
     };
 
-    connect();
+    void (async () => {
+      wsUrl = await api.notificationsWsUrl(market);
+      if (!wsUrl) {
+        setWsStatus('offline');
+        return;
+      }
+      connect();
+    })();
+
     // Fallback poll if WS down
     const poll = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh();

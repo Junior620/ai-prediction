@@ -1,161 +1,217 @@
 """
-Collecter les news récentes sur le cacao et les sauvegarder dans Supabase
+Collecte multi-sources des news cacao (veille SCPB) + sentiment + Supabase.
+
+Sources MVP: ONCC, ICCO, CCC CI, COCOBOD, Ecofin, ConfectioneryNews,
+Investir au Cameroun (RSS) + NewsAPI filtre.
 """
 
+from __future__ import annotations
+
+import json
 import os
-import requests
-from datetime import datetime, timedelta
+import sys
+from datetime import datetime
+from pathlib import Path
+
 from dotenv import load_dotenv
 from supabase import create_client
-from textblob import TextBlob
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 load_dotenv()
 
-print("=" * 80)
-print("📰 COLLECTE DES NEWS SUR LE CACAO")
-print("=" * 80)
+# Evite UnicodeEncodeError sur consoles Windows cp1252
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
-# Configuration NewsAPI
-newsapi_url = os.getenv("NEWSAPI_URL", "https://newsapi.org/v2")
-newsapi_key = os.getenv("NEWSAPI_KEY")
+from src.data_collection.news_feed_collector import collect_all_sources
+from src.data_collection.sentiment_scoring import score_sentiment
 
-if not newsapi_key:
-    print("❌ NEWSAPI_KEY non configurée dans .env")
-    exit(1)
 
-# Collect news
-print("\n[1/3] Collecte des articles de news...")
-
-from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-to_date = datetime.now().strftime("%Y-%m-%d")
-
-url = f"{newsapi_url}/everything"
-params = {
-    "q": "cocoa OR cacao OR chocolate",
-    "language": "en",
-    "sortBy": "publishedAt",
-    "from": from_date,
-    "to": to_date,
-    "pageSize": 20,
-    "apiKey": newsapi_key
+# Sources francophones connues (traduction forcee meme si langdetect hesite)
+_FR_SOURCES = {
+    "oncc",
+    "conseil_cafe_cacao",
+    "ecofin",
+    "investir_cameroun",
 }
 
-try:
-    response = requests.get(url, params=params, timeout=10)
-    
-    if response.status_code != 200:
-        print(f"❌ Erreur NewsAPI: HTTP {response.status_code}")
-        print(f"   Message: {response.text}")
-        exit(1)
-    
-    data = response.json()
-    
-    if data.get("status") != "ok":
-        print(f"❌ Erreur NewsAPI: {data.get('message')}")
-        exit(1)
-    
-    articles = data.get("articles", [])
-    total = data.get("totalResults", 0)
-    
-    print(f"✅ {len(articles)} articles collectés (total disponible: {total})")
-    
-except Exception as e:
-    print(f"❌ Erreur lors de la collecte: {e}")
-    exit(1)
 
-if not articles:
-    print("❌ Aucune news collectée")
-    exit(1)
+def _write_journal(
+    journal: list,
+    saved: int,
+    analyzed: int,
+    *,
+    translated: int = 0,
+) -> Path:
+    logs = Path("logs")
+    logs.mkdir(parents=True, exist_ok=True)
+    day = datetime.now().strftime("%Y%m%d")
+    path = logs / f"news_collection_{day}.json"
+    payload = {
+        "collected_at": datetime.now().isoformat(),
+        "sources_ok": [j["name"] for j in journal if j.get("ok")],
+        "sources_failed": [
+            {"name": j["name"], "error": j.get("error")} for j in journal if not j.get("ok")
+        ],
+        "sources_with_novelty": [j["name"] for j in journal if j.get("kept", 0) > 0],
+        "sources_detail": [
+            {
+                "id": j["id"],
+                "name": j["name"],
+                "ok": j["ok"],
+                "error": j.get("error"),
+                "fetched": j.get("fetched", 0),
+                "kept": j.get("kept", 0),
+                "rejected_by_filter": j.get("rejected", 0),
+            }
+            for j in journal
+        ],
+        "articles_analyzed": analyzed,
+        "articles_translated_fr_en": translated,
+        "articles_saved": saved,
+    }
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
 
-# Analyze sentiment
-print("\n[2/3] Analyse du sentiment...")
-articles_with_sentiment = []
 
-for article in articles:
-    if article.get("title") and article.get("description"):
-        text = f"{article['title']}. {article['description']}"
-        
-        # Simple sentiment analysis with TextBlob
-        try:
-            blob = TextBlob(text)
-            sentiment_score = blob.sentiment.polarity  # -1 to 1
-            
-            if sentiment_score > 0.1:
-                sentiment_label = "positive"
-            elif sentiment_score < -0.1:
-                sentiment_label = "negative"
-            else:
-                sentiment_label = "neutral"
-            
-            article["sentiment_score"] = sentiment_score
-            article["sentiment_label"] = sentiment_label
-            articles_with_sentiment.append(article)
-            
-            print(f"   {article['title'][:60]}... → {sentiment_label} ({sentiment_score:.2f})")
-        except Exception as e:
-            print(f"   ⚠️  Erreur sentiment pour: {article['title'][:50]}...")
-            continue
-
-print(f"✅ {len(articles_with_sentiment)} articles analysés")
-
-# Save to Supabase
-print("\n[3/3] Sauvegarde dans Supabase...")
-
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
-)
-
-saved_count = 0
-for article in articles_with_sentiment:
-    try:
-        # Check if article already exists (by URL)
-        existing = supabase.table("news_articles").select("id").eq("url", article["url"]).execute()
-        
-        if existing.data:
-            print(f"   ⏭️  Déjà existant: {article['title'][:50]}...")
-            continue
-        
-        # Insert new article (matching actual Supabase schema)
-        insert_data = {
-            "collected_at": datetime.now().isoformat(),
-            "title": article["title"],
-            "description": article.get("description", ""),
-            "content": article.get("content", "") or article.get("description", "") or "",
-            "source": article["source"]["name"],
-            "url": article["url"],
-            "published_at": article["publishedAt"],
-            "sentiment_score": float(article["sentiment_score"]),
-            "sentiment_label": article["sentiment_label"],
-            "keywords": ["cocoa", "cacao"],
-            "is_high_risk": abs(article["sentiment_score"]) > 0.5
-        }
-        
-        result = supabase.table("news_articles").insert(insert_data).execute()
-        saved_count += 1
-        print(f"   ✅ Sauvegardé: {article['title'][:50]}...")
-        
-    except Exception as e:
-        print(f"   ❌ Erreur: {str(e)}")
-
-print(f"\n✅ {saved_count} nouveaux articles sauvegardés dans Supabase")
-
-# Calculate aggregate sentiment
-if articles_with_sentiment:
-    avg_sentiment = sum(a["sentiment_score"] for a in articles_with_sentiment) / len(articles_with_sentiment)
-    
-    print("\n" + "=" * 80)
-    print("📊 SENTIMENT GLOBAL DU MARCHÉ")
+def main() -> int:
     print("=" * 80)
-    print(f"\nScore moyen: {avg_sentiment:.3f}")
-    
-    if avg_sentiment > 0.2:
-        print("Sentiment: POSITIF 📈 (marché optimiste)")
-    elif avg_sentiment < -0.2:
-        print("Sentiment: NÉGATIF 📉 (marché pessimiste)")
-    else:
-        print("Sentiment: NEUTRE ➡️ (marché stable)")
+    print("COLLECTE NEWS CACAO - veille multi-sources SCPB")
+    print("=" * 80)
 
-print("\n" + "=" * 80)
-print("✅ Collecte terminée!")
-print("=" * 80)
+    print("\n[1/3] Collecte multi-sources (RSS/HTML + NewsAPI filtre)...")
+    articles, journal = collect_all_sources()
+
+    for j in journal:
+        if j.get("ok"):
+            print(
+                f"   [OK] {j['name']}: {j.get('fetched', 0)} bruts -> "
+                f"{j.get('kept', 0)} retenus ({j.get('rejected', 0)} filtres)"
+            )
+        else:
+            print(f"   [KO] {j['name']}: {j.get('error')}")
+
+    print(f"\n   Total apres dedup: {len(articles)} articles")
+
+    if not articles:
+        print("[AVERTISSEMENT] Aucun article retenu - verifiez reseau / sources")
+        path = _write_journal(journal, saved=0, analyzed=0, translated=0)
+        print(f"Journal: {path}")
+        return 0  # non bloquant pour update_system
+
+    print("\n[2/3] Analyse du sentiment (FR->EN si besoin)...")
+    analyzed = []
+    translated_count = 0
+    for art in articles:
+        title = art.get("title") or ""
+        desc = art.get("description") or ""
+        if not title:
+            continue
+        try:
+            src_id = (art.get("source_id") or art.get("source") or "").lower()
+            force_fr = any(k in src_id for k in _FR_SOURCES)
+            score, label, was_tr = score_sentiment(
+                title, desc, force_translate=force_fr
+            )
+            if was_tr:
+                translated_count += 1
+            art["sentiment_score"] = score
+            art["sentiment_label"] = label
+            art["sentiment_translated"] = was_tr
+            analyzed.append(art)
+            flag = " [FR->EN]" if was_tr else ""
+            print(
+                f"   {title[:60]}... -> {label} ({score:.2f}) "
+                f"[{art.get('source')}]{flag}"
+            )
+        except Exception as exc:
+            print(f"   [WARN] sentiment: {title[:40]}... ({exc})")
+
+    print(
+        f"[OK] {len(analyzed)} articles analyses "
+        f"({translated_count} traduits FR->EN)"
+    )
+
+    print("\n[3/3] Sauvegarde dans Supabase...")
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    if not url or not key:
+        print("[ERREUR] SUPABASE_URL / SUPABASE_KEY manquants")
+        return 1
+
+    supabase = create_client(url, key)
+    saved = 0
+    for article in analyzed:
+        try:
+            existing = (
+                supabase.table("news_articles")
+                .select("id")
+                .eq("url", article["url"])
+                .execute()
+            )
+            if existing.data:
+                print(f"   [SKIP] Deja existant: {article['title'][:50]}...")
+                continue
+
+            insert_data = {
+                "collected_at": datetime.now().isoformat(),
+                "title": article["title"],
+                "description": article.get("description", "") or "",
+                "content": article.get("content")
+                or article.get("description", "")
+                or article["title"],
+                "source": article.get("source") or "unknown",
+                "url": article["url"],
+                "published_at": article.get("published_at") or datetime.now().isoformat(),
+                "sentiment_score": float(article["sentiment_score"]),
+                "sentiment_label": article["sentiment_label"],
+                "keywords": ["cocoa", "cacao"],
+                "is_high_risk": abs(float(article["sentiment_score"])) > 0.5,
+            }
+            supabase.table("news_articles").insert(insert_data).execute()
+            saved += 1
+            print(f"   [OK] Sauve: {article['title'][:50]}...")
+        except Exception as exc:
+            print(f"   [ERR] {exc}")
+
+    print(f"\n[OK] {saved} nouveaux articles sauvegardes")
+
+    if analyzed:
+        avg = sum(a["sentiment_score"] for a in analyzed) / len(analyzed)
+        print("\n" + "=" * 80)
+        print("SENTIMENT GLOBAL DU MARCHE")
+        print("=" * 80)
+        print(f"\nScore moyen: {avg:.3f}")
+        if avg > 0.2:
+            print("Sentiment: POSITIF (marche optimiste)")
+        elif avg < -0.2:
+            print("Sentiment: NEGATIF (marche pessimiste)")
+        else:
+            print("Sentiment: NEUTRE (marche stable)")
+
+    path = _write_journal(
+        journal,
+        saved=saved,
+        analyzed=len(analyzed),
+        translated=translated_count,
+    )
+    print("\n" + "=" * 80)
+    print("JOURNAL DE COLLECTE")
+    print("=" * 80)
+    ok = [j["name"] for j in journal if j.get("ok")]
+    ko = [j["name"] for j in journal if not j.get("ok")]
+    novelty = [j["name"] for j in journal if j.get("kept", 0) > 0]
+    print(f"Sources OK     : {', '.join(ok) or '-'}")
+    print(f"Sources KO     : {', '.join(ko) or '-'}")
+    print(f"Avec nouveautes: {', '.join(novelty) or '-'}")
+    print(f"Fichier        : {path}")
+    print("\n" + "=" * 80)
+    print("[OK] Collecte terminee")
+    print("=" * 80)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

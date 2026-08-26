@@ -48,7 +48,11 @@ st.markdown("""
 
 # Configuration API
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-API_TOKEN = os.getenv("API_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwicm9sZSI6InVzZXIiLCJleHAiOjE3Nzg4MDY3ODMsImlhdCI6MTc3ODIwMTk4MywidHlwZSI6ImFjY2VzcyJ9.07Vp5BKUfSUhiV_jUAdbl6t82WLhS3M1VFOxYX767hU")
+API_TOKEN = os.getenv("API_TOKEN")
+if not API_TOKEN:
+    raise RuntimeError(
+        "API_TOKEN manquant. Définissez-le dans .env (généré via generate_jwt_token.py)."
+    )
 
 headers = {
     "Authorization": f"Bearer {API_TOKEN}",

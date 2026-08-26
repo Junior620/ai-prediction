@@ -122,14 +122,23 @@ data_collection:
       base_currency: "USD"
       target_currencies: ["XAF", "GBP", "EUR"]
   
-  # News Sources
+  # News Sources — veille cacao multi-sources (MVP SCPB)
   news_sources:
     newsapi:
       enabled: true
-      api_key_env: "NEWS_API_KEY"
-      query: "cocoa OR cacao OR chocolate"
-      max_articles: 100
-      language: "en"
+      api_key_env: "NEWSAPI_KEY"
+      query: "(cocoa OR cacao) AND (price OR futures OR harvest OR grindings OR EUDR OR COCOBOD OR ICCO)"
+      domains: "reuters.com,confectionerynews.com,foodnavigator.com,agenceecofin.com,businessincameroon.com,investiraucameroun.com"
+      max_articles: 30
+      days_back: 7
+    mvp_feeds:
+      - oncc
+      - icco
+      - ccc_ci
+      - cocobod
+      - ecofin
+      - confectionerynews
+      - investir_cm
 
 # Prophet Model Configuration
 prophet:

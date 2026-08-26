@@ -11,7 +11,7 @@ from pathlib import Path
 # Ajouter le répertoire racine au path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.api.auth import create_user_token, create_access_token
+from src.api.auth import create_user_token, create_access_token, create_service_token
 from config.settings import get_settings
 
 print("=" * 80)
@@ -69,10 +69,29 @@ print(f"\nToken:")
 print(admin_token)
 
 # ============================================================================
-# 3. TOKEN LONGUE DURÉE (24 heures)
+# 3. TOKEN SERVICE (1 an) — batch + BFF Next.js
 # ============================================================================
 print("\n" + "=" * 80)
-print("[3] Token Longue Durée (24 heures)")
+print("[3] Token Service (1 an) — API_TOKEN pour .env / Vercel")
+print("-" * 80)
+
+service_token = create_service_token(
+    user_id="service@dashboard",
+    role="user",
+    days=365,
+)
+
+print(f"\nUser ID: service@dashboard")
+print(f"Role: user")
+print(f"Expiration: 365 jours")
+print(f"\nToken (à mettre dans API_TOKEN=...):")
+print(service_token)
+
+# ============================================================================
+# 4. TOKEN LONGUE DURÉE (24 heures)
+# ============================================================================
+print("\n" + "=" * 80)
+print("[4] Token Longue Durée (24 heures)")
 print("-" * 80)
 
 long_token = create_access_token(
@@ -87,10 +106,10 @@ print(f"\nToken:")
 print(long_token)
 
 # ============================================================================
-# 4. TOKEN DE TEST (7 jours)
+# 5. TOKEN DE TEST (7 jours)
 # ============================================================================
 print("\n" + "=" * 80)
-print("[4] Token de Test (7 jours)")
+print("[5] Token de Test (7 jours)")
 print("-" * 80)
 
 test_token = create_access_token(
@@ -112,80 +131,18 @@ print("COMMENT UTILISER CES TOKENS")
 print("=" * 80)
 
 print("""
-1. AVEC CURL:
-   
+1. Stockez le token service dans .env (JAMAIS dans git) :
+
+   API_TOKEN=<token service ci-dessus>
+
+2. Frontend Vercel : variable server-only API_TOKEN (pas NEXT_PUBLIC_*).
+
+3. AVEC CURL :
+
    curl -X POST "http://localhost:8000/api/v1/predict" \\
-     -H "Authorization: Bearer YOUR_TOKEN_HERE" \\
+     -H "Authorization: Bearer $API_TOKEN" \\
      -H "Content-Type: application/json" \\
-     -d '{
-       "market": "ICE_LONDON",
-       "horizons": [1, 7, 30],
-       "include_sentiment": true
-     }'
-
-2. AVEC PYTHON REQUESTS:
-   
-   import requests
-   
-   headers = {
-       "Authorization": "Bearer YOUR_TOKEN_HERE",
-       "Content-Type": "application/json"
-   }
-   
-   response = requests.post(
-       "http://localhost:8000/api/v1/predict",
-       json={
-           "market": "ICE_LONDON",
-           "horizons": [1, 7, 30],
-           "include_sentiment": True
-       },
-       headers=headers
-   )
-   
-   print(response.json())
-
-3. DANS SWAGGER UI (http://localhost:8000/docs):
-   
-   a) Cliquez sur le bouton "Authorize" en haut à droite
-   b) Entrez: Bearer YOUR_TOKEN_HERE
-   c) Cliquez sur "Authorize"
-   d) Testez les endpoints directement dans l'interface
-
-4. AVEC POSTMAN:
-   
-   a) Créez une nouvelle requête POST
-   b) URL: http://localhost:8000/api/v1/predict
-   c) Onglet "Authorization":
-      - Type: Bearer Token
-      - Token: YOUR_TOKEN_HERE
-   d) Onglet "Body":
-      - Type: raw (JSON)
-      - Contenu: voir exemple ci-dessus
-""")
-
-print("\n" + "=" * 80)
-print("TYPES DE TOKENS")
-print("=" * 80)
-
-print("""
-- Token Utilisateur: Accès aux endpoints de prédiction et de performance
-- Token Admin: Accès à tous les endpoints + réentraînement des modèles
-- Token Longue Durée: Pour les tests et le développement
-- Token de Test: Pour les tests automatisés et CI/CD
-""")
-
-print("\n" + "=" * 80)
-print("SÉCURITÉ")
-print("=" * 80)
-
-print("""
-⚠️  IMPORTANT:
-- Ne partagez JAMAIS vos tokens en production
-- Utilisez HTTPS en production (pas HTTP)
-- Changez le SECRET_KEY en production
-- Utilisez des tokens de courte durée (1 heure) en production
-- Implémentez un système de refresh tokens pour les applications
-- Stockez les tokens de manière sécurisée (pas dans le code source)
+     -d '{"market": "ICE_NY", "horizons": [1, 7, 30], "include_sentiment": true}'
 """)
 
 print("\n" + "=" * 80)

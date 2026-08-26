@@ -13,16 +13,28 @@ import type {
   FuturesCurveResponse,
 } from '@/types/api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN;
-
+/** Same-origin BFF — JWT stays on the server (API_TOKEN). */
 const apiClient = axios.create({
-  baseURL: API_URL,
+  baseURL: '/api/backend',
   headers: {
     'Content-Type': 'application/json',
-    ...(API_TOKEN && { Authorization: `Bearer ${API_TOKEN}` }),
   },
 });
+
+export interface PerformanceMetricsResponse {
+  metrics?: Array<{
+    model_type?: string;
+    horizon?: number;
+    mape?: number;
+    rmse?: number;
+    mae?: number;
+    direction_accuracy?: number;
+    period_start?: string;
+    period_end?: string;
+    [key: string]: unknown;
+  }>;
+  [key: string]: unknown;
+}
 
 export const api = {
   async getPredictions(request: PredictionRequest): Promise<PredictionResponse> {
@@ -47,6 +59,20 @@ export const api = {
       params: { include_predictions: includePredictions },
     });
     return response.data;
+  },
+
+  async getPerformance(params?: {
+    start_date?: string;
+    end_date?: string;
+  }): Promise<PerformanceMetricsResponse | null> {
+    try {
+      const response = await apiClient.get<PerformanceMetricsResponse>('/api/v1/performance', {
+        params,
+      });
+      return response.data;
+    } catch {
+      return null;
+    }
   },
 
   async getValidationMetrics(): Promise<ValidationMetricsResponse | null> {
@@ -129,13 +155,20 @@ export const api = {
     await apiClient.post('/api/v1/notifications/read-all', null, { params: { market } });
   },
 
-  notificationsWsUrl(market: string): string | null {
-    if (!API_TOKEN) return null;
-    const base = API_URL.replace(/\/$/, '');
-    const wsBase = base.startsWith('https')
-      ? base.replace(/^https/, 'wss')
-      : base.replace(/^http/, 'ws');
-    const q = new URLSearchParams({ token: API_TOKEN, market });
-    return `${wsBase}/api/v1/ws/notifications?${q.toString()}`;
+  /** Fetch WS auth from server route, then build wss URL (token not in bundle). */
+  async notificationsWsUrl(market: string): Promise<string | null> {
+    try {
+      const res = await fetch('/api/auth/ws-token', { cache: 'no-store' });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { token?: string; apiUrl?: string };
+      if (!data.token || !data.apiUrl) return null;
+      const wsBase = data.apiUrl.startsWith('https')
+        ? data.apiUrl.replace(/^https/, 'wss')
+        : data.apiUrl.replace(/^http/, 'ws');
+      const q = new URLSearchParams({ token: data.token, market });
+      return `${wsBase}/api/v1/ws/notifications?${q.toString()}`;
+    } catch {
+      return null;
+    }
   },
 };

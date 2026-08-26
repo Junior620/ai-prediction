@@ -15,6 +15,12 @@ import numpy as np
 from datetime import datetime, timedelta
 from unittest.mock import Mock, MagicMock, patch, call
 
+from src.models.model_manager import ModelManager
+from src.models.retraining_manager import RetrainingManager
+from src.models.price_predictor import PricePredictor
+from src.monitoring.performance_monitor import PerformanceMonitor
+from src.data_preprocessing.data_preprocessor import DataPreprocessor
+
 # Note: We mock MLflow components to avoid protobuf compatibility issues
 # from mlflow.entities.model_registry import ModelVersion
 

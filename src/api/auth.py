@@ -207,21 +207,35 @@ def verify_admin_token(
         raise
 
 
-def create_user_token(user_id: str, role: str = "user") -> str:
+def create_user_token(
+    user_id: str,
+    role: str = "user",
+    expires_delta: Optional[timedelta] = None,
+) -> str:
     """
     Convenience function to create a token for a user.
     
     Args:
         user_id: User identifier
         role: User role (default: "user", can be "admin")
+        expires_delta: Optional custom expiration (default: 1 hour)
     
     Returns:
         JWT token string
-    
-    Example:
-        >>> token = create_user_token("trader123", role="user")
-        >>> admin_token = create_user_token("admin001", role="admin")
     """
     return create_access_token(
-        data={"sub": user_id, "role": role}
+        data={"sub": user_id, "role": role},
+        expires_delta=expires_delta,
+    )
+
+
+def create_service_token(
+    user_id: str = "service@dashboard",
+    role: str = "user",
+    days: int = 365,
+) -> str:
+    """Create a long-lived service token for batch scripts and the Next.js BFF."""
+    return create_access_token(
+        data={"sub": user_id, "role": role},
+        expires_delta=timedelta(days=days),
     )

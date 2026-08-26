@@ -11,7 +11,7 @@ Requirements: 3.3, 3.4, 3.5
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from src.nlp.nlp_analyzer import NLPAnalyzer
 from src.models.data_models import NewsArticle
 
@@ -88,7 +88,7 @@ class TestNLPAnalyzerCheckpoint:
             source="reuters",
             title="Crisis in Cocoa Markets",
             content="Severe drought and swollen shoot disease devastate cocoa crops, causing supply shortage and price surge",
-            published_at=datetime.now(),
+            published_at=datetime.now(timezone.utc),
             url="http://example.com",
             keywords=[],
             sentiment_score=None
@@ -112,7 +112,7 @@ class TestNLPAnalyzerCheckpoint:
             source="bloomberg",
             title="Cocoa Market Update",
             content="Cocoa prices remain stable with normal trading conditions",
-            published_at=datetime.now(),
+            published_at=datetime.now(timezone.utc),
             url="http://example.com",
             keywords=[],
             sentiment_score=None
@@ -157,7 +157,7 @@ class TestNLPAnalyzerCheckpoint:
                 source="reuters",
                 title="Title 1",
                 content="Content 1",
-                published_at=datetime.now(),
+                published_at=datetime.now(timezone.utc),
                 url="http://example.com/1",
                 keywords=[],
                 sentiment_score=-0.5
@@ -167,7 +167,7 @@ class TestNLPAnalyzerCheckpoint:
                 source="bloomberg",
                 title="Title 2",
                 content="Content 2",
-                published_at=datetime.now(),
+                published_at=datetime.now(timezone.utc),
                 url="http://example.com/2",
                 keywords=[],
                 sentiment_score=0.3

@@ -376,11 +376,16 @@ class NLPAnalyzer:
 
         current_time = datetime.now(timezone.utc)
 
+        def _as_utc(dt: datetime) -> datetime:
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+
         # Filter articles within time window and with sentiment scores
         valid_articles = [
             article for article in articles
             if article.sentiment_score is not None
-            and (current_time - article.published_at) <= time_window
+            and (current_time - _as_utc(article.published_at)) <= time_window
         ]
 
         if not valid_articles:
@@ -391,7 +396,8 @@ class NLPAnalyzer:
         total_weight = 0.0
 
         for article in valid_articles:
-            time_diff = (current_time - article.published_at).total_seconds() / 3600
+            published = _as_utc(article.published_at)
+            time_diff = (current_time - published).total_seconds() / 3600
             # Half-life = 12 hours (weight halves every 12 hours)
             weight = np.exp(-time_diff / 12.0)
 

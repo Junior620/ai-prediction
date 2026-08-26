@@ -67,7 +67,7 @@ docker-compose restart api
 
 ```powershell
 $headers = @{
-    "Authorization" = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwicm9sZSI6InVzZXIiLCJleHAiOjE3NzkyMzk1NzYsImlhdCI6MTc3ODYzNDc3NiwidHlwZSI6ImFjY2VzcyJ9.LYT7a8iLQr2xVXq7Uhl6079TnHK58SpnFmzTNU_W50w"
+    "Authorization" = "Bearer <API_TOKEN>"
     "Content-Type" = "application/json"
 }
 
@@ -84,7 +84,7 @@ Invoke-RestMethod -Uri "http://localhost:8000/api/v1/predict" -Method Post -Head
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/predict" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwicm9sZSI6InVzZXIiLCJleHAiOjE3NzkyMzk1NzYsImlhdCI6MTc3ODYzNDc3NiwidHlwZSI6ImFjY2VzcyJ9.LYT7a8iLQr2xVXq7Uhl6079TnHK58SpnFmzTNU_W50w" \
+  -H "Authorization: Bearer <API_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
     "market": "ICE_NY",

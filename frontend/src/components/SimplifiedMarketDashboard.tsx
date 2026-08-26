@@ -83,6 +83,8 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const [intelligence, setIntelligence] = useState<MarketIntelligenceResponse | null>(null);
   const [validation, setValidation] = useState<ValidationMetricsResponse | null>(null);
   const [futures, setFutures] = useState<FuturesCurveResponse | null>(null);
+  const [perfMape, setPerfMape] = useState<number | null>(null);
+  const [perfRmse, setPerfRmse] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [briefLoading, setBriefLoading] = useState(true);
   const [advancedLoading, setAdvancedLoading] = useState(false);
@@ -175,16 +177,30 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
       setError(null);
     }
     try {
-      const [predRes, valRes] = await Promise.all([
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 90);
+      const [predRes, valRes, perfRes] = await Promise.all([
         api.getPredictions({
           market: config.market,
           horizons: [1, 7, 30],
           include_sentiment: config.includeSentiment,
         }),
         api.getValidationMetrics(),
+        api.getPerformance({
+          start_date: start.toISOString(),
+          end_date: end.toISOString(),
+        }),
       ]);
       setData(predRes);
       setValidation(valRes);
+      const latest = perfRes?.metrics?.[0];
+      setPerfMape(
+        latest?.mape != null ? Number(latest.mape) : null,
+      );
+      setPerfRmse(
+        latest?.rmse != null ? Number(latest.rmse) : null,
+      );
       if (config.market === 'ICE_NY') {
         try {
           const fut = await api.getFutures(true);
@@ -392,6 +408,28 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 lastUpdate={lastUpdate}
                 accentClass={theme.accentClass}
               />
+
+              {(perfMape != null || perfRmse != null) && (
+                <div className="glass-card px-4 py-3 flex flex-wrap gap-6 text-sm text-slate-300">
+                  <span className="text-slate-500 uppercase tracking-wide text-xs self-center">
+                    Précision récente
+                  </span>
+                  {perfMape != null && (
+                    <span>
+                      MAPE{' '}
+                      <strong className="text-slate-100">
+                        {(perfMape <= 1 ? perfMape * 100 : perfMape).toFixed(2)}%
+                      </strong>
+                    </span>
+                  )}
+                  {perfRmse != null && (
+                    <span>
+                      RMSE{' '}
+                      <strong className="text-slate-100">{perfRmse.toFixed(1)}</strong>
+                    </span>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {data.predictions.map(pred => (

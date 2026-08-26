@@ -68,11 +68,9 @@ mlartifacts/
 dump.rdb
 appendonly.aof
 
-# Models
-models/*.pkl
-models/*.joblib
-models/*.h5
-models/*.pt
+# Models (artefacts locaux — ne pas versionner)
+/models/**
+!/models/.gitkeep
 
 # Jupyter Notebooks
 .ipynb_checkpoints/

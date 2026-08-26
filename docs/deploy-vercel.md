@@ -75,11 +75,13 @@ Project → Settings → Environment Variables :
 
 | Variable | Exemple | Visible navigateur |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | `https://api.ton-domaine.com` | oui |
-| `NEXT_PUBLIC_API_TOKEN` | JWT long-lived | oui |
-| `API_BACKEND_URL` | `https://api.ton-domaine.com` | non (server) |
+| `NEXT_PUBLIC_API_URL` | `https://api.ton-domaine.com` | oui (host WS seulement) |
+| `API_BACKEND_URL` | `https://api.ton-domaine.com` | non (server / BFF) |
+| `API_TOKEN` | JWT service (generate_jwt_token.py) | non (server) |
 
-`API_BACKEND_URL` sert au **proxy webhook**. Souvent identique a `NEXT_PUBLIC_API_URL`.
+Ne plus utiliser `NEXT_PUBLIC_API_TOKEN` — le BFF `/api/backend` injecte le JWT côté serveur.
+
+`API_BACKEND_URL` sert au **proxy BFF** et au **webhook**. Souvent identique a `NEXT_PUBLIC_API_URL`.
 
 Apres modification des env : **Redeploy**.
 
@@ -153,8 +155,8 @@ Si timeout : l’API peut quand meme finir le brief (cache Redis) ; TradingView 
 ## 7. Checklist
 
 - [ ] Frontend deploye sur Vercel (`frontend` = root)
-- [ ] `NEXT_PUBLIC_API_URL` = API HTTPS publique
-- [ ] `NEXT_PUBLIC_API_TOKEN` = JWT valide
+- [ ] `NEXT_PUBLIC_API_URL` = API HTTPS publique (host WS)
+- [ ] `API_TOKEN` = JWT service (server-only, pas NEXT_PUBLIC_)
 - [ ] `API_BACKEND_URL` = meme API HTTPS
 - [ ] `GET /api/webhooks/tradingview` → `ready: true`
 - [ ] Pine sur `ICEEUR:C1!` avec le secret

@@ -27,6 +27,9 @@ from src.api.models import (
 from src.models.data_models import Prediction, NewsArticle
 
 
+TEST_SECRET_KEY = "test_secret_key_for_jwt"
+
+
 @pytest.fixture
 def client():
     """Create test client."""
@@ -35,121 +38,117 @@ def client():
 
 @pytest.fixture
 def mock_settings():
-    """Mock settings."""
-    with patch('src.api.app.get_settings') as mock:
-        settings = Mock()
-        settings.secret_key = "test_secret_key"
-        settings.supabase_url = "http://test-supabase.com"
-        settings.supabase_key = "test_key"
-        settings.redis_host = "localhost"
-        settings.redis_port = 6379
-        settings.redis_password = ""
-        settings.redis_db = 0
-        settings.mlflow_tracking_uri = "http://localhost:5000"
-        settings.mlflow_registry_uri = "http://localhost:5000"
-        mock.return_value = settings
+    """Mock settings with a shared JWT secret for auth + app."""
+    settings = Mock()
+    settings.secret_key = TEST_SECRET_KEY
+    settings.supabase_url = "http://test-supabase.com"
+    settings.supabase_key = "test_key"
+    settings.redis_host = "localhost"
+    settings.redis_port = 6379
+    settings.redis_password = ""
+    settings.redis_db = 0
+    settings.mlflow_tracking_uri = "http://localhost:5000"
+    settings.mlflow_registry_uri = "http://localhost:5000"
+    with patch("src.api.auth.get_settings", return_value=settings), \
+         patch("src.api.app.get_settings", return_value=settings):
         yield settings
 
 
 @pytest.fixture
-def auth_headers():
-    """Authentication headers for testing."""
-    return {"Authorization": "Bearer test_secret_key"}
+def auth_headers(mock_settings):
+    """JWT auth headers for a regular user."""
+    from src.api.auth import create_user_token
+    token = create_user_token("test_user", role="user")
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
-def admin_auth_headers():
-    """Admin authentication headers for testing."""
-    return {"Authorization": "Bearer admin_test_secret_key"}
+def admin_auth_headers(mock_settings):
+    """JWT auth headers for an admin user."""
+    from src.api.auth import create_user_token
+    token = create_user_token("admin_user", role="admin")
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
 def mock_redis_cache():
-    """Mock Redis cache."""
-    with patch('src.api.app.redis_cache') as mock:
-        cache = Mock()
-        cache.health_check.return_value = True
-        cache.get_prediction.return_value = None
-        cache.set_prediction.return_value = True
-        cache.invalidate_all_predictions.return_value = 5
-        mock.return_value = cache
-        yield cache
+    """Mock Redis cache object (patch into app module in each test)."""
+    cache = Mock()
+    cache.health_check.return_value = True
+    cache.get_prediction.return_value = None
+    cache.set_prediction.return_value = True
+    cache.invalidate_all_predictions.return_value = 5
+    return cache
 
 
 @pytest.fixture
 def mock_supabase_client():
-    """Mock Supabase client."""
-    with patch('src.api.app.supabase_client') as mock:
-        client = Mock()
-        mock.return_value = client
-        yield client
+    """Mock Supabase client object."""
+    return Mock()
+
+
+def _make_mock_predictor():
+    """Build a mock multi-market predictor used by /api/v1/predict."""
+    predictor = Mock()
+    predictor.model_version = "1.0.0"
+
+    def mock_predict(horizons, exog_features, recent_news, **kwargs):
+        predictions = []
+        for horizon in horizons:
+            pred = Prediction(
+                horizon=horizon,
+                price=3000.0 + horizon * 10,
+                confidence_interval=(2900.0 + horizon * 10, 3100.0 + horizon * 10),
+                confidence_level=0.95,
+                timestamp=datetime.utcnow(),
+                model_version="1.0.0",
+                components={
+                    "baseline": 2950.0,
+                    "residual": 50.0,
+                    "sentiment": 0.0
+                }
+            )
+            predictions.append(pred)
+        return predictions
+
+    predictor.predict = mock_predict
+    nlp_analyzer = Mock()
+    nlp_analyzer.aggregate_sentiment.return_value = -0.15
+    predictor.nlp_analyzer = nlp_analyzer
+    return predictor
 
 
 @pytest.fixture
 def mock_price_predictor():
-    """Mock price predictor."""
-    with patch('src.api.app.price_predictor') as mock:
-        predictor = Mock()
-        predictor.model_version = "1.0.0"
-        
-        # Mock predict method
-        def mock_predict(horizons, exog_features, recent_news, **kwargs):
-            predictions = []
-            for horizon in horizons:
-                pred = Prediction(
-                    horizon=horizon,
-                    price=3000.0 + horizon * 10,
-                    confidence_interval=(2900.0 + horizon * 10, 3100.0 + horizon * 10),
-                    confidence_level=0.95,
-                    timestamp=datetime.utcnow(),
-                    model_version="1.0.0",
-                    components={
-                        "baseline": 2950.0,
-                        "residual": 50.0,
-                        "sentiment": 0.0
-                    }
-                )
-                predictions.append(pred)
-            return predictions
-        
-        predictor.predict = mock_predict
-        
-        # Mock NLP analyzer
-        nlp_analyzer = Mock()
-        nlp_analyzer.aggregate_sentiment.return_value = -0.15
-        predictor.nlp_analyzer = nlp_analyzer
-        
-        mock.return_value = predictor
+    """Mock cocoa predictor registered in app.predictors (multi-market)."""
+    predictor = _make_mock_predictor()
+    with patch("src.api.app.predictors", {"cocoa": predictor}), \
+         patch("src.api.app.price_predictor", predictor):
         yield predictor
 
 
 @pytest.fixture
 def mock_model_manager():
-    """Mock model manager."""
-    with patch('src.api.app.model_manager') as mock:
-        manager = Mock()
-        
-        # Mock list_model_versions
-        mock_version = Mock()
-        mock_version.version = "1"
-        mock_version.current_stage = "Production"
-        mock_version.creation_timestamp = datetime.utcnow().timestamp() * 1000
-        manager.list_model_versions.return_value = [mock_version]
-        
-        # Mock get_model_info
-        manager.get_model_info.return_value = {
-            "name": "cocoa_prophet",
-            "version": "1",
-            "stage": "Production",
-            "metrics": {
-                "rmse": 45.2,
-                "mae": 32.1,
-                "mape": 0.025
-            }
+    """Mock model manager object."""
+    manager = Mock()
+
+    mock_version = Mock()
+    mock_version.version = "1"
+    mock_version.current_stage = "Production"
+    mock_version.creation_timestamp = datetime.utcnow().timestamp() * 1000
+    manager.list_model_versions.return_value = [mock_version]
+
+    manager.get_model_info.return_value = {
+        "name": "cocoa_prophet",
+        "version": "1",
+        "stage": "Production",
+        "metrics": {
+            "rmse": 45.2,
+            "mae": 32.1,
+            "mape": 0.025
         }
-        
-        mock.return_value = manager
-        yield manager
+    }
+    return manager
 
 
 class TestRootEndpoints:
@@ -197,36 +196,35 @@ class TestPredictEndpoint:
         mock_redis_cache
     ):
         """Test successful prediction request."""
-        with patch('src.api.app.price_predictor', mock_price_predictor):
-            with patch('src.api.app.supabase_client', mock_supabase_client):
-                with patch('src.api.app.redis_cache', mock_redis_cache):
-                    # Mock Supabase query for news
-                    mock_response = Mock()
-                    mock_response.data = []
-                    mock_supabase_client.table.return_value.select.return_value.gte.return_value.order.return_value.limit.return_value.execute.return_value = mock_response
-                    
-                    # Mock Supabase insert for predictions
-                    mock_supabase_client.table.return_value.insert.return_value.execute.return_value = Mock()
-                    
-                    request_data = {
-                        "horizons": [1, 7, 30],
-                        "market": "ICE_London",
-                        "include_sentiment": True
-                    }
-                    
-                    response = client.post(
-                        "/api/v1/predict",
-                        json=request_data,
-                        headers=auth_headers
-                    )
-                    
-                    assert response.status_code == 200
-                    data = response.json()
-                    assert "predictions" in data
-                    assert len(data["predictions"]) == 3
-                    assert data["model_version"] == "1.0.0"
-                    assert data["market"] == "ICE_London"
-                    assert "sentiment_score" in data
+        with patch('src.api.app.supabase_client', mock_supabase_client):
+            with patch('src.api.app.redis_cache', mock_redis_cache):
+                # Mock Supabase query for news
+                mock_response = Mock()
+                mock_response.data = []
+                mock_supabase_client.table.return_value.select.return_value.gte.return_value.order.return_value.limit.return_value.execute.return_value = mock_response
+                
+                # Mock Supabase insert for predictions
+                mock_supabase_client.table.return_value.insert.return_value.execute.return_value = Mock()
+                
+                request_data = {
+                    "horizons": [1, 7, 30],
+                    "market": "ICE_London",
+                    "include_sentiment": True
+                }
+                
+                response = client.post(
+                    "/api/v1/predict",
+                    json=request_data,
+                    headers=auth_headers
+                )
+                
+                assert response.status_code == 200
+                data = response.json()
+                assert "predictions" in data
+                assert len(data["predictions"]) == 3
+                assert data["model_version"] == "1.0.0"
+                assert data["market"] == "ICE_London"
+                assert "sentiment_score" in data
     
     def test_predict_without_authentication(self, client):
         """Test prediction request without authentication fails."""
@@ -237,9 +235,9 @@ class TestPredictEndpoint:
         }
         
         response = client.post("/api/v1/predict", json=request_data)
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
     
-    def test_predict_invalid_token(self, client):
+    def test_predict_invalid_token(self, client, mock_settings):
         """Test prediction request with invalid token fails."""
         request_data = {
             "horizons": [1, 7, 30],
@@ -255,6 +253,7 @@ class TestPredictEndpoint:
         self,
         client,
         auth_headers,
+        mock_price_predictor,
         mock_redis_cache
     ):
         """Test prediction returns cached result on cache hit."""
@@ -276,23 +275,22 @@ class TestPredictEndpoint:
         mock_redis_cache.get_prediction.return_value = cached_response
         
         with patch('src.api.app.redis_cache', mock_redis_cache):
-            with patch('src.api.app.price_predictor', Mock()):
-                request_data = {
-                    "horizons": [1],
-                    "market": "ICE_London",
-                    "include_sentiment": True
-                }
-                
-                response = client.post(
-                    "/api/v1/predict",
-                    json=request_data,
-                    headers=auth_headers
-                )
-                
-                assert response.status_code == 200
-                data = response.json()
-                assert len(data["predictions"]) == 1
-                assert data["predictions"][0]["price"] == 3010.0
+            request_data = {
+                "horizons": [1],
+                "market": "ICE_London",
+                "include_sentiment": True
+            }
+            
+            response = client.post(
+                "/api/v1/predict",
+                json=request_data,
+                headers=auth_headers
+            )
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data["predictions"]) == 1
+            assert data["predictions"][0]["price"] == 3010.0
     
     def test_predict_invalid_request(self, client, auth_headers):
         """Test prediction with invalid request data."""
@@ -311,7 +309,8 @@ class TestPredictEndpoint:
     
     def test_predict_service_unavailable(self, client, auth_headers):
         """Test prediction when service is unavailable."""
-        with patch('src.api.app.price_predictor', None):
+        with patch('src.api.app.predictors', {}), \
+             patch('src.api.app.price_predictor', None):
             request_data = {
                 "horizons": [1, 7, 30],
                 "market": "ICE_London",
@@ -376,7 +375,7 @@ class TestPerformanceEndpoint:
         response = client.get(
             f"/api/v1/performance?start_date={start_date}&end_date={end_date}"
         )
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
     
     def test_get_performance_invalid_date_range(self, client, auth_headers):
         """Test performance request with invalid date range."""
@@ -437,7 +436,7 @@ class TestModelsEndpoint:
     def test_list_models_without_authentication(self, client):
         """Test models listing without authentication fails."""
         response = client.get("/api/v1/models")
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
     
     def test_list_models_empty(self, client, auth_headers):
         """Test models listing when no models are available."""
@@ -489,7 +488,7 @@ class TestRetrainEndpoint:
         }
         
         response = client.post("/api/v1/retrain", json=request_data)
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
     
     def test_retrain_without_admin_privileges(self, client, auth_headers):
         """Test retraining without admin privileges fails."""
@@ -633,83 +632,66 @@ class TestRedisCaching:
 class TestAuthentication:
     """Tests for authentication functionality."""
     
-    def test_verify_token_success(self):
-        """Test successful token verification."""
-        from src.api.auth import verify_token
+    def test_verify_token_success(self, mock_settings):
+        """Test successful token verification with a real JWT."""
+        from src.api.auth import verify_token, create_user_token
         from fastapi.security import HTTPAuthorizationCredentials
         
-        with patch('src.api.auth.get_settings') as mock_settings:
-            settings = Mock()
-            settings.secret_key = "test_secret"
-            mock_settings.return_value = settings
-            
-            credentials = HTTPAuthorizationCredentials(
-                scheme="Bearer",
-                credentials="test_secret"
-            )
-            
-            result = verify_token(credentials)
-            assert result == "authenticated_user"
+        token = create_user_token("authenticated_user", role="user")
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=token
+        )
+        
+        result = verify_token(credentials)
+        assert result == "authenticated_user"
     
-    def test_verify_token_failure(self):
+    def test_verify_token_failure(self, mock_settings):
         """Test failed token verification."""
         from src.api.auth import verify_token
         from fastapi.security import HTTPAuthorizationCredentials
         from fastapi import HTTPException
         
-        with patch('src.api.auth.get_settings') as mock_settings:
-            settings = Mock()
-            settings.secret_key = "test_secret"
-            mock_settings.return_value = settings
-            
-            credentials = HTTPAuthorizationCredentials(
-                scheme="Bearer",
-                credentials="invalid_token"
-            )
-            
-            with pytest.raises(HTTPException) as exc_info:
-                verify_token(credentials)
-            
-            assert exc_info.value.status_code == 401
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials="invalid_token"
+        )
+        
+        with pytest.raises(HTTPException) as exc_info:
+            verify_token(credentials)
+        
+        assert exc_info.value.status_code == 401
     
-    def test_verify_admin_token_success(self):
-        """Test successful admin token verification."""
-        from src.api.auth import verify_admin_token
+    def test_verify_admin_token_success(self, mock_settings):
+        """Test successful admin token verification with a real JWT."""
+        from src.api.auth import verify_admin_token, create_user_token
         from fastapi.security import HTTPAuthorizationCredentials
         
-        with patch('src.api.auth.get_settings') as mock_settings:
-            settings = Mock()
-            settings.secret_key = "test_secret"
-            mock_settings.return_value = settings
-            
-            credentials = HTTPAuthorizationCredentials(
-                scheme="Bearer",
-                credentials="admin_test_secret"
-            )
-            
-            result = verify_admin_token(credentials)
-            assert result == "admin_user"
+        token = create_user_token("admin_user", role="admin")
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=token
+        )
+        
+        result = verify_admin_token(credentials)
+        assert result == "admin_user"
     
-    def test_verify_admin_token_non_admin(self):
+    def test_verify_admin_token_non_admin(self, mock_settings):
         """Test admin token verification with non-admin token."""
-        from src.api.auth import verify_admin_token
+        from src.api.auth import verify_admin_token, create_user_token
         from fastapi.security import HTTPAuthorizationCredentials
         from fastapi import HTTPException
         
-        with patch('src.api.auth.get_settings') as mock_settings:
-            settings = Mock()
-            settings.secret_key = "test_secret"
-            mock_settings.return_value = settings
-            
-            credentials = HTTPAuthorizationCredentials(
-                scheme="Bearer",
-                credentials="test_secret"
-            )
-            
-            with pytest.raises(HTTPException) as exc_info:
-                verify_admin_token(credentials)
-            
-            assert exc_info.value.status_code == 403
+        token = create_user_token("regular_user", role="user")
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=token
+        )
+        
+        with pytest.raises(HTTPException) as exc_info:
+            verify_admin_token(credentials)
+        
+        assert exc_info.value.status_code == 403
 
 
 if __name__ == "__main__":

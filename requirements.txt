@@ -45,6 +45,9 @@ pytz<2024
 # Data Collection
 yfinance>=1.3.0
 curl_cffi>=0.7.0
+feedparser>=6.0.0
+langdetect>=1.0.9
+deep-translator>=1.11.4
 selenium>=4.43.0
 beautifulsoup4>=4.14.0
 webdriver-manager>=4.0.0

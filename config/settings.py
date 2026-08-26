@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=60)
+    # Comma-separated browser origins allowed for CORS (WS / local debug)
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        env="CORS_ORIGINS",
+    )
     
     # Alert System Configuration
     alert_email_enabled: bool = Field(default=False, env="ALERT_EMAIL_ENABLED")

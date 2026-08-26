@@ -15,7 +15,7 @@ Requirements: Task 20.1 - Integrate all components
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
 from unittest.mock import Mock, patch, MagicMock
@@ -226,7 +226,7 @@ class TestSystemIntegration:
                 source="reuters",
                 title="Cocoa prices surge on supply concerns",
                 content="Cocoa prices rose sharply due to drought in West Africa",
-                published_at=datetime.now(),
+                published_at=datetime.now(timezone.utc),
                 url="http://example.com/1",
                 keywords=[]
             ),
@@ -235,7 +235,7 @@ class TestSystemIntegration:
                 source="bloomberg",
                 title="Chocolate demand remains strong",
                 content="Global chocolate consumption continues to grow",
-                published_at=datetime.now(),
+                published_at=datetime.now(timezone.utc),
                 url="http://example.com/2",
                 keywords=[]
             )
@@ -336,7 +336,7 @@ class TestSystemIntegration:
                 source="reuters",
                 title="Cocoa market stable",
                 content="Prices remain steady",
-                published_at=datetime.now(),
+                published_at=datetime.now(timezone.utc),
                 url="http://example.com/1",
                 keywords=[],
                 sentiment_score=0.1
@@ -402,14 +402,14 @@ class TestSystemIntegration:
                 price=3100.0,
                 confidence_interval=(3000.0, 3200.0),
                 confidence_level=0.95,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 model_version="1.0.0",
                 components={"baseline": 3050.0, "residual": 50.0, "sentiment": 0.0}
             )
         ]
         
         actual_prices = pd.DataFrame({
-            'timestamp': [datetime.now() + timedelta(days=1)],
+            'timestamp': [datetime.now(timezone.utc) + timedelta(days=1)],
             'price': [3120.0]
         })
         
