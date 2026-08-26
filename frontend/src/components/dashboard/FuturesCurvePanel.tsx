@@ -12,7 +12,8 @@ import {
   YAxis,
 } from 'recharts';
 import { TrendingUp } from 'lucide-react';
-import { formatPrice } from '@/lib/utils';
+import { formatPrice, formatPriceGbp } from '@/lib/utils';
+import { useUsdGbpRate } from '@/hooks/useUsdGbpRate';
 import type { FuturesCurveResponse } from '@/types/api';
 
 interface FuturesCurvePanelProps {
@@ -25,11 +26,35 @@ function pickPred(contract: FuturesCurveResponse['contracts'][0], horizon: numbe
   return contract.predictions.find((p) => p.horizon === horizon)?.price ?? null;
 }
 
+function PriceCell({
+  usd,
+  rate,
+  className,
+}: {
+  usd: number | null;
+  rate: number | null;
+  className?: string;
+}) {
+  if (usd == null) {
+    return <td className={`py-2 text-right tabular-nums ${className || ''}`}>—</td>;
+  }
+  return (
+    <td className={`py-2 text-right tabular-nums ${className || ''}`}>
+      <div>{formatPrice(usd)}</div>
+      <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+        ≈ {formatPriceGbp(usd, rate)}
+      </div>
+    </td>
+  );
+}
+
 export function FuturesCurvePanel({
   data,
   loading = false,
   accentClass = 'text-amber-400',
 }: FuturesCurvePanelProps) {
+  const usdGbp = useUsdGbpRate();
+
   const chartData = useMemo(() => {
     if (!data?.contracts?.length) return [];
     return data.contracts.map((c) => ({
@@ -67,9 +92,10 @@ export function FuturesCurvePanel({
             Courbe à terme cacao
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            Contrats ICE (Investing) · prévisions J+1 / J+7 / J+30
+            Contrats ICE (Investing) · prévisions J+1 / J+7 / J+30 · USD + GBP
             {collected ? ` · MAJ ${collected}` : ''}
             {data.source ? ` · ${data.source}` : ''}
+            {usdGbp != null ? ` · FX ${usdGbp.toFixed(4)}` : ''}
           </p>
         </div>
       </div>
@@ -100,7 +126,7 @@ export function FuturesCurvePanel({
               }}
               labelStyle={{ color: '#94a3b8' }}
               formatter={(value: number, name: string) => [
-                formatPrice(value),
+                `${formatPrice(value)} · ≈ ${formatPriceGbp(value, usdGbp)}`,
                 name === 'actuel' ? 'Actuel' : name === 'j1' ? 'J+1' : name === 'j7' ? 'J+7' : 'J+30',
               ]}
             />
@@ -140,16 +166,10 @@ export function FuturesCurvePanel({
                     <span className="font-medium text-white">{c.contract}</span>
                     <span className="text-slate-600 ml-1">{c.symbol}</span>
                   </td>
-                  <td className="py-2 text-right text-amber-300 tabular-nums">{formatPrice(c.price_usd)}</td>
-                  <td className="py-2 text-right text-emerald-300/90 tabular-nums">
-                    {j1 != null ? formatPrice(j1) : '—'}
-                  </td>
-                  <td className="py-2 text-right text-sky-300/90 tabular-nums">
-                    {j7 != null ? formatPrice(j7) : '—'}
-                  </td>
-                  <td className="py-2 text-right text-violet-300/90 tabular-nums">
-                    {j30 != null ? formatPrice(j30) : '—'}
-                  </td>
+                  <PriceCell usd={c.price_usd} rate={usdGbp} className="text-amber-300" />
+                  <PriceCell usd={j1} rate={usdGbp} className="text-emerald-300/90" />
+                  <PriceCell usd={j7} rate={usdGbp} className="text-sky-300/90" />
+                  <PriceCell usd={j30} rate={usdGbp} className="text-violet-300/90" />
                 </tr>
               );
             })}
