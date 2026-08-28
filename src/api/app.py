@@ -1469,8 +1469,9 @@ async def get_futures(
         if include_predictions and price_predictor is not None:
             try:
                 current = None
+                _cocoa_cfg = get_market_config("cocoa")
                 hist = (
-                    supabase_client.table("cocoa_prices")
+                    supabase_client.table(_cocoa_cfg.price_table)
                     .select("price")
                     .order("date", desc=True)
                     .limit(1)

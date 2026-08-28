@@ -11,28 +11,32 @@ import {
 interface MarketKPIBarProps {
   data: PredictionResponse;
   unitLabel: string;
+  priceCurrency?: 'USD' | 'GBP';
   includeSentiment: boolean;
   priceSource: string;
   lastUpdate: Date | null;
   accentClass: string;
-  /** Affiche l’équivalent GBP (défaut: true pour cacao ICE). */
+  /** Affiche l'équivalent GBP (defaut: true si USD). */
   showGbp?: boolean;
 }
 
 export function MarketKPIBar({
   data,
   unitLabel,
+  priceCurrency = 'USD',
   includeSentiment,
   priceSource,
   lastUpdate,
   accentClass,
-  showGbp = true,
+  showGbp,
 }: MarketKPIBarProps) {
   const usdGbp = useUsdGbpRate();
   const currentPrice = data.current_price ?? 0;
   const change24h = computeChange24h(data.historical_prices);
   const garchVol = data.predictions?.[0]?.components?.garch_annualized_volatility;
   const highVol = data.predictions?.some(p => p.components?.high_volatility_regime);
+  const isGbp = priceCurrency === 'GBP';
+  const displayGbpEquiv = showGbp ?? !isGbp;
 
   const currentDate = data.current_date
     ? new Date(data.current_date).toLocaleDateString('fr-FR', {
@@ -40,14 +44,14 @@ export function MarketKPIBar({
       })
     : '—';
 
-  const gbpLine = showGbp
+  const gbpLine = displayGbpEquiv
     ? `≈ ${formatPriceGbp(currentPrice, usdGbp)} / t`
     : null;
 
   const kpis = [
     {
       label: 'Prix actuel',
-      value: formatPrice(currentPrice),
+      value: formatPrice(currentPrice, priceCurrency),
       sub: gbpLine
         ? `${unitLabel} · ${gbpLine} · ${currentDate}`
         : `${unitLabel} · ${currentDate}`,
@@ -109,7 +113,7 @@ export function MarketKPIBar({
         </span>
         <span>·</span>
         <span>TradingView = CFD temps réel (peut différer de quelques $)</span>
-        {showGbp && usdGbp != null && (
+        {displayGbpEquiv && usdGbp != null && (
           <>
             <span>·</span>
             <span>FX USD/GBP : {usdGbp.toFixed(4)} (Frankfurter / BCE)</span>

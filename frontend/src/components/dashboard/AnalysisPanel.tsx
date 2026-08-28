@@ -17,6 +17,7 @@ import {
 interface AnalysisPanelProps {
   predictions: PredictionItem[];
   currentPrice: number;
+  priceCurrency?: 'USD' | 'GBP';
   sentiment?: number | null;
   garchVol?: number | null;
   highVolRegime?: boolean;
@@ -41,6 +42,7 @@ const scenarioColors = {
 export function AnalysisPanel({
   predictions,
   currentPrice,
+  priceCurrency = 'USD',
   sentiment,
   garchVol,
   highVolRegime,
@@ -108,7 +110,7 @@ export function AnalysisPanel({
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                 {s.label}
               </p>
-              <p className="text-lg font-black text-white font-mono-price">{formatPrice(s.price)}</p>
+              <p className="text-lg font-black text-white font-mono-price">{formatPrice(s.price, priceCurrency)}</p>
               <p className="text-xs text-slate-400 mt-2">Probabilité ~{s.probability}%</p>
             </div>
           ))}

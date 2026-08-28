@@ -1,103 +1,106 @@
 """
-Script d'extraction automatique des données
-Collecte les prix du cacao depuis Yahoo Finance et les insère dans Supabase
+Script d'extraction automatique des donnees cacao ICE London.
+Remplace l'ancienne collecte Yahoo Finance (CC=F).
 """
 
-import yfinance as yf
-from datetime import datetime, timedelta
-from supabase import create_client
 import os
+import sys
+from datetime import datetime
+from pathlib import Path
+
 from dotenv import load_dotenv
+from supabase import create_client
 import logging
 
-# Configuration du logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv()
 
+from src.data_collection.ice_london_collector import fetch_ice_london_spot
+from src.models.market_registry import get_market_config
+
+
 def collect_and_save_data():
-    """Collecte les données et les sauvegarde dans Supabase"""
-    
+    market = get_market_config("cocoa")
+    ice_url = getattr(market, "ice_london_url", None) or (
+        "https://www.ice.com/products/37089076/London-Cocoa-Futures/data?marketId=7758984"
+    )
+
     logger.info("=" * 80)
-    logger.info("EXTRACTION AUTOMATIQUE DES DONNÉES")
+    logger.info("EXTRACTION AUTOMATIQUE CACAO ICE LONDON")
     logger.info("=" * 80)
-    
-    # Connexion Supabase
+
     try:
         supabase = create_client(
             os.getenv("SUPABASE_URL"),
-            os.getenv("SUPABASE_KEY")
+            os.getenv("SUPABASE_KEY"),
         )
-        logger.info("✅ Connexion Supabase établie")
+        logger.info("Connexion Supabase etablie")
     except Exception as e:
-        logger.error(f"❌ Erreur connexion Supabase: {e}")
+        logger.error("Erreur connexion Supabase: %s", e)
         return False
-    
-    # Vérifier le dernier prix dans la base
+
     try:
-        response = supabase.table("cocoa_prices").select("date, price").order("date", desc=True).limit(1).execute()
-        
+        response = (
+            supabase.table(market.price_table)
+            .select("date, price")
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
         if response.data:
-            last_date = response.data[0]['date']
-            last_price = response.data[0]['price']
-            logger.info(f"Dernier prix en base: ${last_price:,.2f} le {last_date}")
-        else:
-            logger.warning("Aucune donnée dans la base")
-            last_date = None
+            logger.info(
+                "Dernier prix en base: %s %s le %s",
+                response.data[0]["price"],
+                market.unit,
+                response.data[0]["date"],
+            )
     except Exception as e:
-        logger.error(f"❌ Erreur lecture base: {e}")
+        logger.error("Erreur lecture base: %s", e)
         return False
-    
-    # Télécharger les données récentes depuis Yahoo Finance
-    logger.info("Téléchargement des données depuis Yahoo Finance...")
-    
-    ticker = yf.Ticker("CC=F")
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=7)
-    
+
+    result = fetch_ice_london_spot(url=ice_url, price_bounds=market.price_bounds)
+    if result is None:
+        logger.error("Collecte ICE London echouee")
+        return False
+
+    lo, hi = market.price_bounds
+    if not (lo <= result.price <= hi):
+        logger.error("Prix %s hors bornes (%s-%s)", result.price, lo, hi)
+        return False
+
+    check = (
+        supabase.table(market.price_table)
+        .select("id")
+        .eq("date", result.date)
+        .execute()
+    )
+    if check.data:
+        logger.info("Date %s deja en base", result.date)
+        return True
+
     try:
-        df = ticker.history(start=start_date, end=end_date)
-        
-        if df.empty:
-            logger.warning("Aucune donnée récente disponible")
-            return False
-        
-        logger.info(f"✅ {len(df)} points téléchargés")
-        
-        # Insérer les nouvelles données
-        inserted = 0
-        for date, row in df.iterrows():
-            date_str = date.strftime("%Y-%m-%d")
-            price = float(row['Close'])
-            
-            # Vérifier si la date existe déjà
-            check = supabase.table("cocoa_prices").select("id").eq("date", date_str).execute()
-            
-            if not check.data:
-                try:
-                    supabase.table("cocoa_prices").insert({
-                        "date": date_str,
-                        "price": price,
-                        "symbol": "CC=F",
-                        "source": "yahoo_finance",
-                        "collected_at": datetime.now().isoformat()
-                    }).execute()
-                    inserted += 1
-                    logger.info(f"   ✅ Inséré: {date_str} - ${price:,.2f}")
-                except Exception as e:
-                    logger.error(f"   ❌ Erreur insertion {date_str}: {e}")
-        
-        logger.info(f"✅ {inserted} nouvelles données insérées")
-        return inserted > 0
-        
+        supabase.table(market.price_table).insert(
+            {
+                "date": result.date,
+                "price": float(result.price),
+                "symbol": result.symbol,
+                "source": result.source,
+                "collected_at": datetime.now().isoformat(),
+            }
+        ).execute()
+        logger.info("Insere: %s - %s %s", result.date, result.price, market.unit)
+        return True
     except Exception as e:
-        logger.error(f"❌ Erreur téléchargement: {e}")
+        logger.error("Erreur insertion: %s", e)
         return False
+
 
 if __name__ == "__main__":
     success = collect_and_save_data()
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

@@ -31,6 +31,7 @@ class MarketConfig:
     api_markets: List[str] = field(default_factory=list)
     garch_enabled: bool = False
     yahoo_symbol: Optional[str] = None
+    ice_london_url: Optional[str] = None
     investing_url: Optional[str] = None
     contract_symbol: Optional[str] = None
     tradingview_symbol: Optional[str] = None
@@ -57,6 +58,7 @@ def _build_market_config(market_id: str, raw: Dict) -> MarketConfig:
         api_markets=list(raw.get("api_markets", []) or []),
         garch_enabled=bool(raw.get("garch_enabled", False)),
         yahoo_symbol=raw.get("yahoo_symbol"),
+        ice_london_url=raw.get("ice_london_url"),
         investing_url=raw.get("investing_url"),
         contract_symbol=raw.get("contract_symbol"),
         tradingview_symbol=raw.get("tradingview_symbol"),

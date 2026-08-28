@@ -18,13 +18,15 @@ class TestMarketRegistry:
 
     def test_cocoa_config(self):
         cfg = get_market_config("cocoa")
-        assert cfg.price_table == "cocoa_prices"
-        assert cfg.source == "yahoo_finance"
-        assert cfg.yahoo_symbol == "CC=F"
+        assert cfg.price_table == "cocoa_london_prices"
+        assert cfg.source == "ice_london"
+        assert cfg.unit == "GBP/MT"
+        assert cfg.ice_london_url is not None
+        assert "ice.com" in cfg.ice_london_url
         assert cfg.tradingview_symbol == "PEPPERSTONE:COCOA"
         assert cfg.tradingview_embed_symbol == "PEPPERSTONE:COCOA"
         assert cfg.tradingview_alert_symbol == "ICEEUR:C1!"
-        assert cfg.nhits_unique_id == "cocoa_ice_ny"
+        assert cfg.nhits_unique_id == "cocoa_ice_london"
         assert cfg.garch_enabled is False
 
     def test_coffee_robusta_config(self):

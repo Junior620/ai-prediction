@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 REM ================================================================================
 REM MISE A JOUR COMPLETE — CACAO + CAFE ROBUSTA
 REM ================================================================================
-REM 1. Collecte prix cacao (Yahoo) + robusta (Investing.com)
+REM 1. Collecte prix cacao (ICE London) + robusta (Investing.com)
 REM 2. Collecte news + sentiment (cacao)
 REM 3. Reentrainement hybride + N-HiTS pour les deux marches
 REM 4. Redemarrage API locale (decouverte auto des modeles)
@@ -49,14 +49,14 @@ echo ETAPE 1/6: COLLECTE DES PRIX
 echo ================================================================================
 echo.
 
-echo [INFO] Cacao — Yahoo Finance (CC=F)...
-call venv_py311\Scripts\python.exe collect_latest_price.py
+echo [INFO] Cacao — ICE London (Playwright + fallbacks)...
+call venv_py311\Scripts\python.exe collect_ice_london_cocoa.py
 if errorlevel 1 (
-    echo [ERREUR] Echec collecte cacao
+    echo [ERREUR] Echec collecte cacao ICE London
     pause
     exit /b 1
 )
-echo [OK] Prix cacao collecte
+echo [OK] Prix cacao ICE London collecte
 echo.
 
 echo [INFO] Cafe robusta — Investing.com (RCU6)...
@@ -201,8 +201,8 @@ echo ETAPE 5/6: VERIFICATION DES PREDICTIONS
 echo ================================================================================
 echo.
 
-echo [INFO] Test prediction CACAO (ICE_NY)...
-powershell -NoProfile -Command "$t=$env:API_TOKEN; $headers = @{'Authorization' = \"Bearer $t\"; 'Content-Type' = 'application/json'}; $body = @{market = 'ICE_NY'; horizons = @(1); include_sentiment = $true} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 60; Write-Host ('  Prix: $' + $r.current_price + '  J+1: $' + $r.predictions[0].price) } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
+echo [INFO] Test prediction CACAO (ICE London, GBP/T)...
+powershell -NoProfile -Command "$t=$env:API_TOKEN; $headers = @{'Authorization' = \"Bearer $t\"; 'Content-Type' = 'application/json'}; $body = @{market = 'ICE_NY'; horizons = @(1); include_sentiment = $true} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 60; Write-Host ('  Prix: ' + [math]::Round($r.current_price,2) + ' GBP/T  J+1: ' + [math]::Round($r.predictions[0].price,2) + ' GBP/T') } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
 
 echo.
 echo [INFO] Test prediction CAFE ROBUSTA (COFFEE_ROBUSTA)...

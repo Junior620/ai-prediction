@@ -31,6 +31,8 @@ export interface MarketDashboardConfig {
   accent: 'amber' | 'emerald';
   includeSentiment: boolean;
   unitLabel: string;
+  /** Devise d'affichage du prix ML (defaut USD). */
+  priceCurrency?: 'USD' | 'GBP';
   priceSource: string;
   activeNav: 'cacao' | 'coffee';
   otherMarket: { href: string; label: string };
@@ -46,7 +48,7 @@ const TV_FALLBACKS: Record<string, {
     embedSymbol: 'PEPPERSTONE:COCOA',
     chartSymbol: 'PEPPERSTONE:COCOA',
     displayName: 'Cocoa Cash Contract',
-    embedLabel: 'Pepperstone CFD · USD/tonne',
+    embedLabel: 'Pepperstone CFD · GBP/tonne (ICE London ML)',
   },
   COFFEE_ROBUSTA: {
     embedSymbol: 'ROBCOFFEE',
@@ -403,6 +405,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
               <MarketKPIBar
                 data={data}
                 unitLabel={config.unitLabel}
+                priceCurrency={config.priceCurrency ?? 'USD'}
                 includeSentiment={config.includeSentiment}
                 priceSource={config.priceSource}
                 lastUpdate={lastUpdate}
@@ -437,6 +440,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                     key={pred.horizon}
                     pred={pred}
                     currentPrice={currentPrice}
+                    priceCurrency={config.priceCurrency ?? 'USD'}
                     briefSignal={intelligence?.brief?.signal}
                     validation={val7}
                   />
@@ -447,6 +451,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 historical={data.historical_prices}
                 predictions={data.predictions}
                 currentPrice={currentPrice}
+                priceCurrency={config.priceCurrency ?? 'USD'}
                 chartStroke={theme.chartStroke}
                 chartGradient={theme.chartGradient}
                 accentClass={theme.accentClass}
@@ -464,6 +469,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
               <AnalysisPanel
                 predictions={data.predictions}
                 currentPrice={currentPrice}
+                priceCurrency={config.priceCurrency ?? 'USD'}
                 sentiment={data.sentiment_score}
                 garchVol={garchVol}
                 highVolRegime={highVolRegime}

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 load_dotenv()
 
 from config.settings import get_settings
+from src.models.market_registry import get_market_config
 from src.monitoring.performance_monitor import PerformanceMonitor
 
 
@@ -52,7 +53,20 @@ def main() -> int:
     rows = preds.data or []
     print(f"Predictions candidates: {len(rows)}")
 
-    # Spot prices (cocoa ICE_NY / default market in price_data)
+    # Spot prices — cocoa_london_prices (prioritaire) + price_data legacy
+    cocoa_cfg = get_market_config("cocoa")
+    london_prices = (
+        sb.table(cocoa_cfg.price_table)
+        .select("date,price")
+        .gte("date", since[:10])
+        .order("date", desc=False)
+        .limit(5000)
+        .execute()
+    )
+    by_day: dict[str, float] = {}
+    for pr in london_prices.data or []:
+        by_day[str(pr["date"])] = float(pr["price"])
+
     prices = (
         sb.table("price_data")
         .select("timestamp,price,market")
@@ -62,16 +76,13 @@ def main() -> int:
         .execute()
     )
     price_rows = prices.data or []
-    # Index by date (UTC day)
-    by_day: dict[str, float] = {}
     for pr in price_rows:
         market = (pr.get("market") or "ICE_NY").upper()
-        if market not in ("ICE_NY", "CC", "COCOA", ""):
-            # Prefer cocoa for default metrics; skip robusta in this pass
+        if market not in ("ICE_NY", "CC", "COCOA", "ICE_LONDON", ""):
             if "ROBUSTA" in market or "COFFEE" in market:
                 continue
         day = _parse_ts(pr["timestamp"]).date().isoformat()
-        by_day[day] = float(pr["price"])
+        by_day.setdefault(day, float(pr["price"]))
 
     print(f"Prix spot indexes: {len(by_day)} jours")
 

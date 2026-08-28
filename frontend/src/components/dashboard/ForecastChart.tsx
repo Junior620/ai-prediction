@@ -12,24 +12,33 @@ interface ForecastChartProps {
   historical?: { date: string; price: number }[];
   predictions: PredictionItem[];
   currentPrice: number;
+  priceCurrency?: 'USD' | 'GBP';
   chartStroke: string;
   chartGradient: string;
   accentClass: string;
   brief?: MarketBriefContent | null;
 }
 
-function ChartTooltip({ active, payload, label }: {
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  currency = 'USD',
+}: {
   active?: boolean;
-  payload?: { name: string; value: number; dataKey: string }[];
-  label?: string;
+  payload?: unknown;
+  label?: string | number;
+  currency?: 'USD' | 'GBP';
 }) {
-  if (!active || !payload?.length) return null;
+  if (!active || !Array.isArray(payload) || !payload.length) return null;
   return (
     <div className="glass-card px-4 py-3 !border-white/10">
       <p className="text-xs text-slate-400 mb-1">{label}</p>
-      {payload.filter(p => p.value != null).map((p, i) => (
+      {payload
+        .filter((p: { value?: unknown }) => p.value != null)
+        .map((p: { name?: unknown; value?: unknown }, i: number) => (
         <p key={i} className="text-sm font-semibold text-white">
-          {p.name}: <span className="text-amber-400">{formatPrice(p.value)}</span>
+          {p.name != null ? String(p.name) : ''}: <span className="text-amber-400">{formatPrice(Number(p.value), currency)}</span>
         </p>
       ))}
     </div>
@@ -40,6 +49,7 @@ export function ForecastChart({
   historical = [],
   predictions,
   currentPrice,
+  priceCurrency = 'USD',
   chartStroke,
   chartGradient,
   accentClass,
@@ -78,6 +88,10 @@ export function ForecastChart({
   const support = brief?.key_levels?.support;
   const resistance = brief?.key_levels?.resistance;
 
+  const yTick = priceCurrency === 'GBP'
+    ? (v: number) => `£${v}`
+    : (v: number) => `$${v}`;
+
   return (
     <div className="glass-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -108,8 +122,17 @@ export function ForecastChart({
           </defs>
           <CartesianGrid stroke="rgba(148,163,184,0.06)" strokeDasharray="4 4" />
           <XAxis dataKey="date" stroke="#475569" fontSize={11} tickLine={false} axisLine={false} />
-          <YAxis stroke="#475569" fontSize={11} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} width={55} />
-          <Tooltip content={<ChartTooltip />} />
+          <YAxis stroke="#475569" fontSize={11} tickLine={false} axisLine={false} tickFormatter={yTick} width={55} />
+          <Tooltip
+            content={(props) => (
+              <ChartTooltip
+                active={props.active}
+                payload={props.payload}
+                label={props.label}
+                currency={priceCurrency}
+              />
+            )}
+          />
 
           <Area
             type="monotone"

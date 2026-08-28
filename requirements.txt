@@ -50,6 +50,7 @@ langdetect>=1.0.9
 deep-translator>=1.11.4
 selenium>=4.43.0
 beautifulsoup4>=4.14.0
+playwright>=1.41.0
 webdriver-manager>=4.0.0
 schedule>=1.2.0
 

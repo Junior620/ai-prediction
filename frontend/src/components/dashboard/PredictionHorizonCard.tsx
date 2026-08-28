@@ -21,6 +21,7 @@ const signalStyles = {
 interface PredictionHorizonCardProps {
   pred: PredictionItem;
   currentPrice: number;
+  priceCurrency?: 'USD' | 'GBP';
   briefSignal?: 'BUY' | 'SELL' | 'HOLD';
   validation?: HorizonValidationMetrics | null;
 }
@@ -28,6 +29,7 @@ interface PredictionHorizonCardProps {
 export function PredictionHorizonCard({
   pred,
   currentPrice,
+  priceCurrency = 'USD',
   briefSignal,
   validation,
 }: PredictionHorizonCardProps) {
@@ -44,6 +46,8 @@ export function PredictionHorizonCard({
     validation?.directional_accuracy,
   );
   const usdGbp = useUsdGbpRate();
+  const isGbp = priceCurrency === 'GBP';
+  const fmt = (n: number) => formatPrice(n, priceCurrency);
 
   return (
     <div className="glass-card-hover p-4 flex flex-col h-full">
@@ -57,10 +61,13 @@ export function PredictionHorizonCard({
         </span>
       </div>
 
-      <p className="text-xl font-black text-white font-mono-price">{formatPrice(pred.price)}</p>
-      <p className="text-[11px] text-slate-400 font-mono-price mb-3">
-        ≈ {formatPriceGbp(pred.price, usdGbp)} / t
-      </p>
+      <p className="text-xl font-black text-white font-mono-price">{fmt(pred.price)}</p>
+      {!isGbp && (
+        <p className="text-[11px] text-slate-400 font-mono-price mb-3">
+          ≈ {formatPriceGbp(pred.price, usdGbp)} / t
+        </p>
+      )}
+      {isGbp && <div className="mb-3" />}
 
       <div className="flex flex-wrap gap-1.5 mb-3">
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${sigStyle.class}`}>
@@ -77,7 +84,7 @@ export function PredictionHorizonCard({
 
       <p className="text-[10px] text-slate-500 mt-auto">
         IC {Math.round((pred.confidence_level ?? 0.9) * 100)}% :{' '}
-        {formatPrice(pred.confidence_interval[0])} – {formatPrice(pred.confidence_interval[1])}
+        {fmt(pred.confidence_interval[0])} – {fmt(pred.confidence_interval[1])}
       </p>
 
       {uncertainty === 'high' && (
