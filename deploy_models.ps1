@@ -167,8 +167,9 @@ if (Test-Path $futuresDir) {
     }
 }
 
-# --- Upload config weights / conformal (if present) ---
+# --- Upload config (market registry + weights / conformal) ---
 $configFiles = @(
+    @{ Local = "config\config.yaml"; Remote = "$RemotePath/config/" },
     @{ Local = "config\ensemble_weights.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\conformal_intervals.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\coffee_robusta\ensemble_weights.json"; Remote = "$RemotePath/config/coffee_robusta/" },

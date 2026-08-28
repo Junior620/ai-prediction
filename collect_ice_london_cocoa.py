@@ -95,22 +95,33 @@ def main() -> int:
     print("\n[3/3] Insertion Supabase...")
     check = (
         supabase.table(market.price_table)
-        .select("id")
+        .select("id, price")
         .eq("date", result.date)
         .execute()
     )
+    row = {
+        "date": result.date,
+        "price": float(result.price),
+        "symbol": result.symbol,
+        "source": result.source,
+        "collected_at": datetime.now().isoformat(),
+    }
     if check.data:
-        print(f"[SKIP] Date {result.date} deja en base")
+        old = float(check.data[0]["price"])
+        if abs(old - float(result.price)) < 0.01:
+            print(f"[SKIP] Date {result.date} deja en base ({old:,.2f})")
+        else:
+            supabase.table(market.price_table).update(
+                {
+                    "price": float(result.price),
+                    "symbol": result.symbol,
+                    "source": result.source,
+                    "collected_at": datetime.now().isoformat(),
+                }
+            ).eq("date", result.date).execute()
+            print(f"[OK] Mis a jour: {result.date} {old:,.2f} -> {result.price:,.2f}")
     else:
-        supabase.table(market.price_table).insert(
-            {
-                "date": result.date,
-                "price": float(result.price),
-                "symbol": result.symbol,
-                "source": result.source,
-                "collected_at": datetime.now().isoformat(),
-            }
-        ).execute()
+        supabase.table(market.price_table).insert(row).execute()
         print(f"[OK] Insere: {result.date} - {result.price:,.2f}")
 
     journal["price"] = result.price
