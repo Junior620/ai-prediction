@@ -1,22 +1,22 @@
 {
-  "source_report": "manual_reweight_20260730",
-  "calibrated_at": "2026-07-30T18:00:00",
-  "note": "Prophet temporarily down-weighted: yhat lagged far below spot (~3000 vs ~5100). Prefer XGB+N-HiTS until recalibration.",
+  "source_report": "london_transition_dampen_20260829",
+  "calibrated_at": "2026-08-29T19:00:00",
+  "note": "Prophet down-weighted during ICE London transition (yhat lagged ~3500 vs spot ~4750). Prefer XGB+N-HiTS; prediction dampener clamps extreme moves.",
   "by_horizon": {
     "1": {
+      "xgb": 0.50,
+      "nhits": 0.45,
+      "prophet": 0.05
+    },
+    "7": {
       "xgb": 0.45,
       "nhits": 0.45,
       "prophet": 0.10
     },
-    "7": {
-      "xgb": 0.40,
-      "nhits": 0.45,
-      "prophet": 0.15
-    },
     "30": {
-      "xgb": 0.35,
+      "xgb": 0.40,
       "nhits": 0.50,
-      "prophet": 0.15
+      "prophet": 0.10
     }
   }
 }

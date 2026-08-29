@@ -479,6 +479,9 @@ def _load_market_predictor(
         nhits_unique_id=market_cfg.nhits_unique_id,
         garch_enabled=market_cfg.garch_enabled,
         models_dir=str(model_dir),
+        max_abs_change_pct=pred_cfg.get("max_abs_change_pct"),
+        recent_range_days=int(pred_cfg.get("recent_range_days", 252)),
+        recent_range_padding_pct=float(pred_cfg.get("recent_range_padding_pct", 15.0)),
     )
     n_engines = 3 if nhits_model else 2
     logger.info(

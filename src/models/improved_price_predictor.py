@@ -61,6 +61,9 @@ class ImprovedPricePredictor:
         nhits_unique_id: str = "cocoa_ice_ny",
         garch_enabled: bool = False,
         models_dir: str = "models",
+        max_abs_change_pct: Optional[Dict[str, float]] = None,
+        recent_range_days: int = 252,
+        recent_range_padding_pct: float = 15.0,
     ):
         self.prophet_model = prophet_model
         self.xgboost_model = xgboost_model
@@ -77,6 +80,13 @@ class ImprovedPricePredictor:
         self.nhits_unique_id = nhits_unique_id
         self.garch_enabled = garch_enabled
         self.models_dir = models_dir
+        self.max_abs_change_pct = max_abs_change_pct or {
+            "1": 4.0,
+            "7": 10.0,
+            "30": 18.0,
+        }
+        self.recent_range_days = int(recent_range_days)
+        self.recent_range_padding_pct = float(recent_range_padding_pct)
         self._garch_forecast = None
         self._garch_fit_time = None
         self._ensemble_weights = load_ensemble_weights(
@@ -97,6 +107,42 @@ class ImprovedPricePredictor:
 
         self._historical_data = None
         self._last_data_fetch = None
+
+    def _recent_price_range(self, df_clean: pd.DataFrame) -> Tuple[float, float]:
+        """Min/max récents avec marge, bornés par price_bounds marché."""
+        tail = df_clean.tail(max(30, self.recent_range_days))
+        lo = float(tail["price"].min())
+        hi = float(tail["price"].max())
+        pad = self.recent_range_padding_pct / 100.0
+        mid = (lo + hi) / 2.0 if hi > lo else lo
+        span = max(hi - lo, mid * 0.05)
+        lo2 = lo - span * pad
+        hi2 = hi + span * pad
+        b_lo, b_hi = self.price_bounds
+        return (max(b_lo, lo2), min(b_hi, hi2))
+
+    def _dampen_vs_spot(self, price: float, spot: float, horizon: int) -> Tuple[float, float]:
+        """
+        Limite la variation abs. vs spot selon max_abs_change_pct.
+        Retourne (prix_amorti, pct_change_applique).
+        """
+        if spot <= 0:
+            return float(price), 0.0
+        max_pct = float(self.max_abs_change_pct.get(str(horizon), 20.0))
+        raw_pct = (price / spot - 1.0) * 100.0
+        capped_pct = float(np.clip(raw_pct, -max_pct, max_pct))
+        dampened = spot * (1.0 + capped_pct / 100.0)
+        if abs(raw_pct - capped_pct) > 0.05:
+            logger.info(
+                "Dampened h=%sd: %.2f%% -> %.2f%% (%.2f -> %.2f vs spot %.2f)",
+                horizon,
+                raw_pct,
+                capped_pct,
+                price,
+                dampened,
+                spot,
+            )
+        return float(dampened), capped_pct
 
         if not self.direct_horizon_models:
             try:
@@ -224,7 +270,7 @@ class ImprovedPricePredictor:
                 logger.warning(f"Failed to aggregate sentiment: {e}")
 
         if historical_range is None:
-            historical_range = (df_clean["price"].min(), df_clean["price"].max())
+            historical_range = self._recent_price_range(df_clean)
 
         predictions = []
         current_time = datetime.now()
@@ -263,6 +309,9 @@ class ImprovedPricePredictor:
 
             sentiment_adjustment = sentiment_score * self.sentiment_weight * ensemble_price
             final_price = ensemble_price + sentiment_adjustment
+            final_price, dampened_pct = self._dampen_vs_spot(
+                final_price, current_price, horizon
+            )
             final_price = float(np.clip(final_price, historical_range[0], historical_range[1]))
 
             sentiment_factor = 1.3 if abs(sentiment_score) > 0.6 else 1.0
@@ -325,6 +374,7 @@ class ImprovedPricePredictor:
                         "ensemble": float(ensemble_price),
                         "residual": 0.0,
                         "sentiment": float(sentiment_adjustment),
+                        "dampened_change_pct": float(dampened_pct),
                         "ensemble_weights": weights,
                         "garch_annualized_volatility": (
                             float(garch_ann_vol) if garch_ann_vol is not None else None

@@ -25,6 +25,15 @@ prediction:
     min: 1000  # USD per metric ton
     max: 10000  # USD per metric ton
   cache_ttl: 3600  # Cache predictions for 1 hour (seconds)
+  # Garde-fous anti-choc (transition ICE London / serie hybride)
+  # Limite la variation abs. predite vs spot par horizon (en %).
+  max_abs_change_pct:
+    "1": 4.0
+    "7": 10.0
+    "30": 18.0
+  # Bornes d'intervalle / clip: min/max des N derniers jours (au lieu de toute l'histoire)
+  recent_range_days: 252
+  recent_range_padding_pct: 15.0
 
 # Markets Registry
 # Each market defines its data source, Supabase table, model directory and calibration files.
