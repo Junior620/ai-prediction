@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     reuters_api_key: Optional[str] = Field(default=None, env="REUTERS_API_KEY")
     bloomberg_api_url: Optional[str] = Field(default=None, env="BLOOMBERG_API_URL")
     bloomberg_api_key: Optional[str] = Field(default=None, env="BLOOMBERG_API_KEY")
+    databento_api_key: Optional[str] = Field(default=None, env="DATABENTO_API_KEY")
     
     class Config:
         env_file = ".env"

@@ -12,6 +12,7 @@ create table if not exists public.cocoa_london_prices (
     high double precision,
     low double precision,
     volume double precision,
+    open_interest double precision,
     collected_at timestamptz default now()
 );
 

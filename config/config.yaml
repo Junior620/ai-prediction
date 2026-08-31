@@ -45,8 +45,8 @@ markets:
     ice_london_url: "https://www.ice.com/products/37089076/London-Cocoa-Futures/data?marketId=7758984"
     unit: "GBP/MT"
     price_bounds:
-      min: 1500
-      max: 6000
+      min: 1000
+      max: 15000
     models_dir: "models"
     ensemble_weights_file: "config/ensemble_weights.json"
     conformal_intervals_file: "config/conformal_intervals.json"
