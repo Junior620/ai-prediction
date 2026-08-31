@@ -112,40 +112,50 @@ def load_price_data_from_supabase(
     extra_columns: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
     """Load and clean price data from Supabase (any market price table)."""
-    cols = ["date", "price"]
-    for c in extra_columns or ("open", "high", "low", "volume", "open_interest", "source"):
-        if c not in cols:
-            cols.append(c)
-    select_clause = ", ".join(cols)
+    preferred = list(extra_columns) if extra_columns is not None else [
+        "open",
+        "high",
+        "low",
+        "volume",
+        "open_interest",
+        "source",
+    ]
+    # Essayer d'abord le select complet, puis sans open_interest, puis prix seul
+    select_candidates = [
+        ", ".join(["date", "price"] + preferred),
+        ", ".join(["date", "price"] + [c for c in preferred if c != "open_interest"]),
+        "date, price",
+    ]
 
     all_data = []
     page_size = 1000
-    offset = 0
+    selected = None
 
-    while True:
+    for select_clause in select_candidates:
+        all_data = []
+        offset = 0
         try:
-            response = (
-                supabase_client.table(table_name)
-                .select(select_clause)
-                .order("date")
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
+            while True:
+                response = (
+                    supabase_client.table(table_name)
+                    .select(select_clause)
+                    .order("date")
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                )
+                if not response.data:
+                    break
+                all_data.extend(response.data)
+                offset += page_size
+                if len(response.data) < page_size:
+                    break
+            selected = select_clause
+            break
         except Exception:
-            # Fallback si colonnes OHLCV/OI absentes
-            response = (
-                supabase_client.table(table_name)
-                .select("date, price")
-                .order("date")
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-        if not response.data:
-            break
-        all_data.extend(response.data)
-        offset += page_size
-        if len(response.data) < page_size:
-            break
+            continue
+
+    if selected is None:
+        return clean_price_dataframe(pd.DataFrame(columns=["date", "price"]), min_date=min_date)
 
     df = pd.DataFrame(all_data)
     return clean_price_dataframe(df, min_date=min_date)
@@ -247,57 +257,47 @@ def build_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     out["day_of_year"] = out["date"].dt.dayofyear
     out["quarter"] = out["date"].dt.quarter
 
-    # --- OHLCV (si colonnes presentes) ---
-    has_ohlc = all(c in out.columns for c in ("open", "high", "low"))
-    has_volume = "volume" in out.columns
+    # --- OHLCV (uniquement si colonnes source presentes) ---
+    has_ohlc = (
+        all(c in out.columns for c in ("open", "high", "low"))
+        and out[["open", "high", "low"]].notna().any().any()
+    )
+    has_volume = "volume" in out.columns and out["volume"].notna().any()
+    has_oi = "open_interest" in out.columns and out["open_interest"].notna().any()
+    has_term = any(f"close_{r}" in out.columns for r in (1, 2, 3))
 
-    out["return_1d"] = out["price"].pct_change(1)
-    out["realized_vol_7"] = out["return_1d"].rolling(7).std()
-    out["realized_vol_30"] = out["return_1d"].rolling(30).std()
-    out["rsi_14"] = _compute_rsi(out["price"], 14)
+    if has_ohlc or has_volume or has_oi or has_term:
+        out["return_1d"] = out["price"].pct_change(1, fill_method=None)
+        out["realized_vol_7"] = out["return_1d"].rolling(7).std()
+        out["realized_vol_30"] = out["return_1d"].rolling(30).std()
+        out["rsi_14"] = _compute_rsi(out["price"], 14)
 
     if has_ohlc:
         out["hl_range_pct"] = (out["high"] - out["low"]) / out["price"].replace(0, np.nan)
-    else:
-        out["hl_range_pct"] = np.nan
 
     if has_volume:
         out["volume"] = pd.to_numeric(out["volume"], errors="coerce")
-        out["volume_change_1d"] = out["volume"].pct_change(1)
+        out["volume_change_1d"] = out["volume"].pct_change(1, fill_method=None)
         vol_ma = out["volume"].rolling(30).mean()
         out["volume_ratio_30"] = out["volume"] / vol_ma.replace(0, np.nan)
-    else:
-        out["volume"] = np.nan
-        out["volume_change_1d"] = np.nan
-        out["volume_ratio_30"] = np.nan
 
-    # --- Open Interest ---
-    if "open_interest" in out.columns:
+    if has_oi:
         out["open_interest"] = pd.to_numeric(out["open_interest"], errors="coerce")
-        out["oi_change_1d"] = out["open_interest"].pct_change(1)
-        out["oi_change_7d"] = out["open_interest"].pct_change(7)
-        out["return_oi_interaction"] = np.sign(out["return_1d"].fillna(0)) * out["oi_change_1d"]
-    else:
-        out["open_interest"] = np.nan
-        out["oi_change_1d"] = np.nan
-        out["oi_change_7d"] = np.nan
-        out["return_oi_interaction"] = np.nan
+        out["oi_change_1d"] = out["open_interest"].pct_change(1, fill_method=None)
+        out["oi_change_7d"] = out["open_interest"].pct_change(7, fill_method=None)
+        ret = out["return_1d"] if "return_1d" in out.columns else out["price"].pct_change(1, fill_method=None)
+        out["return_oi_interaction"] = np.sign(ret.fillna(0)) * out["oi_change_1d"]
 
-    # --- Term structure spreads ---
-    for rank in (1, 2, 3):
-        col = f"close_{rank}"
-        spread = f"spread_{rank}_0"
-        if col in out.columns and "close_0" in out.columns:
-            out[spread] = out[col] - out["close_0"]
-        elif col in out.columns:
-            out[spread] = out[col] - out["price"]
-        else:
-            out[spread] = np.nan
-
-    if "spread_1_0" in out.columns and "spread_3_0" in out.columns:
-        out["curve_slope"] = out["spread_3_0"] / 3.0
-    else:
-        out["curve_slope"] = np.nan
+    if has_term:
+        for rank in (1, 2, 3):
+            col = f"close_{rank}"
+            spread = f"spread_{rank}_0"
+            if col in out.columns and "close_0" in out.columns:
+                out[spread] = out[col] - out["close_0"]
+            elif col in out.columns:
+                out[spread] = out[col] - out["price"]
+        if "spread_3_0" in out.columns:
+            out["curve_slope"] = out["spread_3_0"] / 3.0
 
     return out
 

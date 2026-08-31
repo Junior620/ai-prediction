@@ -62,10 +62,12 @@ print(f"   Prix moyen: ${df['price'].mean():.2f}")
 print("\n[2/6] Préparation features (validation honnête sans fuite Prophet)...")
 
 df_technical = build_technical_features(df)
-split_idx = int(len(df_technical.dropna()) * 0.8)
-# Align split on first valid feature row
-first_valid = df_technical.dropna().index[0]
-valid_indices = df_technical.dropna().index
+# Ne dropper que sur les features de base (OHLCV/OI optionnels peuvent etre NaN)
+base_feat = [c for c in FEATURE_COLS if c in df_technical.columns and not c.startswith("prophet_")]
+valid_mask = df_technical[base_feat].notna().all(axis=1)
+first_valid = df_technical.index[valid_mask][0]
+valid_indices = df_technical.index[valid_mask]
+split_idx = int(len(valid_indices) * 0.8)
 split_pos = valid_indices[split_idx] if split_idx < len(valid_indices) else valid_indices[-1]
 
 train_raw = df.iloc[: split_pos + 1].copy()
@@ -77,7 +79,7 @@ prophet_val, xgb_val, train_features = trainer.fit(train_raw)
 # Validation set: technical features from full history, Prophet from train-only model
 val_technical = build_technical_features(df)
 val_with_prophet = add_prophet_features(val_technical, prophet_val)
-val_df = val_with_prophet.iloc[split_pos + 1 :].dropna()
+val_df = val_with_prophet.iloc[split_pos + 1 :].dropna(subset=FEATURE_COLS)
 
 train_df = train_features.dropna()
 X_train = train_df[FEATURE_COLS]
