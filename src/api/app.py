@@ -45,6 +45,11 @@ from src.api.models import (
     FuturesCurveResponse,
     FuturesContractItem,
     FuturesHorizonPrediction,
+    LondonMarketResponse,
+    LondonHistoryPoint,
+    LondonTermContract,
+    ModelComparisonResponse,
+    ModelComparisonMetric,
 )
 from src.api.auth import verify_token, verify_admin_token, decode_token
 from src.api.cache import RedisCache
@@ -1554,6 +1559,166 @@ async def get_futures(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve futures: {str(e)}"
+        )
+
+
+_RANK_LABELS = {
+    0: "Front (C.v.0)",
+    1: "2e echeance",
+    2: "3e echeance",
+    3: "4e echeance",
+}
+
+_MODEL_LABELS = {
+    "M1_Prophet_Close": "M1 Prophet (Close)",
+    "M2_XGB_OHLCV": "M2 XGB (OHLCV)",
+    "M3_XGB_OHLCV_OI": "M3 XGB (+ OI)",
+    "M4_XGB_Full": "M4 Complet",
+}
+
+
+@app.get("/api/v1/london-market", response_model=LondonMarketResponse)
+async def get_london_market(
+    history_days: int = Query(60, ge=7, le=365),
+    token_payload: dict = Depends(verify_token),
+):
+    """Microstructure cacao ICE London (Databento) : volume, OI, courbe d'echeances."""
+    try:
+        market = get_market_config("cocoa")
+        hist_resp = (
+            supabase_client.table(market.price_table)
+            .select("date, price, volume, open_interest, source")
+            .order("date", desc=True)
+            .limit(history_days)
+            .execute()
+        )
+        rows = list(reversed(hist_resp.data or []))
+        history = [
+            LondonHistoryPoint(
+                date=str(r["date"])[:10],
+                price=float(r["price"]),
+                volume=float(r["volume"]) if r.get("volume") is not None else None,
+                open_interest=float(r["open_interest"]) if r.get("open_interest") is not None else None,
+                source=r.get("source"),
+            )
+            for r in rows
+        ]
+        latest = history[-1] if history else None
+
+        term: List[LondonTermContract] = []
+        term_date = None
+        try:
+            latest_term = (
+                supabase_client.table("cocoa_london_contracts")
+                .select("date")
+                .order("date", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if latest_term.data:
+                term_date = str(latest_term.data[0]["date"])[:10]
+                contracts = (
+                    supabase_client.table("cocoa_london_contracts")
+                    .select("date, contract_rank, symbol, close, volume, open_interest")
+                    .eq("date", term_date)
+                    .order("contract_rank")
+                    .execute()
+                )
+                for c in contracts.data or []:
+                    rank = int(c["contract_rank"])
+                    term.append(
+                        LondonTermContract(
+                            contract_rank=rank,
+                            symbol=str(c.get("symbol") or f"C.v.{rank}"),
+                            close=float(c["close"]),
+                            volume=float(c["volume"]) if c.get("volume") is not None else None,
+                            open_interest=(
+                                float(c["open_interest"])
+                                if c.get("open_interest") is not None
+                                else None
+                            ),
+                            label=_RANK_LABELS.get(rank, f"Rank {rank}"),
+                        )
+                    )
+        except Exception as exc:
+            logger.warning(f"london contracts unavailable: {exc}")
+
+        return LondonMarketResponse(
+            latest=latest,
+            history=history,
+            term_structure=term,
+            term_date=term_date,
+            unit=market.unit,
+            source=(latest.source if latest else "databento"),
+        )
+    except Exception as e:
+        logger.error(f"Failed to retrieve london market: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve london market: {str(e)}",
+        )
+
+
+@app.get("/api/v1/model-comparison", response_model=ModelComparisonResponse)
+async def get_model_comparison(
+    token_payload: dict = Depends(verify_token),
+):
+    """Resultats de l'etude comparative M1-M4 (memoire) — fichier config/reports."""
+    try:
+        from pathlib import Path
+        import json as _json
+
+        candidates = [
+            Path("config/model_comparison_latest.json"),
+            Path(__file__).resolve().parents[2] / "config" / "model_comparison_latest.json",
+        ]
+        # Aussi le plus recent dans reports/
+        reports_dir = Path(__file__).resolve().parents[2] / "reports"
+        if reports_dir.is_dir():
+            candidates.extend(
+                sorted(reports_dir.glob("model_comparison_*.json"), reverse=True)[:1]
+            )
+
+        payload = None
+        for path in candidates:
+            if path.is_file():
+                payload = _json.loads(path.read_text(encoding="utf-8"))
+                break
+
+        if not payload:
+            return ModelComparisonResponse(
+                metrics=[],
+                note="Aucun rapport de comparaison trouve. Lancer run_model_comparison.py",
+            )
+
+        metrics: List[ModelComparisonMetric] = []
+        for model_key, by_h in (payload.get("models") or {}).items():
+            for h, m in by_h.items():
+                metrics.append(
+                    ModelComparisonMetric(
+                        model=model_key,
+                        label=_MODEL_LABELS.get(model_key, model_key),
+                        horizon=int(h),
+                        mae=float(m.get("mae") or 0),
+                        rmse=float(m.get("rmse") or 0),
+                        mape=float(m.get("mape") or 0),
+                        n=int(m.get("n") or 0),
+                    )
+                )
+
+        return ModelComparisonResponse(
+            generated_at=payload.get("generated_at"),
+            split_date=payload.get("split_date"),
+            n_train=payload.get("n_train"),
+            n_test=payload.get("n_test"),
+            metrics=metrics,
+            note="M1=Prophet(Close) · M2=XGB(OHLCV) · M3=XGB(+OI) · M4=Complet",
+        )
+    except Exception as e:
+        logger.error(f"Failed to retrieve model comparison: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve model comparison: {str(e)}",
         )
 
 

@@ -11,6 +11,8 @@ import type {
   DashboardNotification,
   NotificationsListResponse,
   FuturesCurveResponse,
+  LondonMarketResponse,
+  ModelComparisonResponse,
 } from '@/types/api';
 
 /** Same-origin BFF — JWT stays on the server (API_TOKEN). */
@@ -59,6 +61,26 @@ export const api = {
       params: { include_predictions: includePredictions },
     });
     return response.data;
+  },
+
+  async getLondonMarket(historyDays = 60): Promise<LondonMarketResponse | null> {
+    try {
+      const response = await apiClient.get<LondonMarketResponse>('/api/v1/london-market', {
+        params: { history_days: historyDays },
+      });
+      return response.data;
+    } catch {
+      return null;
+    }
+  },
+
+  async getModelComparison(): Promise<ModelComparisonResponse | null> {
+    try {
+      const response = await apiClient.get<ModelComparisonResponse>('/api/v1/model-comparison');
+      return response.data;
+    } catch {
+      return null;
+    }
   },
 
   async getPerformance(params?: {

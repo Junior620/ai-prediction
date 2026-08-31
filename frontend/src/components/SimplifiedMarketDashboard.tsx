@@ -9,6 +9,8 @@ import type {
   PredictionResponse,
   ValidationMetricsResponse,
   FuturesCurveResponse,
+  LondonMarketResponse,
+  ModelComparisonResponse,
 } from '@/types/api';
 import { TradingViewEmbed } from '@/components/TradingViewEmbed';
 import { MarketBrief } from '@/components/MarketBrief';
@@ -17,6 +19,8 @@ import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonC
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
 import { FuturesCurvePanel } from '@/components/dashboard/FuturesCurvePanel';
+import { LondonMicrostructurePanel } from '@/components/dashboard/LondonMicrostructurePanel';
+import { ModelComparisonPanel } from '@/components/dashboard/ModelComparisonPanel';
 import { TradingViewAlertPopup } from '@/components/TradingViewAlertPopup';
 import { useDashboardNotifications } from '@/hooks/useDashboardNotifications';
 import {
@@ -85,6 +89,8 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const [intelligence, setIntelligence] = useState<MarketIntelligenceResponse | null>(null);
   const [validation, setValidation] = useState<ValidationMetricsResponse | null>(null);
   const [futures, setFutures] = useState<FuturesCurveResponse | null>(null);
+  const [londonMarket, setLondonMarket] = useState<LondonMarketResponse | null>(null);
+  const [modelComparison, setModelComparison] = useState<ModelComparisonResponse | null>(null);
   const [perfMape, setPerfMape] = useState<number | null>(null);
   const [perfRmse, setPerfRmse] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -205,13 +211,25 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
       );
       if (config.market === 'ICE_NY') {
         try {
-          const fut = await api.getFutures(true);
+          const [fut, london, comparison] = await Promise.all([
+            api.getFutures(true),
+            api.getLondonMarket(60),
+            api.getModelComparison(),
+          ]);
           setFutures(fut);
+          setLondonMarket(london);
+          setModelComparison(comparison);
         } catch {
-          if (!silent) setFutures(null);
+          if (!silent) {
+            setFutures(null);
+            setLondonMarket(null);
+            setModelComparison(null);
+          }
         }
       } else {
         setFutures(null);
+        setLondonMarket(null);
+        setModelComparison(null);
       }
       setLastUpdate(new Date());
     } catch (err: unknown) {
@@ -459,9 +477,25 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
               />
 
               {config.market === 'ICE_NY' && (
+                <LondonMicrostructurePanel
+                  data={londonMarket}
+                  loading={loading && !londonMarket}
+                  accentClass={theme.accentClass}
+                />
+              )}
+
+              {config.market === 'ICE_NY' && (
                 <FuturesCurvePanel
                   data={futures}
                   loading={loading && !futures}
+                  accentClass={theme.accentClass}
+                />
+              )}
+
+              {config.market === 'ICE_NY' && (
+                <ModelComparisonPanel
+                  data={modelComparison}
+                  loading={loading && !modelComparison}
                   accentClass={theme.accentClass}
                 />
               )}

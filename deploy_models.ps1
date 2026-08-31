@@ -170,12 +170,27 @@ if (Test-Path $futuresDir) {
 # --- Upload config (market registry + weights / conformal) ---
 $configFiles = @(
     @{ Local = "config\config.yaml"; Remote = "$RemotePath/config/" },
+    @{ Local = "config\settings.py"; Remote = "$RemotePath/config/" },
     @{ Local = "config\ensemble_weights.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\conformal_intervals.json"; Remote = "$RemotePath/config/" },
+    @{ Local = "config\model_comparison_latest.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\coffee_robusta\ensemble_weights.json"; Remote = "$RemotePath/config/coffee_robusta/" },
     @{ Local = "config\coffee_robusta\conformal_intervals.json"; Remote = "$RemotePath/config/coffee_robusta/" }
 )
 foreach ($item in $configFiles) {
+    $localPath = Join-Path $Root $item.Local
+    if (Test-Path $localPath) {
+        Write-Host ('[INFO] Upload ' + $item.Local)
+        Invoke-Scp -Sources @($localPath) -Destination $item.Remote
+    }
+}
+
+# --- Upload API modules (nouveaux endpoints dashboard) ---
+$apiFiles = @(
+    @{ Local = "src\api\app.py"; Remote = "$RemotePath/src/api/" },
+    @{ Local = "src\api\models.py"; Remote = "$RemotePath/src/api/" }
+)
+foreach ($item in $apiFiles) {
     $localPath = Join-Path $Root $item.Local
     if (Test-Path $localPath) {
         Write-Host ('[INFO] Upload ' + $item.Local)

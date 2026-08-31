@@ -178,3 +178,48 @@ export interface FuturesCurveResponse {
   model_version?: string | null;
   spot_pct_by_horizon?: Record<string, number> | null;
 }
+
+export interface LondonHistoryPoint {
+  date: string;
+  price: number;
+  volume?: number | null;
+  open_interest?: number | null;
+  source?: string | null;
+}
+
+export interface LondonTermContract {
+  contract_rank: number;
+  symbol: string;
+  close: number;
+  volume?: number | null;
+  open_interest?: number | null;
+  label: string;
+}
+
+export interface LondonMarketResponse {
+  latest?: LondonHistoryPoint | null;
+  history: LondonHistoryPoint[];
+  term_structure: LondonTermContract[];
+  term_date?: string | null;
+  unit: string;
+  source?: string | null;
+}
+
+export interface ModelComparisonMetric {
+  model: string;
+  label: string;
+  horizon: number;
+  mae: number;
+  rmse: number;
+  mape: number;
+  n: number;
+}
+
+export interface ModelComparisonResponse {
+  generated_at?: string | null;
+  split_date?: string | null;
+  n_train?: number | null;
+  n_test?: number | null;
+  metrics: ModelComparisonMetric[];
+  note?: string | null;
+}

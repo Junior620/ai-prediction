@@ -457,3 +457,49 @@ class FuturesCurveResponse(BaseModel):
     source: Optional[str] = None
     model_version: Optional[str] = None
     spot_pct_by_horizon: Optional[Dict[str, float]] = None
+
+
+class LondonHistoryPoint(BaseModel):
+    date: str
+    price: float
+    volume: Optional[float] = None
+    open_interest: Optional[float] = None
+    source: Optional[str] = None
+
+
+class LondonTermContract(BaseModel):
+    contract_rank: int
+    symbol: str
+    close: float
+    volume: Optional[float] = None
+    open_interest: Optional[float] = None
+    label: str
+
+
+class LondonMarketResponse(BaseModel):
+    """Microstructure ICE London (Databento) : OHLCV + OI + courbe d'echeances."""
+    latest: Optional[LondonHistoryPoint] = None
+    history: List[LondonHistoryPoint] = Field(default_factory=list)
+    term_structure: List[LondonTermContract] = Field(default_factory=list)
+    term_date: Optional[str] = None
+    unit: str = "GBP/MT"
+    source: Optional[str] = "databento"
+
+
+class ModelComparisonMetric(BaseModel):
+    model: str
+    label: str
+    horizon: int
+    mae: float
+    rmse: float
+    mape: float
+    n: int
+
+
+class ModelComparisonResponse(BaseModel):
+    generated_at: Optional[str] = None
+    split_date: Optional[str] = None
+    n_train: Optional[int] = None
+    n_test: Optional[int] = None
+    metrics: List[ModelComparisonMetric] = Field(default_factory=list)
+    note: Optional[str] = None
