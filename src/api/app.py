@@ -1604,7 +1604,12 @@ async def get_london_market(
             )
             for r in rows
         ]
+        # Preferer la derniere barre avec microstructure (Databento) pour les KPI volume/OI
         latest = history[-1] if history else None
+        for point in reversed(history):
+            if point.volume is not None or point.open_interest is not None:
+                latest = point
+                break
 
         term: List[LondonTermContract] = []
         term_date = None
