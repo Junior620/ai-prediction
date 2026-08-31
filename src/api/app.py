@@ -75,6 +75,7 @@ from src.monitoring.alert_system import get_alert_system, AlertSeverity, AlertTy
 from src.models.data_models import NewsArticle
 from src.models.market_registry import (
     MarketConfig,
+    get_market_config,
     list_api_markets,
     load_all_markets,
     resolve_api_market,
