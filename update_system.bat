@@ -59,6 +59,30 @@ if errorlevel 1 (
 echo [OK] Prix cacao ICE London collecte
 echo.
 
+echo [INFO] Contrats a terme Londres mois nommes (DEC26, MAR27...)...
+call venv_py311\Scripts\python.exe collect_london_named_futures.py
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Courbe Londres nommee indisponible — non bloquant
+) else (
+    echo [OK] Courbe Londres nommee collectee
+)
+echo.
+
+echo [INFO] Courbe a terme cacao — mois nommes NY Investing (Dec26, Mar27...)...
+call venv_py311\Scripts\python.exe collect_cocoa_futures_investing.py
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Investing futures echoue — tentative Yahoo collect_futures.py
+    call venv_py311\Scripts\python.exe collect_futures.py
+    if errorlevel 1 (
+        echo [AVERTISSEMENT] Courbe futures NY non mise a jour — non bloquant
+    ) else (
+        echo [OK] Courbe futures Yahoo collectee
+    )
+) else (
+    echo [OK] Courbe futures Investing collectee
+)
+echo.
+
 echo [INFO] Cafe robusta — Investing.com (RCU6)...
 call venv_py311\Scripts\python.exe collect_coffee_robusta_price.py
 if errorlevel 1 (
@@ -104,42 +128,73 @@ if errorlevel 1 (
 echo [OK] Hybride cacao reentraine
 echo.
 
+echo --- CACAO WALK-FORWARD (metriques dashboard) ---
+call venv_py311\Scripts\python.exe scripts\run_walk_forward_validation.py --market cocoa --max-origins 48 --skip-nhits --horizons 1 7 14 30
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Walk-forward cacao echoue — section Performance peut rester vide
+) else (
+    echo [OK] Walk-forward cacao genere
+)
+echo.
+
 echo --- CAFE ROBUSTA (Prophet + XGBoost) ---
 call venv_py311\Scripts\python.exe train_hybrid_improved.py --market coffee_robusta
 if errorlevel 1 (
-    echo [ERREUR] Echec reentrainement hybride robusta
-    pause
-    exit /b 1
+    echo [AVERTISSEMENT] Echec reentrainement hybride robusta — non bloquant
+    echo                Relancer: update_system_resume.bat
+) else (
+    echo [OK] Hybride robusta reentraine
 )
-echo [OK] Hybride robusta reentraine
 echo.
 
-echo --- CACAO (N-HiTS) ---
-echo [INFO] Peut prendre 2-5 minutes...
-call venv_py311\Scripts\python.exe -u train_nhits.py --market cocoa
+echo --- CACAO (N-HiTS via Docker Linux) ---
+echo [INFO] Contourne le blocage Windows Ray — 2-5 min...
+docker compose exec -T api python -u train_nhits.py --market cocoa
 if errorlevel 1 (
-    echo [AVERTISSEMENT] N-HiTS cacao non entraine — 2 moteurs pour le cacao
+    echo [AVERTISSEMENT] N-HiTS cacao non entraine — fallback: docker compose run
+    docker compose run --rm --no-deps api python -u train_nhits.py --market cocoa
+    if errorlevel 1 (
+        echo [AVERTISSEMENT] N-HiTS cacao non entraine — 2 moteurs pour le cacao
+    ) else (
+        echo [OK] N-HiTS cacao entraine
+    )
 ) else (
     echo [OK] N-HiTS cacao entraine
 )
 echo.
 
-echo --- CAFE ROBUSTA (N-HiTS) ---
-echo [INFO] Peut prendre 2-5 minutes...
-call venv_py311\Scripts\python.exe -u train_nhits.py --market coffee_robusta
+echo --- CAFE ROBUSTA (N-HiTS via Docker Linux) ---
+echo [INFO] Contourne le blocage Windows Ray — 2-5 min...
+docker compose exec -T api python -u train_nhits.py --market coffee_robusta
 if errorlevel 1 (
-    echo [AVERTISSEMENT] N-HiTS robusta non entraine — 2 moteurs pour le robusta
+    echo [AVERTISSEMENT] N-HiTS robusta non entraine — fallback: docker compose run
+    docker compose run --rm --no-deps api python -u train_nhits.py --market coffee_robusta
+    if errorlevel 1 (
+        echo [AVERTISSEMENT] N-HiTS robusta non entraine — 2 moteurs pour le robusta
+    ) else (
+        echo [OK] N-HiTS robusta entraine
+    )
 ) else (
     echo [OK] N-HiTS robusta entraine
 )
 echo.
 
-echo --- CACAO COURBE A TERME (XGBoost contrats) ---
-call venv_py311\Scripts\python.exe train_futures_curve.py
+echo --- CACAO COURBE A TERME Londres (XGBoost ranks C.v.0..3) ---
+call venv_py311\Scripts\python.exe train_futures_curve.py --source london
 if errorlevel 1 (
-    echo [AVERTISSEMENT] Modeles futures non entraines — fallback spot_shift
+    echo [AVERTISSEMENT] Modeles futures Londres non entraines — fallback Investing
+    call venv_py311\Scripts\python.exe train_futures_curve.py --source investing
 ) else (
-    echo [OK] Courbe a terme cacao entrainee
+    echo [OK] Courbe a terme Londres entrainee
+)
+echo.
+
+echo --- CACAO COURBE A TERME Londres mois nommes (DEC26…) ---
+call venv_py311\Scripts\python.exe train_futures_curve.py --source london_named
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Modeles DEC26… non entraines — fallback spot_shift
+) else (
+    echo [OK] Courbe Londres nommee entrainee
 )
 echo.
 

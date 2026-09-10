@@ -109,10 +109,10 @@ export function MarketKPIBar({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-3 border-t border-white/[0.06] text-[10px] text-slate-500">
         <span className="flex items-center gap-1">
           <Info className={`w-3 h-3 ${accentClass}`} />
-          Source prix ML : {priceSource}
+          ML = ICE London £/T (Databento) · {priceSource}
         </span>
         <span>·</span>
-        <span>TradingView = CFD temps réel (peut différer de quelques $)</span>
+        <span>Widget = CFD Pepperstone (réf. visuelle, pas la même série)</span>
         {displayGbpEquiv && usdGbp != null && (
           <>
             <span>·</span>

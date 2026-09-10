@@ -80,7 +80,7 @@ class GarchForecast:
 
 def fit_garch_forecast(
     prices: pd.Series,
-    horizons: Tuple[int, ...] = (1, 7, 30),
+    horizons: Tuple[int, ...] = (1, 7, 14, 30),
     min_observations: int = 250,
 ) -> Optional[GarchForecast]:
     """

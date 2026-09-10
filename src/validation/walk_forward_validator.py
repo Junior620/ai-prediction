@@ -26,7 +26,7 @@ from src.validation.metrics import aggregate_by_horizon
 
 @dataclass
 class WalkForwardConfig:
-    horizons: List[int] = field(default_factory=lambda: [1, 7, 30])
+    horizons: List[int] = field(default_factory=lambda: [1, 7, 14, 30])
     min_train_days: int = 252
     step_size: int = 5
     max_origins: Optional[int] = None

@@ -54,6 +54,7 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DATABENTO_API_KEY=${DATABENTO_API_KEY}
       - TRADINGVIEW_WEBHOOK_SECRET=${TRADINGVIEW_WEBHOOK_SECRET:-}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -67,6 +68,8 @@ services:
       - ./.env:/app/.env:ro
       - ./logs:/app/logs
       - ./models:/app/models
+      - ./reports:/app/reports
+      - ./train_nhits.py:/app/train_nhits.py:ro
       - mlruns:/app/mlruns
     depends_on:
       redis:

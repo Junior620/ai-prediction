@@ -15,7 +15,7 @@ class PredictionRequest(BaseModel):
     Request model for price prediction endpoint.
     
     Attributes:
-        horizons: List of prediction horizons in days (e.g., [1, 7, 30])
+        horizons: List of prediction horizons in days (e.g., [1, 7, 14, 30])
         market: Market identifier (e.g., "ICE_London", "ICE_NY")
         include_sentiment: Whether to include sentiment analysis in predictions
     """
@@ -24,7 +24,7 @@ class PredictionRequest(BaseModel):
         ...,
         description="List of prediction horizons in days",
         min_length=1,
-        example=[1, 7, 30]
+        example=[1, 7, 14, 30]
     )
     market: str = Field(
         ...,
@@ -39,7 +39,7 @@ class PredictionRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "horizons": [1, 7, 30],
+                "horizons": [1, 7, 14, 30],
                 "market": "ICE_London",
                 "include_sentiment": True
             }
@@ -457,6 +457,14 @@ class FuturesCurveResponse(BaseModel):
     source: Optional[str] = None
     model_version: Optional[str] = None
     spot_pct_by_horizon: Optional[Dict[str, float]] = None
+    unit: str = "USD/MT"
+    currency: str = "USD"
+    # Courbe ICE London continue C.v.0..3 (GBP) — secondaire
+    london_contracts: List[FuturesContractItem] = Field(default_factory=list)
+    london_collected_at: Optional[str] = None
+    london_source: Optional[str] = None
+    london_unit: str = "GBP/MT"
+    london_currency: str = "GBP"
 
 
 class LondonHistoryPoint(BaseModel):

@@ -67,6 +67,9 @@ export function AnalysisPanel({
 
   const m7 = validation?.xgb_metrics?.find(m => m.horizon === 7)
     ?? validation?.xgb_metrics?.[0];
+  const m1 = validation?.xgb_metrics?.find(m => m.horizon === 1);
+  const m14 = validation?.xgb_metrics?.find(m => m.horizon === 14);
+  const m30 = validation?.xgb_metrics?.find(m => m.horizon === 30);
 
   return (
     <div className="space-y-5">
@@ -127,15 +130,33 @@ export function AnalysisPanel({
           Performance du modèle
         </h3>
         {validation ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             <div>
-              <p className="text-[10px] text-slate-500 uppercase">MAPE (J+7)</p>
+              <p className="text-[10px] text-slate-500 uppercase">MAPE J+1</p>
+              <p className="text-lg font-bold text-white mt-1">
+                {m1?.mape != null ? `${m1.mape.toFixed(1)}%` : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase">MAPE J+7</p>
               <p className="text-lg font-bold text-white mt-1">
                 {m7?.mape != null ? `${m7.mape.toFixed(1)}%` : '—'}
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-500 uppercase">Hit rate</p>
+              <p className="text-[10px] text-slate-500 uppercase">MAPE J+14</p>
+              <p className="text-lg font-bold text-white mt-1">
+                {m14?.mape != null ? `${m14.mape.toFixed(1)}%` : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase">MAPE J+30</p>
+              <p className="text-lg font-bold text-white mt-1">
+                {m30?.mape != null ? `${m30.mape.toFixed(1)}%` : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase">Hit rate J+7</p>
               <p className="text-lg font-bold text-white mt-1">
                 {m7?.directional_accuracy != null
                   ? `${Math.round(m7.directional_accuracy * 100)}%`
@@ -146,12 +167,6 @@ export function AnalysisPanel({
               <p className="text-[10px] text-slate-500 uppercase">Origines WF</p>
               <p className="text-lg font-bold text-white mt-1">
                 {validation.n_origins ?? '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase">Entraînement</p>
-              <p className="text-sm font-bold text-white mt-1">
-                {modelVersion?.split('_')[1]?.slice(0, 8) ?? '—'}
               </p>
             </div>
           </div>

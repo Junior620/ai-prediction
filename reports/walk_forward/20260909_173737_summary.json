@@ -1,0 +1,164 @@
+{
+  "timestamp": "2026-09-09T17:37:37.746839",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "xgb_pred uses frozen lags for h>1; xgb_pred_recursive uses multi-step simulation.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 48,
+    "horizons": [
+      1,
+      7,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 36.61211033337186,
+          "mae": 30.854859566066576,
+          "mape": 1.8040483100290188,
+          "directional_accuracy": 0.6521739130434783,
+          "n_predictions": 46
+        },
+        "7": {
+          "rmse": 74.3251890741364,
+          "mae": 51.584045511881506,
+          "mape": 3.0682193756063474,
+          "directional_accuracy": 0.5625,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 101.86391795197275,
+          "mae": 83.04532145182291,
+          "mape": 4.867009888512285,
+          "directional_accuracy": 0.5,
+          "n_predictions": 48
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 59.20889503228086,
+          "mae": 47.5886906332226,
+          "mape": 2.778328704338922,
+          "directional_accuracy": 0.717391304347826,
+          "n_predictions": 46
+        },
+        "7": {
+          "rmse": 127.4458319631753,
+          "mae": 106.00072732483147,
+          "mape": 6.23354031258018,
+          "directional_accuracy": 0.5208333333333334,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 281.6890910807547,
+          "mae": 243.1730181299873,
+          "mape": 14.267225423597605,
+          "directional_accuracy": 0.5833333333333334,
+          "n_predictions": 48
+        }
+      },
+      "xgb_pred_recursive": {
+        "1": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        },
+        "7": {
+          "rmse": 123.52330311775478,
+          "mae": 101.10867299397786,
+          "mape": 5.976374719114225,
+          "directional_accuracy": 0.5208333333333334,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 149.32751918594678,
+          "mae": 127.68929311116536,
+          "mape": 7.467224356838729,
+          "directional_accuracy": 0.5833333333333334,
+          "n_predictions": 48
+        }
+      }
+    },
+    "recursive_vs_frozen": {
+      "1": {
+        "frozen_mape": 1.8040483100290188,
+        "recursive_mape": NaN
+      },
+      "7": {
+        "frozen_mape": 3.0682193756063474,
+        "recursive_mape": 5.976374719114225
+      },
+      "30": {
+        "frozen_mape": 4.867009888512285,
+        "recursive_mape": 7.467224356838729
+      }
+    }
+  },
+  "ensemble_calibration": {
+    "source_report": "20260909_173737",
+    "calibrated_at": "2026-09-09T17:37:37.829750",
+    "by_horizon": {
+      "1": {
+        "xgb": 1.0,
+        "prophet": 0.0,
+        "nhits": 0.0
+      },
+      "7": {
+        "xgb": 1.0,
+        "prophet": 0.0,
+        "nhits": 0.0
+      },
+      "30": {
+        "xgb": 1.0,
+        "prophet": 0.0,
+        "nhits": 0.0
+      }
+    },
+    "fixed_baseline_mape": {
+      "1": 1.9572135145116107,
+      "7": 3.9857078178597036,
+      "30": 6.954790085542719
+    },
+    "calibrated_mape": {
+      "1": 1.8040483100290188,
+      "7": 3.0682193756063474,
+      "30": 4.867009888512285
+    }
+  },
+  "conformal_intervals": {
+    "source_report": "20260909_173737",
+    "calibrated_at": "2026-09-09T17:37:38.015283",
+    "coverage_level": 0.9,
+    "asymmetric": false,
+    "by_horizon": {
+      "1": {
+        "margin_lower": 70.9447021484375,
+        "margin_upper": 70.9447021484375,
+        "empirical_coverage": 0.9565217391304348,
+        "mean_interval_width": 141.889404296875,
+        "n": 46
+      },
+      "7": {
+        "margin_lower": 184.4039306640625,
+        "margin_upper": 184.4039306640625,
+        "empirical_coverage": 0.9583333333333334,
+        "mean_interval_width": 368.807861328125,
+        "n": 48
+      },
+      "30": {
+        "margin_lower": 195.5859375,
+        "margin_upper": 195.5859375,
+        "empirical_coverage": 0.9583333333333334,
+        "mean_interval_width": 391.171875,
+        "n": 48
+      }
+    }
+  }
+}

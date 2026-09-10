@@ -34,7 +34,7 @@ export function ModelComparisonPanel({
 }: Props) {
   const chartData = useMemo(() => {
     if (!data?.metrics?.length) return [];
-    const byModel: Record<string, { name: string; label: string; j1?: number; j7?: number; j30?: number }> = {};
+    const byModel: Record<string, { name: string; label: string; j1?: number; j7?: number; j14?: number; j30?: number }> = {};
     for (const m of data.metrics) {
       if (!byModel[m.model]) {
         byModel[m.model] = {
@@ -44,6 +44,7 @@ export function ModelComparisonPanel({
       }
       if (m.horizon === 1) byModel[m.model].j1 = Number(m.mape.toFixed(2));
       if (m.horizon === 7) byModel[m.model].j7 = Number(m.mape.toFixed(2));
+      if (m.horizon === 14) byModel[m.model].j14 = Number(m.mape.toFixed(2));
       if (m.horizon === 30) byModel[m.model].j30 = Number(m.mape.toFixed(2));
     }
     // Exclure M1 du graphique (MAPE abérant ~155%) pour garder l'échelle lisible
@@ -107,7 +108,7 @@ export function ModelComparisonPanel({
               }}
               formatter={(value: number, name: string) => [
                 `${value.toFixed(2)}%`,
-                name === 'j1' ? 'J+1' : name === 'j7' ? 'J+7' : 'J+30',
+                name === 'j1' ? 'J+1' : name === 'j7' ? 'J+7' : name === 'j14' ? 'J+14' : 'J+30',
               ]}
               labelFormatter={(label) => {
                 const row = chartData.find((c) => c.name === label);
@@ -116,10 +117,13 @@ export function ModelComparisonPanel({
             />
             <Legend
               wrapperStyle={{ fontSize: 12, color: '#94a3b8' }}
-              formatter={(v) => (v === 'j1' ? 'J+1' : v === 'j7' ? 'J+7' : 'J+30')}
+              formatter={(v) =>
+                v === 'j1' ? 'J+1' : v === 'j7' ? 'J+7' : v === 'j14' ? 'J+14' : 'J+30'
+              }
             />
             <Bar dataKey="j1" fill="#34d399" radius={[4, 4, 0, 0]} />
             <Bar dataKey="j7" fill="#60a5fa" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="j14" fill="#38bdf8" radius={[4, 4, 0, 0]} />
             <Bar dataKey="j30" fill="#c084fc" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -132,6 +136,7 @@ export function ModelComparisonPanel({
               <th className="text-left py-2 font-medium">Modèle</th>
               <th className="text-right py-2 font-medium">J+1 MAPE</th>
               <th className="text-right py-2 font-medium">J+7 MAPE</th>
+              <th className="text-right py-2 font-medium">J+14 MAPE</th>
               <th className="text-right py-2 font-medium">J+30 MAPE</th>
             </tr>
           </thead>
@@ -154,6 +159,9 @@ export function ModelComparisonPanel({
                   </td>
                   <td className="py-2 text-right tabular-nums text-sky-300/90">
                     {get(7) != null ? `${get(7)!.toFixed(2)}%` : '—'}
+                  </td>
+                  <td className="py-2 text-right tabular-nums text-cyan-300/90">
+                    {get(14) != null ? `${get(14)!.toFixed(2)}%` : '—'}
                   </td>
                   <td className="py-2 text-right tabular-nums text-violet-300/90">
                     {get(30) != null ? `${get(30)!.toFixed(2)}%` : '—'}

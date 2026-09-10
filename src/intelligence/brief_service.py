@@ -29,7 +29,7 @@ def _build_prompt(
     user_question: Optional[str] = None,
     alert_context: Optional[Dict[str, Any]] = None,
 ) -> str:
-    horizon_labels = {1: "a un jour", 7: "a une semaine", 30: "a un mois"}
+    horizon_labels = {1: "a un jour", 7: "a une semaine", 14: "a deux semaines", 30: "a un mois"}
     preds_text = []
     for p in predictions:
         lo, hi = p["confidence_interval"]
@@ -335,7 +335,7 @@ class BriefService:
                 logger.warning(f"News load failed: {e}")
 
         preds = predictor.predict(
-            horizons=[1, 7, 30],
+            horizons=[1, 7, 14, 30],
             recent_news=recent_news_objs if include_sentiment else [],
         )
 

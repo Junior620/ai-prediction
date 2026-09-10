@@ -11,7 +11,7 @@ system:
 
 # Prediction Settings
 prediction:
-  horizons: [1, 7, 30]  # Days ahead to predict
+  horizons: [1, 7, 14, 30]  # Days ahead to predict
   confidence_level: 0.90  # 90% conformal prediction interval
   conformal_intervals_file: "config/conformal_intervals.json"
   sentiment_weight: 0.1  # Weight for sentiment adjustment (0-1)
@@ -28,12 +28,16 @@ prediction:
   # Garde-fous anti-choc (transition ICE London / serie hybride)
   # Limite la variation abs. predite vs spot par horizon (en %).
   max_abs_change_pct:
-    "1": 4.0
-    "7": 10.0
-    "30": 18.0
+    "1": 6.0
+    "7": 14.0
+    "14": 18.0
+    "30": 22.0
   # Bornes d'intervalle / clip: min/max des N derniers jours (au lieu de toute l'histoire)
   recent_range_days: 252
   recent_range_padding_pct: 15.0
+  # Feature set production cacao : m3 = OHLCV + Open Interest
+  cocoa_feature_set: m3
+  sentiment_weight_production: 0.06
 
 # Markets Registry
 # Each market defines its data source, Supabase table, model directory and calibration files.
@@ -426,7 +430,7 @@ validation:
     max_confidence_level: 0.99
 
   walk_forward:
-    horizons: [1, 7, 30]
+    horizons: [1, 7, 14, 30]
     min_train_days: 252
     step_size: 5
     max_origins: null

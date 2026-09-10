@@ -77,10 +77,19 @@ function Invoke-Scp {
         if ($Recurse) { $argsList += "-r" }
         $argsList += $src
         $argsList += "${SshTarget}:${Destination}"
-        Write-Host ('[INFO] SCP ' + (Split-Path $src -Leaf) + ' -> ' + $Destination)
-        & scp.exe @argsList
-        if ($LASTEXITCODE -ne 0) {
-            throw "SCP failed ($LASTEXITCODE) " + (Split-Path $src -Leaf) + " -> $Destination"
+        $leaf = Split-Path $src -Leaf
+        $ok = $false
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            Write-Host ('[INFO] SCP ' + $leaf + ' -> ' + $Destination + ' (essai ' + $attempt + '/3)')
+            & scp.exe @argsList
+            if ($LASTEXITCODE -eq 0) {
+                $ok = $true
+                break
+            }
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+        if (-not $ok) {
+            throw "SCP failed after retries: $leaf -> $Destination"
         }
     }
 }
@@ -143,27 +152,94 @@ Write-Host ""
 
 # --- Ensure remote dirs ---
 Write-Host '[INFO] Preparation des dossiers distants...'
-Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/models/futures $RemotePath/config/coffee_robusta"
+Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/models/futures $RemotePath/models/futures_london $RemotePath/models/futures_london_named $RemotePath/config/coffee_robusta $RemotePath/src/models"
 
 # --- Upload models ---
 Write-Host '[INFO] Upload modeles cacao...'
 Invoke-Scp -Sources @($cocoaProphet.FullName, $cocoaXgb.FullName) -Destination "$RemotePath/models/"
+$cocoaInfo = Get-LatestFile $cocoaDir "model_info_improved_*.json"
+if ($cocoaInfo) {
+    Invoke-Scp -Sources @($cocoaInfo.FullName) -Destination "$RemotePath/models/"
+}
+$cocoaH7 = Get-LatestFile $cocoaDir "xgboost_h7_*.pkl"
+$cocoaH14 = Get-LatestFile $cocoaDir "xgboost_h14_*.pkl"
+$cocoaH30 = Get-LatestFile $cocoaDir "xgboost_h30_*.pkl"
+$cocoaDirectInfo = Get-LatestFile $cocoaDir "model_info_direct_horizon_*.json"
+$directUploads = @()
+if ($cocoaH7) { $directUploads += $cocoaH7.FullName }
+if ($cocoaH14) { $directUploads += $cocoaH14.FullName }
+if ($cocoaH30) { $directUploads += $cocoaH30.FullName }
+if ($cocoaDirectInfo) { $directUploads += $cocoaDirectInfo.FullName }
+if ($directUploads.Count -gt 0) {
+    Write-Host '[INFO] Upload modeles direct-horizon cacao...'
+    Invoke-Scp -Sources $directUploads -Destination "$RemotePath/models/"
+}
 if ($cocoaNhits) {
     Invoke-Scp -Recurse -Sources @($cocoaNhits.FullName) -Destination "$RemotePath/models/"
 }
 
 Write-Host '[INFO] Upload modeles robusta...'
 Invoke-Scp -Sources @($robustaProphet.FullName, $robustaXgb.FullName) -Destination "$RemotePath/models/coffee_robusta/"
+$robustaH7 = Get-LatestFile $robustaDir "xgboost_h7_*.pkl"
+$robustaH14 = Get-LatestFile $robustaDir "xgboost_h14_*.pkl"
+$robustaH30 = Get-LatestFile $robustaDir "xgboost_h30_*.pkl"
+$robustaDirectInfo = Get-LatestFile $robustaDir "model_info_direct_horizon_*.json"
+$robustaDirectUploads = @()
+if ($robustaH7) { $robustaDirectUploads += $robustaH7.FullName }
+if ($robustaH14) { $robustaDirectUploads += $robustaH14.FullName }
+if ($robustaH30) { $robustaDirectUploads += $robustaH30.FullName }
+if ($robustaDirectInfo) { $robustaDirectUploads += $robustaDirectInfo.FullName }
+if ($robustaDirectUploads.Count -gt 0) {
+    Write-Host '[INFO] Upload modeles direct-horizon robusta...'
+    Invoke-Scp -Sources $robustaDirectUploads -Destination "$RemotePath/models/coffee_robusta/"
+}
 if ($robustaNhits) {
     Invoke-Scp -Recurse -Sources @($robustaNhits.FullName) -Destination "$RemotePath/models/coffee_robusta/"
 }
 
 $futuresDir = Join-Path $Root "models\futures"
 if (Test-Path $futuresDir) {
-    Write-Host '[INFO] Upload modeles futures (courbe a terme)...'
+    Write-Host '[INFO] Upload modeles futures NY (fallback)...'
     $futuresFiles = Get-ChildItem -Path $futuresDir -File -ErrorAction SilentlyContinue
     foreach ($ff in $futuresFiles) {
         Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures/"
+    }
+}
+
+$futuresLondonDir = Join-Path $Root "models\futures_london"
+if (Test-Path $futuresLondonDir) {
+    Write-Host '[INFO] Upload modeles futures Londres (GBP)...'
+    $flFiles = Get-ChildItem -Path $futuresLondonDir -File -ErrorAction SilentlyContinue
+    foreach ($ff in $flFiles) {
+        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures_london/"
+    }
+}
+
+$futuresNamedDir = Join-Path $Root "models\futures_london_named"
+if (Test-Path $futuresNamedDir) {
+    Write-Host '[INFO] Upload modeles futures Londres mois nommes (DEC26…)...'
+    $fnFiles = Get-ChildItem -Path $futuresNamedDir -File -ErrorAction SilentlyContinue
+    foreach ($ff in $fnFiles) {
+        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures_london_named/"
+    }
+}
+
+# --- Upload model code needed for M3 / London futures ---
+$modelCodeFiles = @(
+    @{ Local = "src\models\futures_curve_predictor.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\improved_price_predictor.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\hybrid_features.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\hybrid_trainer.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\direct_horizon_trainer.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\multi_step_predictor.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\validation\report_loader.py"; Remote = "$RemotePath/src/validation/" },
+    @{ Local = "docker-compose.yml"; Remote = "$RemotePath/" }
+)
+foreach ($item in $modelCodeFiles) {
+    $localPath = Join-Path $Root $item.Local
+    if (Test-Path $localPath) {
+        Write-Host ('[INFO] Upload ' + $item.Local)
+        Invoke-Scp -Sources @($localPath) -Destination $item.Remote
     }
 }
 
@@ -196,6 +272,26 @@ foreach ($item in $apiFiles) {
         Write-Host ('[INFO] Upload ' + $item.Local)
         Invoke-Scp -Sources @($localPath) -Destination $item.Remote
     }
+}
+
+# --- Upload walk-forward summaries (dashboard Performance) ---
+$wfDir = Join-Path $Root "reports\walk_forward"
+if (Test-Path $wfDir) {
+    $summaryFiles = Get-ChildItem -Path $wfDir -Filter "*_summary.json" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 6
+    if ($summaryFiles) {
+        Write-Host '[INFO] Upload reports/walk_forward summaries...'
+        Invoke-Ssh "mkdir -p $RemotePath/reports/walk_forward"
+        Invoke-Scp -Sources @($summaryFiles.FullName) -Destination "$RemotePath/reports/walk_forward/"
+    }
+}
+
+# --- Upload model comparison JSON (dashboard M1-M4) ---
+$cmpLocal = Join-Path $Root "config\model_comparison_latest.json"
+if (Test-Path $cmpLocal) {
+    Write-Host '[INFO] Upload config/model_comparison_latest.json'
+    Invoke-Scp -Sources @($cmpLocal) -Destination "$RemotePath/config/"
 }
 
 # --- Flush prediction cache + restart API ---

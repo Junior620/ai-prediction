@@ -130,6 +130,7 @@ def load_price_data_from_supabase(
     all_data = []
     page_size = 1000
     selected = None
+    last_error: Optional[Exception] = None
 
     for select_clause in select_candidates:
         all_data = []
@@ -151,11 +152,19 @@ def load_price_data_from_supabase(
                     break
             selected = select_clause
             break
-        except Exception:
+        except Exception as exc:
+            last_error = exc
             continue
 
     if selected is None:
+        if last_error is not None:
+            print(
+                f"[WARN] Chargement {table_name} echoue (colonnes/API): {last_error}"
+            )
         return clean_price_dataframe(pd.DataFrame(columns=["date", "price"]), min_date=min_date)
+
+    if not all_data:
+        print(f"[WARN] Table {table_name}: 0 lignes retournees (select={selected})")
 
     df = pd.DataFrame(all_data)
     return clean_price_dataframe(df, min_date=min_date)
@@ -204,13 +213,21 @@ def load_term_structure_from_supabase(
 
 def clean_price_dataframe(df: pd.DataFrame, min_date: str = "2020-01-01") -> pd.DataFrame:
     """Normalize, filter, and remove extreme outliers from a price DataFrame."""
+    if df is None or len(df) == 0:
+        return pd.DataFrame(columns=["date", "price"])
+
     out = df.copy()
     out["date"] = pd.to_datetime(out["date"])
     out = out.sort_values("date").drop_duplicates(subset=["date"], keep="last")
     out = out[out["date"] >= min_date].copy()
+    if len(out) == 0:
+        return out.reset_index(drop=True)
 
     mean_price = out["price"].mean()
     std_price = out["price"].std()
+    if pd.isna(mean_price) or pd.isna(std_price) or std_price == 0:
+        return out.reset_index(drop=True)
+
     out = out[
         (out["price"] >= mean_price - 3 * std_price)
         & (out["price"] <= mean_price + 3 * std_price)

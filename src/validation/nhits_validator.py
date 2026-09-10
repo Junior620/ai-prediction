@@ -16,7 +16,7 @@ from src.validation.metrics import compute_horizon_metrics
 
 @dataclass
 class NHitsValidatorConfig:
-    horizons: List[int] = field(default_factory=lambda: [1, 7, 30])
+    horizons: List[int] = field(default_factory=lambda: [1, 7, 14, 30])
     n_windows: int = 12
     val_size: int = 30
     step_size: int = 5

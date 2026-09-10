@@ -28,6 +28,7 @@ from src.models.hybrid_features import (
     clean_price_dataframe,
     future_business_date,
     prepare_training_frame,
+    resolve_feature_cols,
 )
 from src.models.conformal_intervals import (
     apply_interval,
@@ -64,6 +65,8 @@ class ImprovedPricePredictor:
         max_abs_change_pct: Optional[Dict[str, float]] = None,
         recent_range_days: int = 252,
         recent_range_padding_pct: float = 15.0,
+        feature_cols: Optional[List[str]] = None,
+        feature_set: str = "baseline",
     ):
         self.prophet_model = prophet_model
         self.xgboost_model = xgboost_model
@@ -81,12 +84,15 @@ class ImprovedPricePredictor:
         self.garch_enabled = garch_enabled
         self.models_dir = models_dir
         self.max_abs_change_pct = max_abs_change_pct or {
-            "1": 4.0,
-            "7": 10.0,
-            "30": 18.0,
+            "1": 6.0,
+            "7": 14.0,
+            "14": 18.0,
+            "30": 22.0,
         }
         self.recent_range_days = int(recent_range_days)
         self.recent_range_padding_pct = float(recent_range_padding_pct)
+        self.feature_set = feature_set
+        self.feature_cols = list(feature_cols) if feature_cols else list(FEATURE_COLS)
         self._garch_forecast = None
         self._garch_fit_time = None
         self._ensemble_weights = load_ensemble_weights(
@@ -108,8 +114,23 @@ class ImprovedPricePredictor:
         self._historical_data = None
         self._last_data_fetch = None
 
+        if not self.direct_horizon_models:
+            try:
+                self.direct_horizon_models = DirectHorizonTrainer.load_latest(self.models_dir)
+            except Exception as e:
+                logger.debug(f"No direct horizon models loaded: {e}")
+
+        logger.info(
+            f"ImprovedPricePredictor initialized: version={model_version}, "
+            f"feature_set={self.feature_set}, n_features={len(self.feature_cols)}, "
+            f"nhits={'yes' if nhits_model else 'no'}, "
+            f"multi_step={multi_step_mode}, "
+            f"direct_h={list(self.direct_horizon_models)}, "
+            f"conformal={'yes' if self._conformal_margins else 'no'}"
+        )
+
     def _recent_price_range(self, df_clean: pd.DataFrame) -> Tuple[float, float]:
-        """Min/max récents avec marge, bornés par price_bounds marché."""
+        """Min/max recents avec marge, bornes par price_bounds marche."""
         tail = df_clean.tail(max(30, self.recent_range_days))
         lo = float(tail["price"].min())
         hi = float(tail["price"].max())
@@ -122,10 +143,7 @@ class ImprovedPricePredictor:
         return (max(b_lo, lo2), min(b_hi, hi2))
 
     def _dampen_vs_spot(self, price: float, spot: float, horizon: int) -> Tuple[float, float]:
-        """
-        Limite la variation abs. vs spot selon max_abs_change_pct.
-        Retourne (prix_amorti, pct_change_applique).
-        """
+        """Limite la variation abs. vs spot selon max_abs_change_pct."""
         if spot <= 0:
             return float(price), 0.0
         max_pct = float(self.max_abs_change_pct.get(str(horizon), 20.0))
@@ -144,20 +162,6 @@ class ImprovedPricePredictor:
             )
         return float(dampened), capped_pct
 
-        if not self.direct_horizon_models:
-            try:
-                self.direct_horizon_models = DirectHorizonTrainer.load_latest(self.models_dir)
-            except Exception as e:
-                logger.debug(f"No direct horizon models loaded: {e}")
-
-        logger.info(
-            f"ImprovedPricePredictor initialized: version={model_version}, "
-            f"nhits={'yes' if nhits_model else 'no'}, "
-            f"multi_step={multi_step_mode}, "
-            f"direct_h={[h for h in self.direct_horizon_models]}, "
-            f"conformal={'yes' if self._conformal_margins else 'no'}"
-        )
-
     def _fetch_historical_data(self, force_refresh: bool = False) -> pd.DataFrame:
         if not force_refresh and self._historical_data is not None:
             if self._last_data_fetch is not None:
@@ -168,29 +172,53 @@ class ImprovedPricePredictor:
         if self.supabase_client is None:
             raise RuntimeError("Supabase client not initialized")
 
+        select_candidates = [
+            "date, price, open, high, low, volume, open_interest",
+            "date, price, open, high, low, volume",
+            "date, price",
+        ]
         all_data = []
-        page_size = 1000
-        offset = 0
-        while True:
-            response = (
-                self.supabase_client.table(self.price_table)
-                .select("date, price")
-                .order("date")
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-            if not response.data:
+        for select_clause in select_candidates:
+            all_data = []
+            page_size = 1000
+            offset = 0
+            try:
+                while True:
+                    response = (
+                        self.supabase_client.table(self.price_table)
+                        .select(select_clause)
+                        .order("date")
+                        .range(offset, offset + page_size - 1)
+                        .execute()
+                    )
+                    if not response.data:
+                        break
+                    all_data.extend(response.data)
+                    offset += page_size
+                    if len(response.data) < page_size:
+                        break
                 break
-            all_data.extend(response.data)
-            offset += page_size
+            except Exception:
+                continue
 
         df = clean_price_dataframe(pd.DataFrame(all_data))
+        for col in ("open", "high", "low", "volume", "open_interest"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").ffill()
         self._historical_data = df
         self._last_data_fetch = datetime.now()
         return df
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df_features, _ = prepare_training_frame(df, prophet_model=self.prophet_model)
+        for col in self.feature_cols:
+            if col not in df_features.columns:
+                df_features[col] = 0.0
+        micro = [c for c in self.feature_cols if c not in FEATURE_COLS]
+        if micro:
+            present = [c for c in micro if c in df_features.columns]
+            if present:
+                df_features[present] = df_features[present].ffill().fillna(0.0)
         return df_features
 
     def _get_garch_forecast(self, df_clean: pd.DataFrame, horizons: List[int]):
@@ -205,7 +233,7 @@ class ImprovedPricePredictor:
             from src.models.garch_engine import fit_garch_forecast
 
             self._garch_forecast = fit_garch_forecast(
-                df_clean["price"], horizons=tuple(sorted(set(horizons) | {1, 7, 30}))
+                df_clean["price"], horizons=tuple(sorted(set(horizons) | {1, 7, 14, 30}))
             )
             self._garch_fit_time = datetime.now()
         except Exception as e:
@@ -222,24 +250,39 @@ class ImprovedPricePredictor:
         current_date,
     ) -> float:
         """XGBoost price using direct h-step, recursive, or frozen strategy."""
+        cols = self.feature_cols
         if horizon in self.direct_horizon_models:
             future_date = future_business_date(current_date, horizon)
             features = build_prediction_row(
-                last_row, current_price, future_date, self.prophet_model
+                last_row, current_price, future_date, self.prophet_model, feature_cols=cols
             )
             return float(
-                self.direct_horizon_models[horizon].predict(features[FEATURE_COLS])[0]
+                self.direct_horizon_models[horizon].predict(features[cols])[0]
             )
 
         if horizon == 1 or self.multi_step_mode == "frozen":
             return predict_frozen(
-                last_row, current_price, current_date, horizon,
-                self.prophet_model, self.xgboost_model,
+                last_row,
+                current_price,
+                current_date,
+                horizon,
+                self.prophet_model,
+                self.xgboost_model,
+                feature_cols=cols,
             )
 
-        df_history = df_clean[["date", "price"]].copy()
+        keep = [
+            c
+            for c in ("date", "price", "open", "high", "low", "volume", "open_interest")
+            if c in df_clean.columns
+        ]
+        df_history = df_clean[keep].copy()
         return predict_recursive(
-            df_history, self.prophet_model, self.xgboost_model, horizon
+            df_history,
+            self.prophet_model,
+            self.xgboost_model,
+            horizon,
+            feature_cols=cols,
         )
 
     def predict(
@@ -253,7 +296,15 @@ class ImprovedPricePredictor:
 
         df = self._fetch_historical_data()
         df_with_features = self._prepare_features(df)
-        df_clean = df_with_features.dropna()
+        subset_cols = [c for c in self.feature_cols if c in df_with_features.columns]
+        df_clean = df_with_features.dropna(subset=subset_cols[: max(5, len(FEATURE_COLS))])
+        # Remplir micro manquantes apres dropna baseline
+        for c in self.feature_cols:
+            if c not in df_clean.columns:
+                df_clean[c] = 0.0
+        micro = [c for c in self.feature_cols if c not in FEATURE_COLS]
+        if micro:
+            df_clean[micro] = df_clean[micro].ffill().fillna(0.0)
 
         if df_clean.empty:
             raise RuntimeError("No valid data after feature preparation")
@@ -279,7 +330,11 @@ class ImprovedPricePredictor:
         for horizon in horizons:
             future_date = future_business_date(current_date, horizon)
             features_future = build_prediction_row(
-                last_row, current_price, future_date, self.prophet_model
+                last_row,
+                current_price,
+                future_date,
+                self.prophet_model,
+                feature_cols=self.feature_cols,
             )
             prophet_yhat_future = float(features_future["prophet_yhat"].iloc[0])
             xgb_price = self._predict_xgb_price(

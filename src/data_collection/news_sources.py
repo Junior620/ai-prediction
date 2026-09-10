@@ -26,6 +26,7 @@ MVP_SOURCES: List[Dict[str, Any]] = [
         "id": "oncc",
         "name": "ONCC",
         "enabled": True,
+        "weight": 1.5,
         "type": "html_list",
         "url": "https://www.oncc.cm/prices",
         "base_url": "https://www.oncc.cm",
@@ -38,6 +39,7 @@ MVP_SOURCES: List[Dict[str, Any]] = [
         "id": "icco",
         "name": "ICCO",
         "enabled": True,
+        "weight": 1.5,
         "type": "html_list",
         "url": "https://www.icco.org/news/",
         "base_url": "https://www.icco.org",
@@ -50,6 +52,7 @@ MVP_SOURCES: List[Dict[str, Any]] = [
         "id": "ccc_ci",
         "name": "Conseil Cafe-Cacao CI",
         "enabled": True,
+        "weight": 1.5,
         "type": "html_list",
         "url": "http://conseilcafecacao.ci/",
         "base_url": "http://conseilcafecacao.ci",
@@ -62,6 +65,7 @@ MVP_SOURCES: List[Dict[str, Any]] = [
         "id": "cocobod",
         "name": "COCOBOD",
         "enabled": True,
+        "weight": 1.5,
         "type": "html_list",
         "url": "https://cocobod.gh/news",
         "base_url": "https://cocobod.gh",
@@ -75,6 +79,7 @@ MVP_SOURCES: List[Dict[str, Any]] = [
         "id": "ecofin",
         "name": "Agence Ecofin",
         "enabled": True,
+        "weight": 1.0,
         "type": "html_list",
         "url": "https://www.agenceecofin.com/cacao",
         "base_url": "https://www.agenceecofin.com",
@@ -88,6 +93,7 @@ MVP_SOURCES: List[Dict[str, Any]] = [
         "id": "confectionerynews",
         "name": "ConfectioneryNews",
         "enabled": True,
+        "weight": 1.0,
         "type": "html_list",
         "url": "https://www.confectionerynews.com/",
         "base_url": "https://www.confectionerynews.com",
@@ -100,6 +106,7 @@ MVP_SOURCES: List[Dict[str, Any]] = [
         "id": "investir_cm",
         "name": "Investir au Cameroun",
         "enabled": True,
+        "weight": 1.0,
         "type": "rss",
         "url": "https://www.investiraucameroun.com/feed/",
         "base_url": "https://www.investiraucameroun.com",
@@ -110,6 +117,7 @@ MVP_SOURCES: List[Dict[str, Any]] = [
 
 NEWSAPI_CONFIG: Dict[str, Any] = {
     "enabled": True,
+    "weight": 0.6,
     "api_key_env": "NEWSAPI_KEY",  # collect_news historique; aussi NEWS_API_KEY
     "query": (
         "(cocoa OR cacao) AND (price OR futures OR harvest OR grindings OR "
@@ -123,6 +131,17 @@ NEWSAPI_CONFIG: Dict[str, Any] = {
     "page_size": 30,
     "days_back": 7,
 }
+
+
+def source_weight(source_name: str) -> float:
+    """Poids SCPB pour moyenne sentiment (ICCO/COCOBOD > Ecofin > NewsAPI)."""
+    name = (source_name or "").strip().lower()
+    for src in MVP_SOURCES:
+        if src["name"].lower() == name or src["id"].lower() == name:
+            return float(src.get("weight", 1.0))
+    if "newsapi" in name or name == "news api":
+        return float(NEWSAPI_CONFIG.get("weight", 0.6))
+    return 1.0
 
 
 def enabled_sources() -> List[Dict[str, Any]]:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Union
+from typing import List, Optional, Sequence, Union
 
 import pandas as pd
 from prophet import Prophet
@@ -23,11 +23,15 @@ def predict_frozen(
     horizon: int,
     prophet_model: Prophet,
     xgb_model,
+    feature_cols: Optional[Sequence[str]] = None,
 ) -> float:
     """Single-shot prediction with frozen lags (legacy production behavior)."""
+    cols = list(feature_cols) if feature_cols is not None else list(FEATURE_COLS)
     future_date = future_business_date(current_date, horizon)
-    features = build_prediction_row(last_row, current_price, future_date, prophet_model)
-    return float(xgb_model.predict(features[FEATURE_COLS])[0])
+    features = build_prediction_row(
+        last_row, current_price, future_date, prophet_model, feature_cols=cols
+    )
+    return float(xgb_model.predict(features[cols])[0])
 
 
 def predict_recursive(
@@ -35,37 +39,47 @@ def predict_recursive(
     prophet_model: Prophet,
     xgb_model,
     horizon: int,
+    feature_cols: Optional[Sequence[str]] = None,
 ) -> float:
     """
     Recursive multi-step: predict J+1 repeatedly, inject synthetic prices, update lags.
-
-    Args:
-        df_history: Historical ``date`` and ``price`` up to origin (inclusive).
-        prophet_model: Fitted Prophet (not refit during recursion).
-        xgb_model: Fitted XGBoost 1-step model.
-        horizon: Target horizon in business days.
-
-    Returns:
-        Price prediction at the target horizon.
     """
+    cols = list(feature_cols) if feature_cols is not None else list(FEATURE_COLS)
     if horizon <= 0:
         raise ValueError("horizon must be positive")
     if horizon == 1:
         work = build_technical_features(df_history.copy())
         work = add_prophet_features(work, prophet_model)
-        clean = work.dropna()
+        for c in cols:
+            if c not in work.columns:
+                work[c] = 0.0
+        clean = work.dropna(subset=[c for c in FEATURE_COLS if c in work.columns])
         last = clean.iloc[-1]
         return predict_frozen(
-            last, float(last["price"]), last["date"], 1, prophet_model, xgb_model
+            last,
+            float(last["price"]),
+            last["date"],
+            1,
+            prophet_model,
+            xgb_model,
+            feature_cols=cols,
         )
 
-    work = df_history[["date", "price"]].copy().sort_values("date").reset_index(drop=True)
+    # Keep extra columns if present for OHLCV/OI continuity
+    keep = [c for c in ("date", "price", "open", "high", "low", "volume", "open_interest") if c in df_history.columns]
+    work = df_history[keep].copy().sort_values("date").reset_index(drop=True)
     prediction = None
 
     for _ in range(horizon):
         feat = build_technical_features(work)
         feat = add_prophet_features(feat, prophet_model)
-        clean = feat.dropna()
+        for c in cols:
+            if c not in feat.columns:
+                feat[c] = 0.0
+        micro = [c for c in cols if c not in FEATURE_COLS and c in feat.columns]
+        if micro:
+            feat[micro] = feat[micro].ffill().fillna(0.0)
+        clean = feat.dropna(subset=[c for c in FEATURE_COLS if c in feat.columns])
         if clean.empty:
             raise ValueError("Not enough history for recursive prediction")
 
@@ -73,15 +87,15 @@ def predict_recursive(
         current_price = float(last["price"])
         current_date = last["date"]
         next_date = future_business_date(current_date, 1)
-        row = build_prediction_row(last, current_price, next_date, prophet_model)
-        prediction = float(xgb_model.predict(row[FEATURE_COLS])[0])
-
-        work = pd.concat(
-            [
-                work,
-                pd.DataFrame({"date": [pd.Timestamp(next_date).normalize()], "price": [prediction]}),
-            ],
-            ignore_index=True,
+        row = build_prediction_row(
+            last, current_price, next_date, prophet_model, feature_cols=cols
         )
+        prediction = float(xgb_model.predict(row[cols])[0])
+
+        new_row = {"date": pd.Timestamp(next_date).normalize(), "price": prediction}
+        for c in ("open", "high", "low", "volume", "open_interest"):
+            if c in work.columns:
+                new_row[c] = last.get(c)
+        work = pd.concat([work, pd.DataFrame([new_row])], ignore_index=True)
 
     return float(prediction)

@@ -451,23 +451,73 @@ def fetch_latest_spot(
     include_oi: bool = True,
 ) -> DatabentoFetchResult:
     """Derniere barre disponible (front month C.v.0)."""
+    curve = fetch_latest_curve(
+        api_key=api_key,
+        price_bounds=price_bounds,
+        lookback_days=lookback_days,
+        include_oi=include_oi,
+        ranks=(0,),
+    )
+    if curve.bars:
+        front = [b for b in curve.bars if b.contract_rank == 0]
+        if front:
+            latest_date = max(b.date for b in front)
+            curve.bars = [b for b in front if b.date == latest_date]
+    return curve
+
+
+def fetch_latest_curve(
+    api_key: Optional[str] = None,
+    price_bounds: Tuple[float, float] = (1500.0, 6000.0),
+    lookback_days: int = 10,
+    include_oi: bool = True,
+    ranks: Sequence[int] = DEFAULT_RANKS,
+) -> DatabentoFetchResult:
+    """Dernieres barres disponibles pour C.v.0..N (courbe + front)."""
     end = datetime.utcnow().strftime("%Y-%m-%d")
     start = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     result = fetch_daily_bars_with_oi(
         start=start,
         end=end,
-        symbols=[DEFAULT_CONTINUOUS],
+        symbols=continuous_symbols(ranks),
         api_key=api_key,
         price_bounds=price_bounds,
         include_oi=include_oi,
     )
-    if result.bars:
-        # Ne garder que la derniere date front-month
-        front = [b for b in result.bars if b.contract_rank == 0]
-        if front:
-            latest_date = front[-1].date
-            result.bars = [b for b in front if b.date == latest_date]
+    if not result.bars:
+        return result
+    # Garder uniquement la derniere date presente pour chaque rank
+    by_rank: Dict[int, DatabentoBar] = {}
+    for bar in result.bars:
+        prev = by_rank.get(bar.contract_rank)
+        if prev is None or bar.date >= prev.date:
+            by_rank[bar.contract_rank] = bar
+    # Aussi garder toutes les barres de la derniere date front pour upsert multi-jours lookback
+    front_dates = [b.date for b in result.bars if b.contract_rank == 0]
+    if front_dates:
+        latest_front = max(front_dates)
+        # Conserver lookback complet pour backfill OI recent, filtrer a ranks demandes
+        recent = [b for b in result.bars if b.date >= (pd.Timestamp(latest_front) - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")]
+        result.bars = recent or list(by_rank.values())
     return result
+
+
+def backfill_recent_oi(
+    start: str,
+    end: Optional[str] = None,
+    api_key: Optional[str] = None,
+    price_bounds: Tuple[float, float] = (1500.0, 6000.0),
+    ranks: Sequence[int] = DEFAULT_RANKS,
+) -> DatabentoFetchResult:
+    """Rattrapage OHLCV+OI sur une fenetre courte (ex. J-3..J-1)."""
+    return fetch_daily_bars_with_oi(
+        start=start,
+        end=end,
+        symbols=continuous_symbols(ranks),
+        api_key=api_key,
+        price_bounds=price_bounds,
+        include_oi=True,
+    )
 
 
 def bars_to_supabase_rows(
@@ -545,3 +595,179 @@ def write_collection_journal(
     existing.append(payload)
     path.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+# ---------------------------------------------------------------------------
+# Mois nommes ICE London (DEC26, MAR27...) via symboles bruts Databento
+# Format IFEU : "C   FMZ0026!" (3 espaces apres C)
+# ---------------------------------------------------------------------------
+
+COCOA_DELIVERY_MONTHS = (3, 5, 7, 9, 12)  # Mar, May, Jul, Sep, Dec
+_MONTH_CODE = {3: "H", 5: "K", 7: "N", 9: "U", 12: "Z"}
+_MONTH_LABEL = {3: "MAR", 5: "MAY", 7: "JUL", 9: "SEP", 12: "DEC"}
+
+
+def databento_raw_symbol(month: int, year: int) -> str:
+    """Symbole brut Databento IFEU London Cocoa (ex. C   FMZ0026!)."""
+    code = _MONTH_CODE[month]
+    yy = year % 100
+    return f"C   FM{code}{yy:04d}!"
+
+
+def contract_label(month: int, year: int) -> str:
+    """Libelle affichage type DEC26."""
+    return f"{_MONTH_LABEL[month]}{str(year)[2:]}"
+
+
+def upcoming_named_contracts(
+    as_of: Optional[datetime] = None,
+    count: int = 8,
+) -> List[Dict[str, Any]]:
+    """Prochains contrats cacao Londres (mois de livraison ICE)."""
+    now = as_of or datetime.utcnow()
+    y, m = now.year, now.month
+    out: List[Dict[str, Any]] = []
+    # Cherche jusqu'a ~4 ans de calendrier
+    for year in range(y, y + 5):
+        for month in COCOA_DELIVERY_MONTHS:
+            if year == y and month < m:
+                continue
+            # Expire / deliste proche : garder tout de meme (Databento filtrera)
+            out.append(
+                {
+                    "month": month,
+                    "year": year,
+                    "contract": contract_label(month, year),
+                    "symbol": databento_raw_symbol(month, year),
+                }
+            )
+            if len(out) >= count:
+                return out
+    return out
+
+
+def fetch_named_london_curve(
+    api_key: Optional[str] = None,
+    price_bounds: Tuple[float, float] = (800.0, 15000.0),
+    lookback_days: int = 10,
+    count: int = 8,
+    client=None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Derniers closes GBP pour les mois nommes Londres.
+
+    Returns:
+        (contracts, attempts) ou contracts=[] si echec.
+        Chaque contrat: contract, symbol, price_usd (=GBP), volume, currency, date
+    """
+    attempts: List[Dict[str, Any]] = []
+    specs = upcoming_named_contracts(count=count)
+    syms = [s["symbol"] for s in specs]
+    hist = client or _make_client(api_key)
+    if hist is None:
+        attempts.append({"strategy": "databento_named", "ok": False, "detail": "missing_api_key"})
+        return [], attempts
+
+    hist_limit = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+    start = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    end_exclusive = (pd.Timestamp(hist_limit) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    if end_exclusive > hist_limit:
+        end_exclusive = hist_limit
+
+    try:
+        data = hist.timeseries.get_range(
+            dataset=DATASET,
+            symbols=syms,
+            schema="ohlcv-1d",
+            stype_in="raw_symbol",
+            start=start,
+            end=end_exclusive,
+        )
+        df = data.to_df()
+        bars = _ohlcv_df_to_bars(df, price_bounds=price_bounds)
+        attempts.append(
+            {
+                "strategy": "databento_named_ohlcv",
+                "ok": bool(bars),
+                "symbols": syms,
+                "rows": len(bars),
+            }
+        )
+    except Exception as exc:
+        logger.exception("Databento named london failed: %s", exc)
+        attempts.append({"strategy": "databento_named_ohlcv", "ok": False, "detail": str(exc)})
+        return [], attempts
+
+    if not bars:
+        return [], attempts
+
+    # Derniere barre par symbole
+    latest_by_sym: Dict[str, DatabentoBar] = {}
+    for bar in bars:
+        prev = latest_by_sym.get(bar.symbol)
+        if prev is None or bar.date >= prev.date:
+            latest_by_sym[bar.symbol] = bar
+
+    contracts: List[Dict[str, Any]] = []
+    for spec in specs:
+        bar = latest_by_sym.get(spec["symbol"])
+        if bar is None:
+            continue
+        contracts.append(
+            {
+                "contract": spec["contract"],
+                "symbol": spec["symbol"],
+                "price_usd": float(bar.price),  # champ historique = prix (ici GBP)
+                "volume": bar.volume,
+                "currency": "GBP",
+                "unit": "GBP/MT",
+                "date": bar.date,
+                "source": "databento_london_named",
+            }
+        )
+    return contracts, attempts
+
+
+def fetch_named_symbol_history(
+    symbol: str,
+    lookback_days: int = 900,
+    api_key: Optional[str] = None,
+    price_bounds: Tuple[float, float] = (800.0, 15000.0),
+    client=None,
+) -> pd.DataFrame:
+    """
+    Historique ohlcv-1d GBP pour un symbole brut (ex. C   FMZ0026!).
+    Retourne DataFrame date/price trie.
+    """
+    hist = client or _make_client(api_key)
+    if hist is None:
+        return pd.DataFrame()
+
+    hist_limit = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+    start = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    end_exclusive = (pd.Timestamp(hist_limit) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    if end_exclusive > hist_limit:
+        end_exclusive = hist_limit
+
+    try:
+        data = hist.timeseries.get_range(
+            dataset=DATASET,
+            symbols=[symbol],
+            schema="ohlcv-1d",
+            stype_in="raw_symbol",
+            start=start,
+            end=end_exclusive,
+        )
+        bars = _ohlcv_df_to_bars(data.to_df(), price_bounds=price_bounds)
+    except Exception as exc:
+        logger.warning("Databento history %s failed: %s", symbol, exc)
+        return pd.DataFrame()
+
+    if not bars:
+        return pd.DataFrame()
+
+    rows = [{"date": b.date, "price": float(b.price)} for b in bars]
+    out = pd.DataFrame(rows)
+    out["date"] = pd.to_datetime(out["date"]).dt.tz_localize(None)
+    out = out.drop_duplicates(subset=["date"], keep="last").sort_values("date")
+    return out.reset_index(drop=True)

@@ -4,7 +4,7 @@ Training pipeline for hybrid Prophet + XGBoost cocoa price models.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 import xgboost as xgb
@@ -27,11 +27,13 @@ class HybridModelTrainer:
         xgb_params: Optional[Dict[str, Any]] = None,
         early_stopping_rounds: int = 20,
         val_fraction: float = 0.1,
+        feature_cols: Optional[Sequence[str]] = None,
     ):
         self.prophet_params = {**DEFAULT_PROPHET_PARAMS, **(prophet_params or {})}
         self.xgb_params = {**DEFAULT_XGB_PARAMS, **(xgb_params or {})}
         self.early_stopping_rounds = early_stopping_rounds
         self.val_fraction = val_fraction
+        self.feature_cols: List[str] = list(feature_cols) if feature_cols else list(FEATURE_COLS)
 
     def fit(
         self,
@@ -47,12 +49,20 @@ class HybridModelTrainer:
             df_train,
             prophet_params=self.prophet_params,
         )
-        df_clean = df_features.dropna().reset_index(drop=True)
+        # Forward-fill optional microstructure then fill remaining gaps
+        for col in self.feature_cols:
+            if col not in df_features.columns:
+                df_features[col] = 0.0
+        micro = [c for c in self.feature_cols if c not in FEATURE_COLS]
+        if micro:
+            df_features[micro] = df_features[micro].ffill().fillna(0.0)
+
+        df_clean = df_features.dropna(subset=self.feature_cols + ["price"]).reset_index(drop=True)
 
         if len(df_clean) < 2:
             raise ValueError("Not enough training rows after feature preparation")
 
-        X = df_clean[FEATURE_COLS]
+        X = df_clean[self.feature_cols]
         y = df_clean["price"]
 
         eval_set = None

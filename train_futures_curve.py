@@ -1,9 +1,10 @@
 """
-Entrainement des modeles de courbe a terme cacao (XGBoost par contrat ICE).
+Entrainement des modeles de courbe a terme cacao (XGBoost).
 
 Usage:
-  python train_futures_curve.py
-  python train_futures_curve.py --symbols CCZ26.NYB,CCH27.NYB
+  python train_futures_curve.py --source london
+  python train_futures_curve.py --source investing
+  python train_futures_curve.py --source investing --symbols CCZ26.NYB,CCH27.NYB
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from collect_futures import FUTURES_CONTRACTS
 from src.models.futures_curve_predictor import (
+    DEFAULT_LONDON_MODELS_DIR,
+    DEFAULT_LONDON_NAMED_MODELS_DIR,
     FuturesCurvePredictor,
     investing_to_yahoo,
 )
@@ -59,7 +62,6 @@ def symbols_from_investing_snapshot() -> list[str]:
 def default_symbols() -> list[str]:
     from_db = symbols_from_investing_snapshot()
     from_cfg = [c["symbol"] for c in FUTURES_CONTRACTS]
-    # union preserve order
     seen = set()
     out = []
     for s in from_db + from_cfg:
@@ -69,31 +71,53 @@ def default_symbols() -> list[str]:
     return out
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Train futures curve XGBoost models")
-    parser.add_argument(
-        "--symbols",
-        default="",
-        help="Liste CSV de symboles Yahoo (ex: CCZ26.NYB,CCH27.NYB)",
-    )
-    args = parser.parse_args()
+def train_london() -> int:
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    if not url or not key:
+        print("[ERREUR] SUPABASE_URL / SUPABASE_KEY manquants")
+        return 1
 
-    symbols = (
-        [s.strip() for s in args.symbols.split(",") if s.strip()]
-        if args.symbols
-        else default_symbols()
-    )
+    from supabase import create_client
+
+    sb = create_client(url, key)
+    print("=" * 80)
+    print("ENTRAINEMENT COURBE A TERME CACAO LONDRES (GBP / C.v.0..3)")
+    print("=" * 80)
+    print(f"Dossier modeles: {DEFAULT_LONDON_MODELS_DIR}")
+    print()
+
+    predictor = FuturesCurvePredictor(source="london")
+    meta = predictor.train_london_ranks(sb, ranks=(0, 1, 2, 3))
+
+    print()
+    print(f"[OK] Modeles OK: {meta.get('n_ok')}/4")
+    for r in meta.get("results", []):
+        status = "OK" if r.get("ok") else "SKIP"
+        print(f"  [{status}] {r.get('symbol')}")
+        for h, hm in (r.get("horizons") or {}).items():
+            if hm.get("ok"):
+                print(f"       h={h}: MAPE={hm.get('mape')}% MAE=£{hm.get('mae')}")
+            else:
+                print(f"       h={h}: {hm.get('reason')}")
+    print()
+    print(f"Sauvegarde: {predictor.models_dir}")
+    print("=" * 80)
+    return 0 if meta.get("n_ok", 0) > 0 else 1
+
+
+def train_investing(symbols: list[str]) -> int:
     if not symbols:
         print("[ERREUR] Aucun symbole a entrainer")
         return 1
 
     print("=" * 80)
-    print("ENTRAINEMENT COURBE A TERME CACAO (XGBoost)")
+    print("ENTRAINEMENT COURBE A TERME CACAO NY (XGBoost / Yahoo)")
     print("=" * 80)
     print(f"Symboles ({len(symbols)}): {', '.join(symbols)}")
     print()
 
-    predictor = FuturesCurvePredictor()
+    predictor = FuturesCurvePredictor(source="investing")
     meta = predictor.train_many(symbols)
 
     print()
@@ -110,6 +134,61 @@ def main() -> int:
     print(f"Sauvegarde: {predictor.models_dir}")
     print("=" * 80)
     return 0 if meta.get("n_ok", 0) > 0 else 1
+
+
+def train_london_named() -> int:
+    print("=" * 80)
+    print("ENTRAINEMENT COURBE A TERME LONDRES NOMMEE (DEC26 / MAR27…)")
+    print("=" * 80)
+    print(f"Dossier modeles: {DEFAULT_LONDON_NAMED_MODELS_DIR}")
+    print("Source historique: Databento raw symbols (ohlcv-1d)")
+    print()
+
+    predictor = FuturesCurvePredictor(source="london_named")
+    meta = predictor.train_london_named(count=8, lookback_days=900)
+
+    print()
+    print(f"[OK] Modeles OK: {meta.get('n_ok')}/8")
+    for r in meta.get("results", []):
+        status = "OK" if r.get("ok") else "SKIP"
+        print(f"  [{status}] {r.get('label') or r.get('symbol')}")
+        for h, hm in (r.get("horizons") or {}).items():
+            if hm.get("ok"):
+                print(f"       h={h}: MAPE={hm.get('mape')}% MAE=£{hm.get('mae')}")
+            else:
+                print(f"       h={h}: {hm.get('reason')}")
+    print()
+    print(f"Sauvegarde: {predictor.models_dir}")
+    print("=" * 80)
+    return 0 if meta.get("n_ok", 0) > 0 else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Train futures curve XGBoost models")
+    parser.add_argument(
+        "--source",
+        choices=("london", "london_named", "investing"),
+        default="london",
+        help="london=C.v.0..3 ; london_named=DEC26… ; investing=Yahoo NY",
+    )
+    parser.add_argument(
+        "--symbols",
+        default="",
+        help="Liste CSV de symboles Yahoo (source investing)",
+    )
+    args = parser.parse_args()
+
+    if args.source == "london":
+        return train_london()
+    if args.source == "london_named":
+        return train_london_named()
+
+    symbols = (
+        [s.strip() for s in args.symbols.split(",") if s.strip()]
+        if args.symbols
+        else default_symbols()
+    )
+    return train_investing(symbols)
 
 
 if __name__ == "__main__":

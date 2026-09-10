@@ -1,4 +1,4 @@
-"""Direct h-step XGBoost models for horizons 7 and 30."""
+"""Direct h-step XGBoost models for horizons 7, 14 and 30."""
 
 from __future__ import annotations
 
@@ -26,9 +26,11 @@ class DirectHorizonTrainer:
         self,
         horizons: Optional[List[int]] = None,
         xgb_params: Optional[Dict[str, Any]] = None,
+        feature_cols: Optional[List[str]] = None,
     ):
-        self.horizons = horizons or [7, 30]
+        self.horizons = horizons or [7, 14, 30]
         self.xgb_params = {**DEFAULT_XGB_PARAMS, **(xgb_params or {})}
+        self.feature_cols = list(feature_cols) if feature_cols else list(FEATURE_COLS)
 
     def _build_direct_dataset(
         self,
@@ -41,6 +43,12 @@ class DirectHorizonTrainer:
         df_features, prophet = prepare_training_frame(
             df, prophet_model=prophet_model
         )
+        for col in self.feature_cols:
+            if col not in df_features.columns:
+                df_features[col] = 0.0
+        micro = [c for c in self.feature_cols if c not in FEATURE_COLS]
+        if micro:
+            df_features[micro] = df_features[micro].ffill().fillna(0.0)
 
         targets = []
         valid_rows = []
@@ -75,7 +83,11 @@ class DirectHorizonTrainer:
             models dict, metadata dict
         """
         models: Dict[int, xgb.XGBRegressor] = {}
-        meta: Dict[str, Any] = {"horizons": {}, "trained_at": datetime.now().isoformat()}
+        meta: Dict[str, Any] = {
+            "horizons": {},
+            "trained_at": datetime.now().isoformat(),
+            "feature_cols": self.feature_cols,
+        }
 
         shared_prophet = prophet_model
         if shared_prophet is None:
@@ -83,7 +95,7 @@ class DirectHorizonTrainer:
 
         for h in self.horizons:
             X_df, y = self._build_direct_dataset(df, h, prophet_model=shared_prophet)
-            X = X_df[FEATURE_COLS]
+            X = X_df[self.feature_cols]
             model = xgb.XGBRegressor(**self.xgb_params)
             model.fit(X, y, verbose=False)
             models[h] = model

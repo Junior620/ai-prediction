@@ -13,6 +13,7 @@ import type {
   FuturesCurveResponse,
   LondonMarketResponse,
   ModelComparisonResponse,
+  PredictionHistoryResponse,
 } from '@/types/api';
 
 /** Same-origin BFF — JWT stays on the server (API_TOKEN). */
@@ -49,10 +50,16 @@ export const api = {
     return response.data;
   },
 
-  async getPredictionHistory(limit = 30, horizon?: number): Promise<any> {
-    const params: any = { limit };
+  async getPredictionHistory(
+    limit = 30,
+    horizon?: number,
+  ): Promise<PredictionHistoryResponse> {
+    const params: { limit: number; horizon?: number } = { limit };
     if (horizon) params.horizon = horizon;
-    const response = await apiClient.get('/api/v1/prediction-history', { params });
+    const response = await apiClient.get<PredictionHistoryResponse>(
+      '/api/v1/prediction-history',
+      { params },
+    );
     return response.data;
   },
 

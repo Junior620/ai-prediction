@@ -26,6 +26,7 @@ except Exception:
     pass
 
 from src.data_collection.news_feed_collector import collect_all_sources
+from src.data_collection.news_sources import source_weight
 from src.data_collection.sentiment_scoring import score_sentiment
 
 
@@ -179,11 +180,19 @@ def main() -> int:
     print(f"\n[OK] {saved} nouveaux articles sauvegardes")
 
     if analyzed:
-        avg = sum(a["sentiment_score"] for a in analyzed) / len(analyzed)
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for a in analyzed:
+            w = source_weight(str(a.get("source") or ""))
+            a["source_weight"] = w
+            weighted_sum += float(a["sentiment_score"]) * w
+            weight_total += w
+        avg = weighted_sum / weight_total if weight_total else 0.0
+        simple = sum(float(a["sentiment_score"]) for a in analyzed) / len(analyzed)
         print("\n" + "=" * 80)
-        print("SENTIMENT GLOBAL DU MARCHE")
+        print("SENTIMENT GLOBAL DU MARCHE (pondéré SCPB)")
         print("=" * 80)
-        print(f"\nScore moyen: {avg:.3f}")
+        print(f"\nScore moyen pondéré: {avg:.3f} (simple={simple:.3f}, n={len(analyzed)})")
         if avg > 0.2:
             print("Sentiment: POSITIF (marche optimiste)")
         elif avg < -0.2:

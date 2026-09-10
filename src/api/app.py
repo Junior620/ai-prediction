@@ -142,6 +142,7 @@ price_predictor: Optional[PricePredictor] = None  # alias for the cocoa predicto
 predictors: dict = {}  # market_id -> ImprovedPricePredictor
 brief_service: Optional[BriefService] = None
 futures_curve_predictor: Optional[FuturesCurvePredictor] = None
+futures_named_predictor: Optional[FuturesCurvePredictor] = None
 alert_system = get_alert_system()
 
 
@@ -285,7 +286,7 @@ async def startup_event():
     
     Implements structured error handling with CRITICAL alerts (Requirement 12.4).
     """
-    global redis_cache, supabase_client, model_manager, performance_monitor, price_predictor, brief_service, futures_curve_predictor
+    global redis_cache, supabase_client, model_manager, performance_monitor, price_predictor, brief_service, futures_curve_predictor, futures_named_predictor
     
     logger.info("Starting up Cocoa Price Prediction API...")
     
@@ -401,14 +402,30 @@ async def startup_event():
         logger.info(f"✅ Predictors loaded for markets: {sorted(predictors)}")
 
     try:
-        futures_curve_predictor = FuturesCurvePredictor()
+        futures_curve_predictor = FuturesCurvePredictor(source="london")
+        n_sym = len(getattr(futures_curve_predictor, "_models", {}) or {})
+        if n_sym == 0:
+            logger.warning("London futures models empty — fallback Investing/Yahoo dir")
+            futures_curve_predictor = FuturesCurvePredictor(source="investing")
+            n_sym = len(getattr(futures_curve_predictor, "_models", {}) or {})
         logger.info(
-            "FuturesCurvePredictor ready (%d symbols)",
-            len(getattr(futures_curve_predictor, "_models", {}) or {}),
+            "FuturesCurvePredictor ready (%s, %d symbols)",
+            getattr(futures_curve_predictor, "source", "?"),
+            n_sym,
         )
     except Exception as e:
         futures_curve_predictor = None
         logger.warning(f"FuturesCurvePredictor not loaded: {e}")
+
+    try:
+        futures_named_predictor = FuturesCurvePredictor(source="london_named")
+        n_named = len(getattr(futures_named_predictor, "_models", {}) or {})
+        logger.info("Futures named London predictor ready (%d contracts)", n_named)
+        if n_named == 0:
+            futures_named_predictor = None
+    except Exception as e:
+        futures_named_predictor = None
+        logger.warning(f"Futures named predictor not loaded: {e}")
 
     brief_service = BriefService(redis_cache=redis_cache)
     logger.info("BriefService (Claude) initialized")
@@ -465,11 +482,48 @@ def _load_market_predictor(
 
     direct_models = DirectHorizonTrainer.load_latest(str(model_dir))
 
+    # Lire feature_cols depuis model_info du timestamp charge
+    feature_cols = None
+    feature_set = "baseline"
+    info_candidates = sorted(model_dir.glob("model_info_improved_*.json"))
+    matching_info = None
+    for info_path in reversed(info_candidates):
+        if model_version.replace("improved_", "") in info_path.name or model_version in info_path.name:
+            matching_info = info_path
+            break
+    if matching_info is None and info_candidates:
+        matching_info = info_candidates[-1]
+    if matching_info and matching_info.exists():
+        try:
+            import json as _json
+            meta = _json.loads(matching_info.read_text(encoding="utf-8"))
+            feature_cols = meta.get("feature_cols")
+            feature_set = meta.get("feature_set", "baseline")
+            logger.info(
+                f"[{market_cfg.market_id}] feature_set={feature_set} "
+                f"from {matching_info.name}"
+            )
+        except Exception as e:
+            logger.warning(f"[{market_cfg.market_id}] model_info read failed: {e}")
+
+    if feature_cols is None and market_cfg.market_id == "cocoa":
+        from src.models.hybrid_features import resolve_feature_cols
+        feature_set = pred_cfg.get("cocoa_feature_set", "m3")
+        if feature_set == "m3":
+            feature_cols = resolve_feature_cols(include_ohlcv=True, include_oi=True)
+
+    sentiment_w = float(
+        pred_cfg.get(
+            "sentiment_weight_production",
+            pred_cfg.get("sentiment_weight", 0.05),
+        )
+    )
+
     predictor = ImprovedPricePredictor(
         prophet_model=prophet_model,
         xgboost_model=xgboost_model,
         nlp_analyzer=nlp_analyzer,
-        sentiment_weight=pred_cfg.get("sentiment_weight", 0.05),
+        sentiment_weight=sentiment_w,
         model_version=model_version,
         supabase_url=settings.supabase_url,
         supabase_key=settings.supabase_key,
@@ -488,6 +542,8 @@ def _load_market_predictor(
         max_abs_change_pct=pred_cfg.get("max_abs_change_pct"),
         recent_range_days=int(pred_cfg.get("recent_range_days", 252)),
         recent_range_padding_pct=float(pred_cfg.get("recent_range_padding_pct", 15.0)),
+        feature_cols=feature_cols,
+        feature_set=feature_set,
     )
     n_engines = 3 if nhits_model else 2
     logger.info(
@@ -1226,7 +1282,7 @@ async def predict_price(
                 supabase_client.table(market_cfg.price_table)
                 .select("date,price")
                 .order("date", desc=True)
-                .limit(14)
+                .limit(60)
                 .execute()
             )
             if hist_response.data:
@@ -1456,23 +1512,91 @@ async def get_prediction_history(
         )
 
 
+def _enrich_named_futures(
+    raw_contracts: List[dict],
+    spot_pct: dict,
+    include_predictions: bool,
+) -> List[dict]:
+    """Mois nommes + predictions (XGBoost dedie si dispo, sinon spot_shift)."""
+    if include_predictions:
+        # Londres DEC26… : modeles par echeance
+        is_london_named = any(
+            str(c.get("currency") or "").upper() == "GBP"
+            or "london_named" in str(c.get("source") or "")
+            or "FM" in str(c.get("symbol") or "")
+            for c in raw_contracts
+        )
+        if is_london_named and futures_named_predictor is not None:
+            try:
+                return futures_named_predictor.predict_london_named_curve(
+                    raw_contracts, spot_pct_by_horizon=spot_pct or None
+                )
+            except Exception as exc:
+                logger.warning(f"london named predict failed: {exc}")
+
+        if futures_curve_predictor is not None:
+            try:
+                # Predictor Londres C.v.* ignore les symboles NY -> spot_shift via investing
+                if getattr(futures_curve_predictor, "source", "") != "london":
+                    return futures_curve_predictor.predict_curve(
+                        raw_contracts, spot_pct_by_horizon=spot_pct or None
+                    )
+            except Exception as exc:
+                logger.warning(f"named futures predict failed: {exc}")
+
+    enriched: List[dict] = []
+    for c in raw_contracts:
+        price = float(c.get("price_usd") or c.get("price") or 0)
+        preds = []
+        if include_predictions and price > 0:
+            for h, pct in spot_pct.items():
+                p_price = round(price * (1.0 + pct), 2)
+                preds.append(
+                    {
+                        "horizon": h,
+                        "price": p_price,
+                        "method": "spot_shift",
+                        "change_pct": round(pct * 100, 2),
+                    }
+                )
+        enriched.append(
+            {
+                "contract": c.get("contract") or c.get("symbol"),
+                "symbol": c.get("symbol"),
+                "yahoo_symbol": c.get("yahoo_symbol"),
+                "price_usd": price,
+                "change": c.get("change"),
+                "volume": c.get("volume"),
+                "predictions": preds,
+            }
+        )
+    return enriched
+
+
+def _to_futures_items(enriched: List[dict]) -> List[FuturesContractItem]:
+    return [
+        FuturesContractItem(
+            contract=str(c.get("contract") or c.get("symbol") or ""),
+            symbol=str(c.get("symbol") or ""),
+            yahoo_symbol=c.get("yahoo_symbol"),
+            price_usd=float(c.get("price_usd") or 0),
+            change=c.get("change"),
+            volume=c.get("volume"),
+            predictions=[
+                FuturesHorizonPrediction(**p) for p in (c.get("predictions") or [])
+            ],
+        )
+        for c in enriched
+    ]
+
+
 @app.get("/api/v1/futures", response_model=FuturesCurveResponse)
 async def get_futures(
     include_predictions: bool = True,
     token_payload: dict = Depends(verify_token),
 ):
-    """Return the latest cocoa futures curve, optionally with J+1/J+7/J+30 predictions."""
+    """Courbe Londres £ (C.v.*) + courbe Investing mois nommes (Dec26, Mar27...)."""
     try:
-        result = supabase_client.table("cocoa_futures").select(
-            "data,collected_at,source"
-        ).order("collected_at", desc=True).limit(1).execute()
-
-        if not result.data:
-            return FuturesCurveResponse(contracts=[], collected_at=None)
-
-        row = result.data[0]
-        raw_contracts = row.get("data") or []
-
         spot_pct: dict = {}
         model_version = None
         if include_predictions and price_predictor is not None:
@@ -1489,7 +1613,7 @@ async def get_futures(
                 if hist.data:
                     current = float(hist.data[0]["price"])
                 preds = price_predictor.predict(
-                    horizons=[1, 7, 30],
+                    horizons=[1, 7, 14, 30],
                     recent_news=[],
                 )
                 model_version = getattr(price_predictor, "model_version", None)
@@ -1499,62 +1623,178 @@ async def get_futures(
             except Exception as e:
                 logger.warning(f"Spot pct for futures curve unavailable: {e}")
 
-        if include_predictions and futures_curve_predictor is not None:
-            enriched = futures_curve_predictor.predict_curve(
-                raw_contracts,
-                spot_pct_by_horizon=spot_pct or None,
+        # --- Mois nommes : preferer ICE London GBP (DEC26...), sinon Investing/Yahoo NY ---
+        named_items: List[FuturesContractItem] = []
+        named_collected_at = None
+        named_source = None
+        named_currency = "USD"
+        named_unit = "USD/MT"
+        try:
+            inv = (
+                supabase_client.table("cocoa_futures")
+                .select("data,collected_at,source")
+                .order("collected_at", desc=True)
+                .limit(20)
+                .execute()
             )
-        else:
-            enriched = []
-            for c in raw_contracts:
-                price = float(c.get("price_usd") or c.get("price") or 0)
-                preds = []
-                if include_predictions and price > 0:
-                    for h, pct in spot_pct.items():
-                        p_price = round(price * (1.0 + pct), 2)
-                        preds.append(
-                            {
-                                "horizon": h,
-                                "price": p_price,
-                                "method": "spot_shift",
-                                "change_pct": round(pct * 100, 2),
-                            }
-                        )
-                enriched.append(
-                    {
-                        "contract": c.get("contract") or c.get("symbol"),
-                        "symbol": c.get("symbol"),
-                        "yahoo_symbol": None,
-                        "price_usd": price,
-                        "change": c.get("change"),
-                        "volume": c.get("volume"),
-                        "predictions": preds,
-                    }
+            chosen = None
+            # 1) Snapshot Londres nomme le plus recent
+            for row in inv.data or []:
+                src = str(row.get("source") or "")
+                if "london_named" in src or src in (
+                    "databento_london_named",
+                    "ice_london_named",
+                ):
+                    chosen = row
+                    break
+            # 2) Sinon dernier snapshot (Investing / Yahoo NY)
+            if chosen is None and inv.data:
+                chosen = inv.data[0]
+
+            if chosen:
+                named_collected_at = chosen.get("collected_at")
+                named_source = chosen.get("source", "investing_com")
+                raw = chosen.get("data") or []
+                raw = [
+                    c for c in raw
+                    if str(c.get("symbol") or "").upper() not in ("CCY00", "CASH")
+                    and "cash" not in str(c.get("contract") or "").lower()
+                ]
+                is_gbp = (
+                    "london_named" in str(named_source)
+                    or any(str(c.get("currency") or "").upper() == "GBP" for c in raw)
                 )
+                if is_gbp:
+                    named_currency = "GBP"
+                    named_unit = "GBP/MT"
+                named_items = _to_futures_items(
+                    _enrich_named_futures(raw, spot_pct, include_predictions)
+                )
+        except Exception as exc:
+            logger.warning(f"named futures snapshot unavailable: {exc}")
 
-        contracts = [
-            FuturesContractItem(
-                contract=str(c.get("contract") or c.get("symbol") or ""),
-                symbol=str(c.get("symbol") or ""),
-                yahoo_symbol=c.get("yahoo_symbol"),
-                price_usd=float(c.get("price_usd") or 0),
-                change=c.get("change"),
-                volume=c.get("volume"),
-                predictions=[
-                    FuturesHorizonPrediction(**p) for p in (c.get("predictions") or [])
-                ],
+        # --- ICE London continuous C.v.0..3 (GBP) ---
+        london_contracts: List[dict] = []
+        term_date = None
+        try:
+            latest_term = (
+                supabase_client.table("cocoa_london_contracts")
+                .select("date")
+                .order("date", desc=True)
+                .limit(1)
+                .execute()
             )
-            for c in enriched
-        ]
+            if latest_term.data:
+                term_date = str(latest_term.data[0]["date"])[:10]
+                contracts_resp = (
+                    supabase_client.table("cocoa_london_contracts")
+                    .select("date, contract_rank, symbol, close, volume, open_interest")
+                    .eq("date", term_date)
+                    .order("contract_rank")
+                    .execute()
+                )
+                for c in contracts_resp.data or []:
+                    rank = int(c["contract_rank"])
+                    london_contracts.append(
+                        {
+                            "contract_rank": rank,
+                            "symbol": str(c.get("symbol") or f"C.v.{rank}"),
+                            "close": float(c["close"]),
+                            "volume": c.get("volume"),
+                            "label": _RANK_LABELS.get(rank, f"Rank {rank}"),
+                        }
+                    )
+        except Exception as exc:
+            logger.warning(f"london futures snapshot unavailable: {exc}")
 
-        return FuturesCurveResponse(
-            contracts=contracts,
-            collected_at=row.get("collected_at"),
-            source=row.get("source", "unknown"),
-            model_version=model_version
-            or (futures_curve_predictor._meta.get("trained_at") if futures_curve_predictor else None),
-            spot_pct_by_horizon={str(k): round(v, 6) for k, v in spot_pct.items()} or None,
-        )
+        london_items: List[FuturesContractItem] = []
+        if london_contracts:
+            history_by_rank: dict = {}
+            if include_predictions and futures_curve_predictor is not None:
+                try:
+                    from src.models.futures_curve_predictor import fetch_london_rank_history
+
+                    for c in london_contracts:
+                        rank = int(c["contract_rank"])
+                        history_by_rank[rank] = fetch_london_rank_history(
+                            supabase_client, rank
+                        )
+                    enriched = futures_curve_predictor.predict_london_curve(
+                        london_contracts,
+                        spot_pct_by_horizon=spot_pct or None,
+                        history_by_rank=history_by_rank,
+                    )
+                except Exception as exc:
+                    logger.warning(f"London futures predict failed: {exc}")
+                    enriched = _enrich_named_futures(
+                        [
+                            {
+                                "contract": c["label"],
+                                "symbol": c["symbol"],
+                                "price_usd": c["close"],
+                                "volume": c.get("volume"),
+                            }
+                            for c in london_contracts
+                        ],
+                        spot_pct,
+                        include_predictions,
+                    )
+            else:
+                enriched = _enrich_named_futures(
+                    [
+                        {
+                            "contract": c["label"],
+                            "symbol": c["symbol"],
+                            "price_usd": c["close"],
+                            "volume": c.get("volume"),
+                        }
+                        for c in london_contracts
+                    ],
+                    spot_pct,
+                    include_predictions,
+                )
+            london_items = _to_futures_items(enriched)
+
+        # contracts = mois nommes (Dec26...) pour le panneau principal ;
+        # london_contracts = C.v.0..3 GBP.
+        if named_items:
+            return FuturesCurveResponse(
+                contracts=named_items,
+                collected_at=named_collected_at,
+                source=named_source or "investing_com",
+                unit=named_unit,
+                currency=named_currency,
+                model_version=model_version
+                or (
+                    futures_curve_predictor._meta.get("trained_at")
+                    if futures_curve_predictor
+                    else None
+                ),
+                spot_pct_by_horizon={str(k): round(v, 6) for k, v in spot_pct.items()} or None,
+                london_contracts=london_items,
+                london_collected_at=term_date,
+                london_source="databento_london" if london_items else None,
+                london_unit="GBP/MT",
+                london_currency="GBP",
+            )
+
+        if london_items:
+            return FuturesCurveResponse(
+                contracts=london_items,
+                collected_at=term_date,
+                source="databento_london",
+                unit="GBP/MT",
+                currency="GBP",
+                model_version=model_version
+                or (
+                    futures_curve_predictor._meta.get("trained_at")
+                    if futures_curve_predictor
+                    else None
+                ),
+                spot_pct_by_horizon={str(k): round(v, 6) for k, v in spot_pct.items()} or None,
+            )
+
+        return FuturesCurveResponse(contracts=[], collected_at=None)
     except Exception as e:
         logger.error(f"Failed to retrieve futures: {e}")
         raise HTTPException(

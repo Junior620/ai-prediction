@@ -177,6 +177,27 @@ export interface FuturesCurveResponse {
   source?: string | null;
   model_version?: string | null;
   spot_pct_by_horizon?: Record<string, number> | null;
+  unit?: string;
+  currency?: string;
+  london_contracts?: FuturesContractItem[];
+  london_collected_at?: string | null;
+  london_source?: string | null;
+  london_unit?: string;
+  london_currency?: string;
+}
+
+export interface PredictionHistoryItem {
+  created_at: string;
+  horizon: number;
+  predicted_price: number;
+  lower_bound?: number | null;
+  upper_bound?: number | null;
+  model_version?: string | null;
+}
+
+export interface PredictionHistoryResponse {
+  predictions: PredictionHistoryItem[];
+  count: number;
 }
 
 export interface LondonHistoryPoint {

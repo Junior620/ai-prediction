@@ -80,6 +80,12 @@ export function PredictionHorizonCard({
 
       <p className="text-[10px] text-slate-400 mb-2">
         Probabilité {up ? 'hausse' : 'baisse'} : <span className="text-slate-200 font-semibold">{probability}%</span>
+        {validation?.mape != null && (
+          <>
+            {' · '}MAPE WF :{' '}
+            <span className="text-slate-200 font-semibold">{validation.mape.toFixed(1)}%</span>
+          </>
+        )}
       </p>
 
       <p className="text-[10px] text-slate-500 mt-auto">

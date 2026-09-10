@@ -11,6 +11,7 @@ import type {
   FuturesCurveResponse,
   LondonMarketResponse,
   ModelComparisonResponse,
+  PredictionHistoryItem,
 } from '@/types/api';
 import { TradingViewEmbed } from '@/components/TradingViewEmbed';
 import { MarketBrief } from '@/components/MarketBrief';
@@ -19,6 +20,7 @@ import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonC
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
 import { FuturesCurvePanel } from '@/components/dashboard/FuturesCurvePanel';
+import { PredictionHistoryPanel } from '@/components/dashboard/PredictionHistoryPanel';
 import { LondonMicrostructurePanel } from '@/components/dashboard/LondonMicrostructurePanel';
 import { ModelComparisonPanel } from '@/components/dashboard/ModelComparisonPanel';
 import { TradingViewAlertPopup } from '@/components/TradingViewAlertPopup';
@@ -52,7 +54,8 @@ const TV_FALLBACKS: Record<string, {
     embedSymbol: 'PEPPERSTONE:COCOA',
     chartSymbol: 'PEPPERSTONE:COCOA',
     displayName: 'Cocoa Cash Contract',
-    embedLabel: 'Pepperstone CFD · GBP/tonne (ICE London ML)',
+    embedLabel:
+      'ML = ICE London £/T (Databento) · Widget = CFD Pepperstone (réf. visuelle, pas la même série)',
   },
   COFFEE_ROBUSTA: {
     embedSymbol: 'ROBCOFFEE',
@@ -91,6 +94,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const [futures, setFutures] = useState<FuturesCurveResponse | null>(null);
   const [londonMarket, setLondonMarket] = useState<LondonMarketResponse | null>(null);
   const [modelComparison, setModelComparison] = useState<ModelComparisonResponse | null>(null);
+  const [predictionHistory, setPredictionHistory] = useState<PredictionHistoryItem[]>([]);
   const [perfMape, setPerfMape] = useState<number | null>(null);
   const [perfRmse, setPerfRmse] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -188,10 +192,10 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
       const end = new Date();
       const start = new Date();
       start.setDate(end.getDate() - 90);
-      const [predRes, valRes, perfRes] = await Promise.all([
+      const [predRes, valRes, perfRes, histRes] = await Promise.all([
         api.getPredictions({
           market: config.market,
-          horizons: [1, 7, 30],
+          horizons: [1, 7, 14, 30],
           include_sentiment: config.includeSentiment,
         }),
         api.getValidationMetrics(),
@@ -199,9 +203,11 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
           start_date: start.toISOString(),
           end_date: end.toISOString(),
         }),
+        api.getPredictionHistory(36).catch(() => ({ predictions: [], count: 0 })),
       ]);
       setData(predRes);
       setValidation(valRes);
+      setPredictionHistory(histRes?.predictions ?? []);
       const latest = perfRes?.metrics?.[0];
       setPerfMape(
         latest?.mape != null ? Number(latest.mape) : null,
@@ -280,7 +286,9 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const currentPrice = data?.current_price ?? 0;
   const garchVol = data?.predictions?.[0]?.components?.garch_annualized_volatility;
   const highVolRegime = Boolean(data?.predictions?.some(p => p.components?.high_volatility_regime));
-  const val7 = validation?.xgb_metrics?.find(m => m.horizon === 7);
+  const metricsByHorizon = Object.fromEntries(
+    (validation?.xgb_metrics ?? []).map(m => [m.horizon, m]),
+  );
 
   return (
     <div className="min-h-screen bg-[#06091a] bg-grid">
@@ -452,7 +460,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {data.predictions.map(pred => (
                   <PredictionHorizonCard
                     key={pred.horizon}
@@ -460,7 +468,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                     currentPrice={currentPrice}
                     priceCurrency={config.priceCurrency ?? 'USD'}
                     briefSignal={intelligence?.brief?.signal}
-                    validation={val7}
+                    validation={metricsByHorizon[pred.horizon] ?? null}
                   />
                 ))}
               </div>
@@ -474,6 +482,13 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 chartGradient={theme.chartGradient}
                 accentClass={theme.accentClass}
                 brief={intelligence?.brief}
+              />
+
+              <PredictionHistoryPanel
+                items={predictionHistory}
+                loading={loading && !predictionHistory.length}
+                priceCurrency={config.priceCurrency ?? 'USD'}
+                accentClass={theme.accentClass}
               />
 
               {config.market === 'ICE_NY' && (

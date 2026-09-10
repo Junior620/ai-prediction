@@ -3,6 +3,7 @@ MODÈLE HYBRIDE AMÉLIORÉ
 XGBoost comme modèle principal, Prophet comme feature secondaire
 
 Usage: python train_hybrid_improved.py [--market cocoa|coffee_robusta]
+Cacao production = M3 (OHLCV + Open Interest).
 """
 
 import argparse
@@ -25,6 +26,7 @@ from src.models.hybrid_features import (
     build_technical_features,
     future_business_date,
     load_price_data_from_supabase,
+    resolve_feature_cols,
 )
 from src.models.hybrid_trainer import HybridModelTrainer
 from src.models.market_registry import get_market_config
@@ -40,9 +42,18 @@ market = get_market_config(args.market)
 models_dir = Path(market.models_dir)
 models_dir.mkdir(parents=True, exist_ok=True)
 
+# M3 pour cacao entreprise ; baseline pour les autres marches
+if args.market == "cocoa":
+    feature_set = "m3"
+    feature_cols = resolve_feature_cols(include_ohlcv=True, include_oi=True)
+else:
+    feature_set = "baseline"
+    feature_cols = list(FEATURE_COLS)
+
 print("=" * 80)
-print("🚀 MODÈLE HYBRIDE AMÉLIORÉ")
-print(f"   Marché: {market.display_name} ({args.market})")
+print("MODELE HYBRIDE AMELIORE")
+print(f"   Marche: {market.display_name} ({args.market})")
+print(f"   Feature set: {feature_set} ({len(feature_cols)} cols)")
 print("   XGBoost = Patron | Prophet = Conseiller")
 print("=" * 80)
 
@@ -51,50 +62,71 @@ supabase = create_client(
     os.getenv("SUPABASE_KEY")
 )
 
-print("\n[1/6] Récupération des données 2020-2026...")
+print("\n[1/6] Recuperation des donnees...")
 df = load_price_data_from_supabase(supabase, table_name=market.price_table)
 
-print(f"✅ {len(df)} points (2020-2026)")
-print(f"   Prix min: ${df['price'].min():.2f}")
-print(f"   Prix max: ${df['price'].max():.2f}")
-print(f"   Prix moyen: ${df['price'].mean():.2f}")
+print(f"[OK] {len(df)} points")
+if len(df) < 100:
+    print(f"[ERREUR] Pas assez de prix dans {market.price_table} ({len(df)} lignes).")
+    print("         Verifier Supabase / reessayer la collecte, puis relancer.")
+    raise SystemExit(1)
+print(f"   Prix min: {df['price'].min():.2f}")
+print(f"   Prix max: {df['price'].max():.2f}")
+print(f"   Prix moyen: {df['price'].mean():.2f}")
 
-print("\n[2/6] Préparation features (validation honnête sans fuite Prophet)...")
+# Imputation microstructure avant split
+for col in ("open", "high", "low", "volume", "open_interest"):
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce").ffill()
+
+print("\n[2/6] Preparation features (validation honnete sans fuite Prophet)...")
 
 df_technical = build_technical_features(df)
-# Ne dropper que sur les features de base (OHLCV/OI optionnels peuvent etre NaN)
+for col in feature_cols:
+    if col not in df_technical.columns and not col.startswith("prophet_"):
+        df_technical[col] = 0.0
+micro = [c for c in feature_cols if c not in FEATURE_COLS]
+if micro:
+    present = [c for c in micro if c in df_technical.columns]
+    if present:
+        df_technical[present] = df_technical[present].ffill().fillna(0.0)
+
 base_feat = [c for c in FEATURE_COLS if c in df_technical.columns and not c.startswith("prophet_")]
 valid_mask = df_technical[base_feat].notna().all(axis=1)
-first_valid = df_technical.index[valid_mask][0]
 valid_indices = df_technical.index[valid_mask]
+if len(valid_indices) < 50:
+    raise SystemExit("[ERREUR] Pas assez de lignes valides apres features")
 split_idx = int(len(valid_indices) * 0.8)
 split_pos = valid_indices[split_idx] if split_idx < len(valid_indices) else valid_indices[-1]
 
 train_raw = df.iloc[: split_pos + 1].copy()
 val_raw = df.iloc[split_pos + 1 :].copy()
 
-trainer = HybridModelTrainer()
+trainer = HybridModelTrainer(feature_cols=feature_cols)
 prophet_val, xgb_val, train_features = trainer.fit(train_raw)
 
-# Validation set: technical features from full history, Prophet from train-only model
 val_technical = build_technical_features(df)
+if micro:
+    present = [c for c in micro if c in val_technical.columns]
+    if present:
+        val_technical[present] = val_technical[present].ffill().fillna(0.0)
 val_with_prophet = add_prophet_features(val_technical, prophet_val)
-val_df = val_with_prophet.iloc[split_pos + 1 :].dropna(subset=FEATURE_COLS)
+val_df = val_with_prophet.iloc[split_pos + 1 :].dropna(subset=feature_cols)
 
-train_df = train_features.dropna()
-X_train = train_df[FEATURE_COLS]
+train_df = train_features.dropna(subset=feature_cols + ["price"])
+X_train = train_df[feature_cols]
 y_train = train_df["price"]
-X_val = val_df[FEATURE_COLS]
+X_val = val_df[feature_cols]
 y_val = val_df["price"]
 
-print(f"✅ {len(train_df)} points train | {len(val_df)} points val")
+print(f"[OK] {len(train_df)} points train | {len(val_df)} points val")
 
-print("\n[3/6] Entraînement final sur toutes les données...")
+print("\n[3/6] Entrainement final sur toutes les donnees...")
 prophet_model, xgb_model, df_clean = trainer.fit(df)
-df_clean = df_clean.dropna()
-print(f"✅ Prophet + XGBoost entraînés sur {len(df_clean)} points")
+df_clean = df_clean.dropna(subset=feature_cols + ["price"])
+print(f"[OK] Prophet + XGBoost entraines sur {len(df_clean)} points")
 
-print("\n[4/6] Métriques de validation (Prophet fit sur train uniquement)...")
+print("\n[4/6] Metriques de validation (Prophet fit sur train uniquement)...")
 val_pred = xgb_val.predict(X_val)
 train_pred = xgb_val.predict(X_train)
 
@@ -106,43 +138,45 @@ val_rmse = np.sqrt(mean_squared_error(y_val, val_pred))
 val_mae = mean_absolute_error(y_val, val_pred)
 val_mape = np.mean(np.abs((y_val.values - val_pred) / y_val.values)) * 100
 
-print(f"\n   📊 Performance:")
-print(f"      Train RMSE: ${train_rmse:.2f} | MAE: ${train_mae:.2f} | MAPE: {train_mape:.2f}%")
-print(f"      Val RMSE: ${val_rmse:.2f} | MAE: ${val_mae:.2f} | MAPE holdout 1-step: {val_mape:.2f}%")
+print(f"\n   Performance:")
+print(f"      Train RMSE: {train_rmse:.2f} | MAE: {train_mae:.2f} | MAPE: {train_mape:.2f}%")
+print(f"      Val RMSE: {val_rmse:.2f} | MAE: {val_mae:.2f} | MAPE holdout 1-step: {val_mape:.2f}%")
 
-feature_importance = dict(zip(FEATURE_COLS, xgb_model.feature_importances_))
+feature_importance = dict(zip(feature_cols, xgb_model.feature_importances_))
 sorted_features = sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)
 
-print(f"\n   🔥 Top 10 Features:")
+print(f"\n   Top 10 Features:")
 for i, (feat, imp) in enumerate(sorted_features[:10], 1):
     print(f"      {i}. {feat}: {imp:.2%}")
 
-print("\n[5/6] Test des prédictions...")
+print("\n[5/6] Test des predictions...")
 
 current_price = df_clean["price"].iloc[-1]
 current_date = df_clean["date"].iloc[-1]
 last_row = df_clean.iloc[-1]
 
-print(f"\n📊 Prix actuel ({current_date.date()}): ${current_price:,.2f}")
+print(f"\nPrix actuel ({current_date.date()}): {current_price:,.2f}")
 print("\n" + "=" * 80)
-print("PRÉDICTIONS HYBRIDES AMÉLIORÉES")
+print("PREDICTIONS HYBRIDES (feature_set=%s)" % feature_set)
 print("=" * 80)
 
-for days in [1, 7, 30]:
+for days in [1, 7, 14, 30]:
     future_date = future_business_date(current_date, days)
-    features_future = build_prediction_row(last_row, current_price, future_date, prophet_model)
-    pred_price = xgb_model.predict(features_future[FEATURE_COLS])[0]
+    features_future = build_prediction_row(
+        last_row, current_price, future_date, prophet_model, feature_cols=feature_cols
+    )
+    pred_price = xgb_model.predict(features_future[feature_cols])[0]
     prophet_yhat_future = features_future["prophet_yhat"].iloc[0]
     change = pred_price - current_price
     change_pct = (change / current_price) * 100
 
     print(f"\n{days} jour(s) - {future_date.date()}:")
-    print(f"   Prix prédit: ${pred_price:,.2f}")
-    print(f"   Changement: ${change:+,.2f} ({change_pct:+.2f}%)")
-    print(f"   Prophet suggère: ${prophet_yhat_future:,.2f} (XGBoost décide)")
+    print(f"   Prix predit: {pred_price:,.2f}")
+    print(f"   Changement: {change:+,.2f} ({change_pct:+.2f}%)")
+    print(f"   Prophet suggere: {prophet_yhat_future:,.2f}")
 
 print("\n" + "=" * 80)
-print("SAUVEGARDE DES MODÈLES")
+print("SAUVEGARDE DES MODELES")
 print("=" * 80)
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -150,18 +184,20 @@ timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 prophet_path = str(models_dir / f"prophet_improved_{timestamp}.pkl")
 with open(prophet_path, "wb") as f:
     pickle.dump(prophet_model, f)
-print(f"✅ Prophet sauvegardé: {prophet_path}")
+print(f"[OK] Prophet: {prophet_path}")
 
 xgb_path = str(models_dir / f"xgboost_improved_{timestamp}.pkl")
 with open(xgb_path, "wb") as f:
     pickle.dump(xgb_model, f)
-print(f"✅ XGBoost sauvegardé: {xgb_path}")
+print(f"[OK] XGBoost: {xgb_path}")
 
 model_info = {
     "timestamp": timestamp,
     "model_type": "hybrid_improved",
+    "feature_set": feature_set,
+    "feature_cols": feature_cols,
     "market": args.market,
-    "description": "XGBoost principal avec Prophet comme feature secondaire",
+    "description": f"XGBoost {feature_set} avec Prophet features",
     "data_period": "2020-2026",
     "training_points": len(X_train),
     "validation_points": len(X_val),
@@ -170,7 +206,8 @@ model_info = {
     "val_mape": float(val_mape),
     "val_rmse": float(val_rmse),
     "val_mae": float(val_mae),
-    "feature_importance": {k: float(v) for k, v in sorted_features[:15]},
+    "dampener_note": "Production dampener J+1/7/14/30 = 6/14/18/22 pct (config.yaml)",
+    "feature_importance": {k: float(v) for k, v in sorted_features[:20]},
     "prophet_weight": float(feature_importance.get("prophet_yhat", 0)),
     "price_lag_1_weight": float(feature_importance.get("price_lag_1", 0)),
 }
@@ -186,26 +223,30 @@ if wf_ref:
 info_path = str(models_dir / f"model_info_improved_{timestamp}.json")
 with open(info_path, "w") as f:
     json.dump(model_info, f, indent=2)
-print(f"✅ Infos sauvegardées: {info_path}")
+print(f"[OK] Infos: {info_path}")
+
+# Direct horizons alignes sur le meme feature set
+try:
+    from src.models.direct_horizon_trainer import DirectHorizonTrainer
+
+    print("\n[6/6] Direct horizons h=7,14,30...")
+    dht = DirectHorizonTrainer(horizons=[7, 14, 30], feature_cols=feature_cols)
+    direct_models, direct_meta = dht.fit(df, prophet_model=prophet_model)
+    direct_meta["feature_set"] = feature_set
+    direct_meta["feature_cols"] = feature_cols
+    paths = dht.save(direct_models, direct_meta, models_dir=str(models_dir), timestamp=timestamp)
+    print(f"[OK] Direct horizons: {paths}")
+except Exception as exc:
+    print(f"[WARN] Direct horizons: {exc}")
 
 print("\n" + "=" * 80)
-print("✅ ENTRAÎNEMENT TERMINÉ !")
+print("[OK] ENTRAINEMENT TERMINE")
 print("=" * 80)
 print(f"""
-📊 RÉSUMÉ:
-   Modèle: Hybride Amélioré (XGBoost principal)
-   Période: 2020-2026
-   Points d'entraînement: {len(X_train)}
-
-   Performance (holdout 1-step, sans fuite Prophet):
-   - MAPE holdout: {val_mape:.2f}%
-   - RMSE Validation: ${val_rmse:.2f}
-   - MAE Validation: ${val_mae:.2f}
-
-   Reference honnete (walk-forward): voir walk_forward_reference dans model_info
-   ou GET /api/v1/validation/metrics
-
-🎯 PROCHAINE ÉTAPE:
-   docker-compose restart api
+RESUME:
+   Feature set: {feature_set} ({len(feature_cols)} cols)
+   MAPE holdout: {val_mape:.2f}%
+   RMSE Validation: {val_rmse:.2f}
+   MAE Validation: {val_mae:.2f}
 """)
 print("=" * 80)

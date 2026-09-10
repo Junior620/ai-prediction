@@ -1,22 +1,38 @@
 {
-  "source_report": "london_transition_dampen_20260829",
-  "calibrated_at": "2026-08-29T19:00:00",
-  "note": "Prophet down-weighted during ICE London transition (yhat lagged ~3500 vs spot ~4750). Prefer XGB+N-HiTS; prediction dampener clamps extreme moves.",
+  "source_report": "20260910_034413",
+  "calibrated_at": "2026-09-10T03:44:13.732605",
   "by_horizon": {
     "1": {
-      "xgb": 0.50,
-      "nhits": 0.45,
-      "prophet": 0.05
+      "xgb": 1.0,
+      "prophet": 0.0,
+      "nhits": 0.0
     },
     "7": {
-      "xgb": 0.45,
-      "nhits": 0.45,
-      "prophet": 0.10
+      "xgb": 1.0,
+      "prophet": 0.0,
+      "nhits": 0.0
+    },
+    "14": {
+      "xgb": 1.0,
+      "prophet": 0.0,
+      "nhits": 0.0
     },
     "30": {
-      "xgb": 0.40,
-      "nhits": 0.50,
-      "prophet": 0.10
+      "xgb": 1.0,
+      "prophet": 0.0,
+      "nhits": 0.0
     }
+  },
+  "fixed_baseline_mape": {
+    "1": 1.9572135145116107,
+    "7": 3.9857078178597036,
+    "14": 5.484987296448243,
+    "30": 6.954790085542719
+  },
+  "calibrated_mape": {
+    "1": 1.8040483100290188,
+    "7": 3.0682193756063474,
+    "14": 3.8432494865102336,
+    "30": 4.867009888512285
   }
 }

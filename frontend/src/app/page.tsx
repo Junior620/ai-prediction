@@ -14,7 +14,7 @@ export default function Dashboard() {
         includeSentiment: true,
         unitLabel: 'GBP / tonne',
         priceCurrency: 'GBP',
-        priceSource: 'ICE London · Databento OHLCV + OI',
+        priceSource: 'OHLCV + OI · feature set M3',
         activeNav: 'cacao',
         otherMarket: { href: '/coffee', label: 'Café Robusta' },
       }}

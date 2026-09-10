@@ -24,6 +24,63 @@ interface Props {
   accentClass?: string;
 }
 
+type MicroSignal = {
+  label: string;
+  detail: string;
+  className: string;
+};
+
+function resolveMicroSignal(history: { price: number; volume: number | null; oi: number | null }[]): MicroSignal {
+  if (history.length < 2) {
+    return {
+      label: 'Neutre',
+      detail: 'Historique insuffisant',
+      className: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+    };
+  }
+  const a = history[history.length - 1];
+  const b = history[history.length - 2];
+  const priceUp = a.price > b.price;
+  const priceDown = a.price < b.price;
+  const volUp = a.volume != null && b.volume != null && a.volume > b.volume;
+  const oiUp = a.oi != null && b.oi != null && a.oi > b.oi;
+  const oiDown = a.oi != null && b.oi != null && a.oi < b.oi;
+
+  if (priceUp && volUp && oiUp) {
+    return {
+      label: 'Accumulation',
+      detail: 'Prix↑ Vol↑ OI↑ — nouvelles positions longues',
+      className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    };
+  }
+  if (priceUp && volUp && oiDown) {
+    return {
+      label: 'Couverture / liquidation',
+      detail: 'Prix↑ Vol↑ OI↓ — shorts couverts / liquidations',
+      className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    };
+  }
+  if (priceDown && volUp && oiUp) {
+    return {
+      label: 'Distribution',
+      detail: 'Prix↓ Vol↑ OI↑ — nouvelles positions courtes',
+      className: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    };
+  }
+  if (priceDown && volUp && oiDown) {
+    return {
+      label: 'Liquidation longs',
+      detail: 'Prix↓ Vol↑ OI↓ — longs sortis',
+      className: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    };
+  }
+  return {
+    label: 'Neutre',
+    detail: 'Pas de signal Prix/Vol/OI convergent',
+    className: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+  };
+}
+
 export function LondonMicrostructurePanel({
   data,
   loading = false,
@@ -49,6 +106,8 @@ export function LondonMicrostructurePanel({
       volume: t.volume ?? null,
     }));
   }, [data]);
+
+  const signal = useMemo(() => resolveMicroSignal(history), [history]);
 
   if (loading && !data) {
     return <div className="glass-card h-80 shimmer" />;
@@ -78,7 +137,16 @@ export function LondonMicrostructurePanel({
             {data.source ? ` · ${data.source}` : ''}
           </p>
         </div>
+        <div
+          className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-right ${signal.className}`}
+          title={signal.detail}
+        >
+          <div className="text-[10px] uppercase tracking-wide opacity-70">Signal</div>
+          <div className="text-xs font-semibold">{signal.label}</div>
+        </div>
       </div>
+
+      <p className="text-[11px] text-slate-500 -mt-2">{signal.detail}</p>
 
       {latest && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

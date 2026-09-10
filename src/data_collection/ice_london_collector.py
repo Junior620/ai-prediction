@@ -17,14 +17,28 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_ICE_URL = (
     "https://www.ice.com/products/37089076/London-Cocoa-Futures/data?marketId=7758984"
 )
+# Page courbe complete (mois nommes DEC26 / MAR27...) — marketId vu sur ICE
+ICE_NAMED_URLS = (
+    "https://www.ice.com/products/37089076/London-Cocoa-Futures/data?marketId=2872501",
+    "https://www.ice.com/products/37089076/London-Cocoa-Futures/data?marketId=7758984",
+)
 INVESTING_FALLBACK_URL = "https://uk.investing.com/commodities/london-cocoa"
+
+CONTRACT_LABEL_RE = re.compile(
+    r"\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*['’]?\s*(\d{2})\b",
+    re.IGNORECASE,
+)
+CONTRACT_COMPACT_RE = re.compile(
+    r"\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})\b",
+    re.IGNORECASE,
+)
 
 ICE_XPATH = (
     "/html/body/div[1]/div/main/div/div/div/div/div/div[4]/div/div/div[1]/"
@@ -436,3 +450,108 @@ def write_collection_journal(
     existing.append(payload)
     path.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+def _normalize_contract_label(raw: str) -> Optional[str]:
+    text = _strip_tags(raw or "").replace("'", "").replace("’", "").strip()
+    if not text:
+        return None
+    compact = text.replace(" ", "")
+    m = CONTRACT_COMPACT_RE.search(compact)
+    if not m:
+        m = CONTRACT_LABEL_RE.search(text)
+    if not m:
+        return None
+    return f"{m.group(1).upper()}{m.group(2)}"
+
+
+def fetch_ice_london_named_contracts(
+    urls: Sequence[str] = ICE_NAMED_URLS,
+    price_bounds: Tuple[float, float] = (800.0, 15000.0),
+    timeout_ms: int = 45000,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Scrape le tableau ICE CONTRACT / LAST / VOLUME (DEC26, MAR27...).
+
+    Returns:
+        (contracts, attempts) — price_usd = GBP/MT pour compat snapshot cocoa_futures.
+    """
+    attempts: List[Dict[str, Any]] = []
+    lo, hi = price_bounds
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        attempts.append({"strategy": "ice_named_playwright", "ok": False, "detail": str(exc)})
+        return [], attempts
+
+    for url in urls:
+        t0 = time.time()
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/131.0.0.0 Safari/537.36"
+                    )
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                page.wait_for_selector("table tbody tr", timeout=20000)
+                rows = page.locator("table tbody tr")
+                n = rows.count()
+                contracts: List[Dict[str, Any]] = []
+                seen: set[str] = set()
+                for i in range(n):
+                    cells = rows.nth(i).locator("td")
+                    if cells.count() < 2:
+                        continue
+                    label = _normalize_contract_label(cells.nth(0).text_content() or "")
+                    price = _parse_price(cells.nth(1).text_content() or "")
+                    volume = None
+                    if cells.count() >= 5:
+                        volume = _parse_price(cells.nth(4).text_content() or "")
+                    if not label or price is None or not (lo <= price <= hi):
+                        continue
+                    if label in seen:
+                        continue
+                    seen.add(label)
+                    contracts.append(
+                        {
+                            "contract": label,
+                            "symbol": label,
+                            "price_usd": float(price),
+                            "volume": volume,
+                            "currency": "GBP",
+                            "unit": "GBP/MT",
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "source": "ice_london_named",
+                        }
+                    )
+                browser.close()
+                attempts.append(
+                    {
+                        "strategy": "ice_named_playwright",
+                        "ok": len(contracts) > 0,
+                        "url": url,
+                        "n": len(contracts),
+                        "ms": int((time.time() - t0) * 1000),
+                    }
+                )
+                if contracts:
+                    return contracts, attempts
+        except Exception as exc:
+            attempts.append(
+                {
+                    "strategy": "ice_named_playwright",
+                    "ok": False,
+                    "url": url,
+                    "detail": str(exc),
+                    "ms": int((time.time() - t0) * 1000),
+                }
+            )
+            continue
+
+    return [], attempts
