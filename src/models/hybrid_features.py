@@ -362,6 +362,90 @@ def prepare_training_frame(
     return with_prophet, prophet_model
 
 
+def _finite_or_zero(value: Any) -> float:
+    """Coerce a feature value to a finite float; missing or invalid becomes 0."""
+    try:
+        if value is None or pd.isna(value):
+            return 0.0
+        out = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not np.isfinite(out):
+        return 0.0
+    return out
+
+
+def asof_feature_row(
+    last_row: pd.Series,
+    feature_cols: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Feature row at the last observed session, identical to direct-horizon training.
+
+    At date t the training row has ``price_lag_1`` = close[t-1], rolling stats
+    that include close[t], and Prophet components on date t. Serving that row
+    unchanged is the J+h forecast. Overwriting ``price_lag_1`` with today's
+    close, or shifting Prophet to t+h, builds a vector the model never saw.
+    """
+    cols = list(feature_cols) if feature_cols is not None else list(FEATURE_COLS)
+    return pd.DataFrame({col: [_finite_or_zero(last_row.get(col, 0.0))] for col in cols})
+
+
+# Prophet's level sits far from the London close (changepoint_range locks the
+# last 20% of the trend). Direct h-step models must not see that level, or a
+# 30-day forecast mean-reverts toward it.
+PROPHET_LEVEL_COLS = ("prophet_trend", "prophet_yearly", "prophet_yhat")
+
+
+def direct_feature_row(
+    last_row: pd.Series,
+    feature_cols: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """As-of feature row for direct h-step models, without the Prophet level."""
+    row = asof_feature_row(last_row, feature_cols)
+    for col in PROPHET_LEVEL_COLS:
+        if col in row.columns:
+            row[col] = 0.0
+    return row
+
+
+def guard_forecast(
+    price: float,
+    spot: float,
+    max_pct: float,
+    margin: Optional[tuple] = None,
+) -> tuple[float, float, bool]:
+    """Central scenario after the cap and the spot-coverage check.
+
+    If the raw move exceeds ``max_pct``, or the interval around the forecast
+    does not contain the spot, the central price stays at the spot.
+    """
+    central, change, failed = resolve_capped_forecast(price, spot, max_pct)
+    if failed or margin is None or spot <= 0:
+        return central, change, failed
+    lower, upper = float(margin[0]), float(margin[1])
+    if not (central - lower <= spot <= central + upper):
+        return float(spot), 0.0, True
+    return central, change, failed
+
+
+def resolve_capped_forecast(
+    price: float,
+    spot: float,
+    max_pct: float,
+) -> tuple[float, float, bool]:
+    """Return ``(central_price, change_pct, feature_failure)``.
+
+    A move past ``max_pct`` is a feature failure. The central scenario stays
+    at the spot; the clipped cap is not published as the forecast.
+    """
+    if spot <= 0 or not np.isfinite(price) or not np.isfinite(spot):
+        return float(price), 0.0, False
+    raw_pct = (float(price) / float(spot) - 1.0) * 100.0
+    if abs(raw_pct) > float(max_pct) + 1e-9:
+        return float(spot), 0.0, True
+    return float(price), float(raw_pct), False
+
+
 def build_prediction_row(
     last_row: pd.Series,
     current_price: float,

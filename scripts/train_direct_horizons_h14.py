@@ -1,4 +1,4 @@
-"""Entrainement rapide des modeles directs h=7,14,30 (cacao + robusta)."""
+"""Entrainement des modeles directs h=1,7,14,30 (cacao + robusta)."""
 from __future__ import annotations
 
 import os
@@ -54,7 +54,7 @@ def train_market(market_id: str) -> None:
         feature_cols = list(FEATURE_COLS)
 
     prophet = latest_prophet(models_dir)
-    dht = DirectHorizonTrainer(horizons=[7, 14, 30], feature_cols=feature_cols)
+    dht = DirectHorizonTrainer(horizons=[1, 7, 14, 30], feature_cols=feature_cols)
     models, meta = dht.fit(df, prophet_model=prophet)
     meta["market"] = market_id
     meta["feature_cols"] = feature_cols
@@ -65,4 +65,4 @@ def train_market(market_id: str) -> None:
 if __name__ == "__main__":
     train_market("cocoa")
     train_market("coffee_robusta")
-    print("\n[OK] Direct h7/h14/h30 entraines")
+    print("\n[OK] Direct h1/h7/h14/h30 entraines")

@@ -26,12 +26,15 @@ from src.models.hybrid_features import (
     FEATURE_COLS,
     build_prediction_row,
     clean_price_dataframe,
+    direct_feature_row,
     future_business_date,
+    guard_forecast,
     prepare_training_frame,
     resolve_feature_cols,
 )
 from src.models.conformal_intervals import (
     apply_interval,
+    get_margins_for_horizon,
     heuristic_interval,
     load_conformal_margins,
 )
@@ -114,6 +117,13 @@ class ImprovedPricePredictor:
         self._historical_data = None
         self._last_data_fetch = None
 
+        self.direct_target = "price"
+        try:
+            meta = DirectHorizonTrainer.load_latest_meta(self.models_dir)
+            self.direct_target = str(meta.get("target") or "price")
+        except Exception as e:
+            logger.debug(f"No direct horizon metadata: {e}")
+
         if not self.direct_horizon_models:
             try:
                 self.direct_horizon_models = DirectHorizonTrainer.load_latest(self.models_dir)
@@ -142,25 +152,29 @@ class ImprovedPricePredictor:
         b_lo, b_hi = self.price_bounds
         return (max(b_lo, lo2), min(b_hi, hi2))
 
-    def _dampen_vs_spot(self, price: float, spot: float, horizon: int) -> Tuple[float, float]:
-        """Limite la variation abs. vs spot selon max_abs_change_pct."""
-        if spot <= 0:
-            return float(price), 0.0
+    def _dampen_vs_spot(
+        self, price: float, spot: float, horizon: int
+    ) -> Tuple[float, float, bool]:
+        """Garde-fou vs spot.
+
+        Un écart au-delà de ``max_abs_change_pct`` est un échec de features :
+        le scénario central reste le cours, le plafond n'est pas publié.
+        """
         max_pct = float(self.max_abs_change_pct.get(str(horizon), 20.0))
-        raw_pct = (price / spot - 1.0) * 100.0
-        capped_pct = float(np.clip(raw_pct, -max_pct, max_pct))
-        dampened = spot * (1.0 + capped_pct / 100.0)
-        if abs(raw_pct - capped_pct) > 0.05:
-            logger.info(
-                "Dampened h=%sd: %.2f%% -> %.2f%% (%.2f -> %.2f vs spot %.2f)",
+        margin = get_margins_for_horizon(horizon, self._conformal_margins or {})
+        central, change_pct, feature_failure = guard_forecast(price, spot, max_pct, margin)
+        if feature_failure:
+            raw_pct = (price / spot - 1.0) * 100.0 if spot > 0 else float("nan")
+            logger.warning(
+                "h=%sd feature failure: raw %.2f is %+.2f%% vs spot %.2f "
+                "(cap %.1f%%). Central scenario stays at the spot, not the cap.",
                 horizon,
-                raw_pct,
-                capped_pct,
                 price,
-                dampened,
+                raw_pct,
                 spot,
+                max_pct,
             )
-        return float(dampened), capped_pct
+        return central, change_pct, feature_failure
 
     def _fetch_historical_data(self, force_refresh: bool = False) -> pd.DataFrame:
         if not force_refresh and self._historical_data is not None:
@@ -252,12 +266,11 @@ class ImprovedPricePredictor:
         """XGBoost price using direct h-step, recursive, or frozen strategy."""
         cols = self.feature_cols
         if horizon in self.direct_horizon_models:
-            future_date = future_business_date(current_date, horizon)
-            features = build_prediction_row(
-                last_row, current_price, future_date, self.prophet_model, feature_cols=cols
-            )
-            return float(
-                self.direct_horizon_models[horizon].predict(features[cols])[0]
+            # Same row the direct model was trained on (features known at t).
+            features = direct_feature_row(last_row, feature_cols=cols)
+            raw = float(self.direct_horizon_models[horizon].predict(features[cols])[0])
+            return DirectHorizonTrainer.level_from_prediction(
+                raw, current_price, self.direct_target
             )
 
         if horizon == 1 or self.multi_step_mode == "frozen":
@@ -296,15 +309,16 @@ class ImprovedPricePredictor:
 
         df = self._fetch_historical_data()
         df_with_features = self._prepare_features(df)
-        subset_cols = [c for c in self.feature_cols if c in df_with_features.columns]
-        df_clean = df_with_features.dropna(subset=subset_cols[: max(5, len(FEATURE_COLS))])
-        # Remplir micro manquantes apres dropna baseline
+        published_price = float(df["price"].iloc[-1])
+        published_date = pd.to_datetime(df["date"].iloc[-1])
         for c in self.feature_cols:
-            if c not in df_clean.columns:
-                df_clean[c] = 0.0
-        micro = [c for c in self.feature_cols if c not in FEATURE_COLS]
-        if micro:
-            df_clean[micro] = df_clean[micro].ffill().fillna(0.0)
+            if c not in df_with_features.columns:
+                df_with_features[c] = 0.0
+        # Garder la dernière séance : un NaN micro (OI vide) ne doit pas
+        # faire reculer le spot utilisé par le modèle.
+        df_with_features[self.feature_cols] = df_with_features[self.feature_cols].ffill()
+        df_clean = df_with_features.dropna(subset=["price", "price_lag_30"]).copy()
+        df_clean[self.feature_cols] = df_clean[self.feature_cols].fillna(0.0)
 
         if df_clean.empty:
             raise RuntimeError("No valid data after feature preparation")
@@ -312,6 +326,18 @@ class ImprovedPricePredictor:
         current_price = float(df_clean["price"].iloc[-1])
         current_date = df_clean["date"].iloc[-1]
         last_row = df_clean.iloc[-1]
+        model_date = pd.to_datetime(current_date)
+        if (
+            model_date.normalize() != published_date.normalize()
+            or abs(current_price - published_price) > 0.5
+        ):
+            logger.warning(
+                "Spot modele %.2f (%s) != cours publie %.2f (%s)",
+                current_price,
+                model_date.date(),
+                published_price,
+                published_date.date(),
+            )
 
         sentiment_score = 0.0
         if recent_news:
@@ -363,9 +389,14 @@ class ImprovedPricePredictor:
             )
 
             sentiment_adjustment = sentiment_score * self.sentiment_weight * ensemble_price
-            final_price = ensemble_price + sentiment_adjustment
-            final_price, dampened_pct = self._dampen_vs_spot(
-                final_price, current_price, horizon
+            raw_price = ensemble_price + sentiment_adjustment
+            # Plafond mesuré sur le cours publié, pas sur une séance plus ancienne.
+            spot_anchor = published_price if published_price > 0 else current_price
+            raw_change_pct = (
+                (raw_price / spot_anchor - 1.0) * 100.0 if spot_anchor > 0 else 0.0
+            )
+            final_price, dampened_pct, feature_failure = self._dampen_vs_spot(
+                raw_price, spot_anchor, horizon
             )
             final_price = float(np.clip(final_price, historical_range[0], historical_range[1]))
 
@@ -430,6 +461,10 @@ class ImprovedPricePredictor:
                         "residual": 0.0,
                         "sentiment": float(sentiment_adjustment),
                         "dampened_change_pct": float(dampened_pct),
+                        "raw_change_pct": float(raw_change_pct),
+                        "feature_failure": bool(feature_failure),
+                        "model_spot": float(current_price),
+                        "published_spot": float(published_price),
                         "ensemble_weights": weights,
                         "garch_annualized_volatility": (
                             float(garch_ann_vol) if garch_ann_vol is not None else None

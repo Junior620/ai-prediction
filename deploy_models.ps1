@@ -47,6 +47,7 @@ $SshArgs = @(
     "-o", "ConnectTimeout=30",
     "-o", "ServerAliveInterval=10",
     "-o", "ServerAliveCountMax=6",
+    "-o", "TCPKeepAlive=yes",
     "-o", "IPQoS=none"
 )
 if ($env:DEPLOY_SSH_KEY -and (Test-Path $env:DEPLOY_SSH_KEY)) {
@@ -57,10 +58,62 @@ if ($env:DEPLOY_SSH_KEY -and (Test-Path $env:DEPLOY_SSH_KEY)) {
     Write-Host '         Ajoute dans .env.deploy : DEPLOY_SSH_KEY=C:\Users\Christian\.ssh\id_ed25519'
 }
 
-function Invoke-Ssh([string]$RemoteCommand) {
-    & ssh.exe @SshArgs $SshTarget $RemoteCommand
-    if ($LASTEXITCODE -ne 0) {
-        throw "SSH failed ($LASTEXITCODE): $RemoteCommand"
+function Format-ProcessArgs([string[]]$ArgumentList) {
+    # Start-Process/ProcessStartInfo need a single argv string on Windows PS 5.1.
+    ($ArgumentList | ForEach-Object {
+        $a = [string]$_
+        if ($a -match '[\s"]') {
+            '"' + ($a.Replace('"', '\"')) + '"'
+        } else {
+            $a
+        }
+    }) -join ' '
+}
+
+function Invoke-ProcessWithTimeout {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+        [int]$TimeoutSec = 90
+    )
+    # System.Diagnostics.Process (pas Start-Process) : ExitCode fiable apres WaitForExit.
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $FilePath
+    $psi.Arguments = Format-ProcessArgs $ArgumentList
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $psi
+    [void]$p.Start()
+
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+
+    if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+        try { $p.Kill() } catch {}
+        throw "Timeout apres ${TimeoutSec}s: $(Split-Path $FilePath -Leaf)"
+    }
+
+    $out = $outTask.Result
+    $err = $errTask.Result
+    if ($out) {
+        ($out -split "`r?`n") | Where-Object { $_ -ne "" } | ForEach-Object { Write-Host $_ }
+    }
+    if ($err) {
+        ($err -split "`r?`n") | Where-Object { $_ -ne "" } | ForEach-Object { Write-Host $_ }
+    }
+    return [int]$p.ExitCode
+}
+
+function Invoke-Ssh([string]$RemoteCommand, [int]$TimeoutSec = 90) {
+    $code = Invoke-ProcessWithTimeout -FilePath "ssh.exe" `
+        -ArgumentList ($SshArgs + @($SshTarget, $RemoteCommand)) `
+        -TimeoutSec $TimeoutSec
+    if ($code -ne 0) {
+        throw "SSH failed ($code): $RemoteCommand"
     }
 }
 
@@ -68,10 +121,13 @@ function Invoke-Scp {
     param(
         [Parameter(Mandatory = $true)][string[]]$Sources,
         [Parameter(Mandatory = $true)][string]$Destination,
-        [switch]$Recurse
+        [switch]$Recurse,
+        [int]$TimeoutSec = 180,
+        [switch]$AllowFail
     )
     # Un fichier a la fois : le scp Windows OpenSSH bloque souvent
     # sur le 2e fichier d'un transfert multiple (progress 0% ETA --).
+    # Contabo coupe parfois la session (Connection reset) : retries + pause.
     foreach ($src in $Sources) {
         $argsList = @("-O") + $SshArgs
         if ($Recurse) { $argsList += "-r" }
@@ -79,17 +135,31 @@ function Invoke-Scp {
         $argsList += "${SshTarget}:${Destination}"
         $leaf = Split-Path $src -Leaf
         $ok = $false
-        for ($attempt = 1; $attempt -le 3; $attempt++) {
-            Write-Host ('[INFO] SCP ' + $leaf + ' -> ' + $Destination + ' (essai ' + $attempt + '/3)')
-            & scp.exe @argsList
-            if ($LASTEXITCODE -eq 0) {
-                $ok = $true
-                break
+        for ($attempt = 1; $attempt -le 5; $attempt++) {
+            Write-Host ('[INFO] SCP ' + $leaf + ' -> ' + $Destination + ' (essai ' + $attempt + '/5)')
+            try {
+                $code = Invoke-ProcessWithTimeout -FilePath "scp.exe" `
+                    -ArgumentList $argsList -TimeoutSec $TimeoutSec
+                if ($code -eq 0) {
+                    $ok = $true
+                    Start-Sleep -Milliseconds 400
+                    break
+                }
+                Write-Host ("[AVERTISSEMENT] scp exit code " + $code)
+            } catch {
+                Write-Host ('[AVERTISSEMENT] ' + $_.Exception.Message)
             }
-            Start-Sleep -Seconds (5 * $attempt)
+            $wait = [Math]::Min(60, 8 * $attempt)
+            Write-Host ("[INFO] Pause ${wait}s avant retry SCP...")
+            Start-Sleep -Seconds $wait
         }
         if (-not $ok) {
-            throw "SCP failed after retries: $leaf -> $Destination"
+            $msg = "SCP failed after retries: $leaf -> $Destination"
+            if ($AllowFail) {
+                Write-Host ('[AVERTISSEMENT] ' + $msg + ' (non bloquant)')
+            } else {
+                throw $msg
+            }
         }
     }
 }
@@ -116,9 +186,10 @@ Write-Host ""
 
 Write-Host '[INFO] Test SSH...'
 try {
-    Invoke-Ssh "echo OK"
+    # Contabo peut etre lent (RTT 300ms+) ou temporairement sature : 90s
+    Invoke-Ssh "echo OK" -TimeoutSec 90
 } catch {
-    throw ("SSH vers " + $SshTarget + " impossible. Verifie la cle dans .env.deploy (DEPLOY_SSH_KEY) et: ssh " + $SshTarget)
+    throw ("SSH vers " + $SshTarget + " impossible (" + $_.Exception.Message + "). Verifie DEPLOY_SSH_KEY dans .env.deploy et: ssh " + $SshTarget)
 }
 
 # --- Discover latest artifacts ---
@@ -161,11 +232,13 @@ $cocoaInfo = Get-LatestFile $cocoaDir "model_info_improved_*.json"
 if ($cocoaInfo) {
     Invoke-Scp -Sources @($cocoaInfo.FullName) -Destination "$RemotePath/models/"
 }
+$cocoaH1 = Get-LatestFile $cocoaDir "xgboost_h1_*.pkl"
 $cocoaH7 = Get-LatestFile $cocoaDir "xgboost_h7_*.pkl"
 $cocoaH14 = Get-LatestFile $cocoaDir "xgboost_h14_*.pkl"
 $cocoaH30 = Get-LatestFile $cocoaDir "xgboost_h30_*.pkl"
 $cocoaDirectInfo = Get-LatestFile $cocoaDir "model_info_direct_horizon_*.json"
 $directUploads = @()
+if ($cocoaH1) { $directUploads += $cocoaH1.FullName }
 if ($cocoaH7) { $directUploads += $cocoaH7.FullName }
 if ($cocoaH14) { $directUploads += $cocoaH14.FullName }
 if ($cocoaH30) { $directUploads += $cocoaH30.FullName }
@@ -180,11 +253,13 @@ if ($cocoaNhits) {
 
 Write-Host '[INFO] Upload modeles robusta...'
 Invoke-Scp -Sources @($robustaProphet.FullName, $robustaXgb.FullName) -Destination "$RemotePath/models/coffee_robusta/"
+$robustaH1 = Get-LatestFile $robustaDir "xgboost_h1_*.pkl"
 $robustaH7 = Get-LatestFile $robustaDir "xgboost_h7_*.pkl"
 $robustaH14 = Get-LatestFile $robustaDir "xgboost_h14_*.pkl"
 $robustaH30 = Get-LatestFile $robustaDir "xgboost_h30_*.pkl"
 $robustaDirectInfo = Get-LatestFile $robustaDir "model_info_direct_horizon_*.json"
 $robustaDirectUploads = @()
+if ($robustaH1) { $robustaDirectUploads += $robustaH1.FullName }
 if ($robustaH7) { $robustaDirectUploads += $robustaH7.FullName }
 if ($robustaH14) { $robustaDirectUploads += $robustaH14.FullName }
 if ($robustaH30) { $robustaDirectUploads += $robustaH30.FullName }
@@ -202,7 +277,7 @@ if (Test-Path $futuresDir) {
     Write-Host '[INFO] Upload modeles futures NY (fallback)...'
     $futuresFiles = Get-ChildItem -Path $futuresDir -File -ErrorAction SilentlyContinue
     foreach ($ff in $futuresFiles) {
-        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures/"
+        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures/" -AllowFail
     }
 }
 
@@ -211,7 +286,7 @@ if (Test-Path $futuresLondonDir) {
     Write-Host '[INFO] Upload modeles futures Londres (GBP)...'
     $flFiles = Get-ChildItem -Path $futuresLondonDir -File -ErrorAction SilentlyContinue
     foreach ($ff in $flFiles) {
-        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures_london/"
+        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures_london/" -AllowFail
     }
 }
 
@@ -220,7 +295,7 @@ if (Test-Path $futuresNamedDir) {
     Write-Host '[INFO] Upload modeles futures Londres mois nommes (DEC26…)...'
     $fnFiles = Get-ChildItem -Path $futuresNamedDir -File -ErrorAction SilentlyContinue
     foreach ($ff in $fnFiles) {
-        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures_london_named/"
+        Invoke-Scp -Sources @($ff.FullName) -Destination "$RemotePath/models/futures_london_named/" -AllowFail
     }
 }
 
@@ -275,15 +350,21 @@ foreach ($item in $apiFiles) {
 }
 
 # --- Upload walk-forward summaries (dashboard Performance) ---
+# Non bloquant: un SSH/SCP hung ne doit pas empecher Redis flush + restart API.
 $wfDir = Join-Path $Root "reports\walk_forward"
 if (Test-Path $wfDir) {
     $summaryFiles = Get-ChildItem -Path $wfDir -Filter "*_summary.json" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending |
-        Select-Object -First 6
+        Select-Object -First 2
     if ($summaryFiles) {
         Write-Host '[INFO] Upload reports/walk_forward summaries...'
-        Invoke-Ssh "mkdir -p $RemotePath/reports/walk_forward"
-        Invoke-Scp -Sources @($summaryFiles.FullName) -Destination "$RemotePath/reports/walk_forward/"
+        try {
+            Invoke-Ssh "mkdir -p $RemotePath/reports/walk_forward" -TimeoutSec 45
+            Invoke-Scp -Sources @($summaryFiles.FullName) `
+                -Destination "$RemotePath/reports/walk_forward/" -TimeoutSec 60
+        } catch {
+            Write-Host ('[AVERTISSEMENT] Upload reports ignore (non bloquant): ' + $_.Exception.Message)
+        }
     }
 }
 

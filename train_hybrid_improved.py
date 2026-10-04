@@ -229,8 +229,8 @@ print(f"[OK] Infos: {info_path}")
 try:
     from src.models.direct_horizon_trainer import DirectHorizonTrainer
 
-    print("\n[6/6] Direct horizons h=7,14,30...")
-    dht = DirectHorizonTrainer(horizons=[7, 14, 30], feature_cols=feature_cols)
+    print("\n[6/6] Direct horizons h=1,7,14,30...")
+    dht = DirectHorizonTrainer(horizons=[1, 7, 14, 30], feature_cols=feature_cols)
     direct_models, direct_meta = dht.fit(df, prophet_model=prophet_model)
     direct_meta["feature_set"] = feature_set
     direct_meta["feature_cols"] = feature_cols

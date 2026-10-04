@@ -15,6 +15,7 @@ from src.models.hybrid_features import (
     DEFAULT_XGB_PARAMS,
     FEATURE_COLS,
     build_prediction_row,
+    direct_feature_row,
     build_price_lookup,
     future_business_date,
 )
@@ -135,22 +136,22 @@ class WalkForwardValidator:
                     except Exception:
                         record["xgb_pred_recursive"] = float("nan")
 
-                if self.config.include_direct_hstep and horizon in (7, 30):
+                if self.config.include_direct_hstep and horizon in (1, 7, 14, 30):
                     try:
                         direct_trainer = DirectHorizonTrainer(horizons=[horizon])
                         direct_models, _ = direct_trainer.fit(df_train, prophet_model=prophet_model)
                         direct_model = direct_models[horizon]
-                        train_clean = df_train_features.dropna()
+                        train_clean = df_train_features.dropna(subset=["price_lag_30"])
                         if not train_clean.empty:
                             last = train_clean.iloc[-1]
-                            feat_row = build_prediction_row(
-                                last,
-                                origin_price,
-                                target_date,
-                                prophet_model,
-                            )
-                            direct_pred = float(
+                            feat_row = direct_feature_row(last, feature_cols=FEATURE_COLS)
+                            raw_direct = float(
                                 direct_model.predict(feat_row[FEATURE_COLS])[0]
+                            )
+                            direct_pred = DirectHorizonTrainer.level_from_prediction(
+                                raw_direct,
+                                origin_price,
+                                str(direct_trainer.target),
                             )
                             record["xgb_pred_direct"] = direct_pred
                             record["xgb_direct_error_pct"] = abs(direct_pred - actual) / actual * 100

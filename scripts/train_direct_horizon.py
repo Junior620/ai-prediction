@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Train direct h-step XGBoost models for horizons 7 and 30."""
+"""Train direct h-step XGBoost models for horizons 1, 7, 14 and 30."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def main() -> int:
     df = load_price_data_from_supabase(supabase)
     print(f"  {len(df)} points")
 
-    trainer = DirectHorizonTrainer(horizons=[7, 30])
+    trainer = DirectHorizonTrainer(horizons=[1, 7, 14, 30])
     models, meta = trainer.fit(df)
     paths = trainer.save(models, meta, models_dir=str(ROOT / "models"))
 

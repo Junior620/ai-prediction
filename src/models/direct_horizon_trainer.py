@@ -1,4 +1,4 @@
-"""Direct h-step XGBoost models for horizons 7, 14 and 30."""
+"""Direct h-step XGBoost models for horizons 1, 7, 14 and 30."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import xgboost as xgb
 from src.models.hybrid_features import (
     DEFAULT_XGB_PARAMS,
     FEATURE_COLS,
+    PROPHET_LEVEL_COLS,
     future_business_date,
     prepare_training_frame,
 )
@@ -28,9 +29,10 @@ class DirectHorizonTrainer:
         xgb_params: Optional[Dict[str, Any]] = None,
         feature_cols: Optional[List[str]] = None,
     ):
-        self.horizons = horizons or [7, 14, 30]
+        self.horizons = horizons or [1, 7, 14, 30]
         self.xgb_params = {**DEFAULT_XGB_PARAMS, **(xgb_params or {})}
         self.feature_cols = list(feature_cols) if feature_cols else list(FEATURE_COLS)
+        self.target = "close_delta"
 
     def _build_direct_dataset(
         self,
@@ -62,12 +64,16 @@ class DirectHorizonTrainer:
             if match.empty:
                 continue
             valid_rows.append(idx)
-            targets.append(float(match["price"].iloc[-1]))
+            origin_price = float(row["price"])
+            targets.append(float(match["price"].iloc[-1]) - origin_price)
 
         if not valid_rows:
             raise ValueError(f"No valid direct h={horizon} training rows")
 
         subset = df_features.loc[valid_rows].copy()
+        for col in PROPHET_LEVEL_COLS:
+            if col in subset.columns:
+                subset[col] = 0.0
         y = pd.Series(targets, index=subset.index)
         return subset, y
 
@@ -87,6 +93,9 @@ class DirectHorizonTrainer:
             "horizons": {},
             "trained_at": datetime.now().isoformat(),
             "feature_cols": self.feature_cols,
+            # Variation depuis la clôture de t, pas le niveau absolu :
+            # le cours servi reste ancré sur le dernier settlement.
+            "target": "close_delta",
         }
 
         shared_prophet = prophet_model
@@ -142,7 +151,30 @@ class DirectHorizonTrainer:
         loaded: Dict[int, xgb.XGBRegressor] = {}
         for h_str, h_meta in meta.get("horizons", {}).items():
             path = h_meta.get("model_path")
-            if path and Path(path).exists():
-                with open(path, "rb") as f:
+            if not path:
+                continue
+            candidate = Path(path)
+            if not candidate.exists():
+                # Le JSON est écrit sous Windows (antislash) puis chargé sur Linux.
+                candidate = root / Path(str(path).replace("\\", "/")).name
+            if candidate.exists():
+                with open(candidate, "rb") as f:
                     loaded[int(h_str)] = pickle.load(f)
         return loaded
+
+    @staticmethod
+    def load_latest_meta(models_dir: str = "models") -> Dict[str, Any]:
+        """Metadata of the newest direct-horizon file, or empty dict."""
+        root = Path(models_dir)
+        info_files = sorted(root.glob("model_info_direct_horizon_*.json"), reverse=True)
+        if not info_files:
+            return {}
+        with open(info_files[0], encoding="utf-8") as f:
+            return json.load(f)
+
+    @staticmethod
+    def level_from_prediction(raw: float, origin_price: float, target: str) -> float:
+        """Rebuild a price level from a model output."""
+        if target == "close_delta":
+            return float(origin_price) + float(raw)
+        return float(raw)
