@@ -1,0 +1,27 @@
+{
+  "market": "coffee_robusta",
+  "version": "improved_20261006_220101",
+  "validated": false,
+  "scored_variant": "no_sentiment",
+  "measurement_note": "Aucun horizon n'est validé. Le rapport du 6 octobre note le XGBoost direct, pas la chaîne servie avec N-HiTS.",
+  "artifacts": {
+    "prophet": "models/coffee_robusta/prophet_improved_20261006_220101.pkl",
+    "xgboost": "models/coffee_robusta/xgboost_improved_20261006_220101.pkl",
+    "direct_info": "models/coffee_robusta/model_info_direct_horizon_20261006_220101.json",
+    "improved_info": "models/coffee_robusta/model_info_improved_20261006_220101.json",
+    "nhits": "models/coffee_robusta/nhits_20261006_211916",
+    "ensemble_weights": "config/coffee_robusta/ensemble_weights.json",
+    "conformal_intervals": "config/coffee_robusta/conformal_intervals.json"
+  },
+  "margins_provenance": {
+    "source_report": "20260703_141553",
+    "kind": "procedure_residuals_of_an_older_run",
+    "limit": "Pas les erreurs réalisées de cette version. Un candidat refusé ne les remplace pas."
+  },
+  "horizons": {
+    "1": {"validated": false},
+    "7": {"validated": false},
+    "14": {"validated": false},
+    "30": {"validated": false}
+  }
+}

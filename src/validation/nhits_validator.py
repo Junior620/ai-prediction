@@ -85,11 +85,9 @@ class NHitsValidator:
             f"step_size={cfg.step_size}"
         )
 
-        nhits = self._create_model()
-        nf = NeuralForecast(models=[nhits], freq="B")
-
-        nf.fit(df=nf_df, val_size=cfg.val_size)
-        cv_results = nf.cross_validation(
+        # cross_validation trains its own network. Do not reuse an already fitted one.
+        fresh = NeuralForecast(models=[self._create_model()], freq="B")
+        cv_results = fresh.cross_validation(
             df=nf_df,
             val_size=cfg.val_size,
             n_windows=cfg.n_windows,

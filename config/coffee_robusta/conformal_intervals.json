@@ -1,6 +1,9 @@
 {
   "source_report": "20260703_141553",
   "calibrated_at": "2026-07-03T14:17:11.402702",
+  "applies_to_version": "improved_20261006_220101",
+  "provenance": "procedure_residuals_of_an_older_run",
+  "provenance_limit": "Ce ne sont pas les erreurs réalisées de la version déployée. Elles restent tant que le journal prospectif n'a pas assez de cibles échues. Un candidat refusé ne les remplace pas.",
   "coverage_level": 0.9,
   "asymmetric": false,
   "by_horizon": {

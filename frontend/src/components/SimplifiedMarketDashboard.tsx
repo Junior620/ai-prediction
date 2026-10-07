@@ -95,14 +95,12 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const [londonMarket, setLondonMarket] = useState<LondonMarketResponse | null>(null);
   const [modelComparison, setModelComparison] = useState<ModelComparisonResponse | null>(null);
   const [predictionHistory, setPredictionHistory] = useState<PredictionHistoryItem[]>([]);
-  const [perfMape, setPerfMape] = useState<number | null>(null);
-  const [perfRmse, setPerfRmse] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [briefLoading, setBriefLoading] = useState(true);
   const [advancedLoading, setAdvancedLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [briefError, setBriefError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [journalOk, setJournalOk] = useState(true);
 
   const fallback = TV_FALLBACKS[config.market];
   const [tvEmbedSymbol, setTvEmbedSymbol] = useState<string | null>(fallback?.embedSymbol ?? null);
@@ -189,32 +187,18 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
       setError(null);
     }
     try {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(end.getDate() - 90);
-      const [predRes, valRes, perfRes, histRes] = await Promise.all([
+      const [predRes, valRes, histRes] = await Promise.all([
         api.getPredictions({
           market: config.market,
           horizons: [1, 7, 14, 30],
           include_sentiment: config.includeSentiment,
         }),
-        api.getValidationMetrics(),
-        api.getPerformance({
-          start_date: start.toISOString(),
-          end_date: end.toISOString(),
-        }),
-        api.getPredictionHistory(36).catch(() => ({ predictions: [], count: 0 })),
+        api.getValidationMetrics(config.market),
+        api.getPredictionHistory(36, undefined, config.market).catch(() => ({ predictions: [], count: 0 })),
       ]);
       setData(predRes);
       setValidation(valRes);
       setPredictionHistory(histRes?.predictions ?? []);
-      const latest = perfRes?.metrics?.[0];
-      setPerfMape(
-        latest?.mape != null ? Number(latest.mape) : null,
-      );
-      setPerfRmse(
-        latest?.rmse != null ? Number(latest.rmse) : null,
-      );
       if (config.market === 'ICE_NY') {
         try {
           const [fut, london, comparison] = await Promise.all([
@@ -237,7 +221,13 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
         setLondonMarket(null);
         setModelComparison(null);
       }
-      setLastUpdate(new Date());
+      api.healthCheck()
+        .then(health => setJournalOk(health.journal_schema_ok !== false))
+        .catch(err => {
+          const flagged = (err as { response?: { data?: { journal_schema_ok?: boolean } } })
+            .response?.data?.journal_schema_ok;
+          setJournalOk(flagged !== false && flagged !== undefined ? flagged : false);
+        });
     } catch (err: unknown) {
       if (!silent) {
         const e = err as { response?: { data?: { detail?: string; message?: string } } };
@@ -269,7 +259,6 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
 
   const onNewTvAlert = useCallback(() => {
     void loadBrief(false);
-    setLastUpdate(new Date());
     void fetchAll({ silent: true });
   }, [loadBrief, fetchAll]);
 
@@ -367,9 +356,11 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
             <span
               className="text-xs text-slate-400 hidden sm:block tabular-nums tracking-wide"
               title={
-                lastUpdate
-                  ? `Dernière MAJ données : ${lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
-                  : 'Heure locale'
+                [
+                  `Cotation ${data?.current_date ? String(data.current_date).slice(0, 10) : '—'}`,
+                  `Calcul ${data?.predictions?.[0]?.timestamp ? new Date(data.predictions[0].timestamp).toLocaleString('fr-FR') : '—'}`,
+                  `Consultation ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`,
+                ].join(' · ')
               }
             >
               {now.toLocaleTimeString('fr-FR', {
@@ -407,6 +398,15 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
           </div>
         )}
 
+        {!journalOk && (
+          <div className="glass-card p-4 !border-amber-500/30 mb-6">
+            <p className="text-amber-300 text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              Le journal des prévisions n&apos;enregistre pas. La prévision affichée n&apos;est pas archivée.
+            </p>
+          </div>
+        )}
+
         {loading && !data && (
           <div className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-4">
@@ -434,27 +434,26 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 priceCurrency={config.priceCurrency ?? 'USD'}
                 includeSentiment={config.includeSentiment}
                 priceSource={config.priceSource}
-                lastUpdate={lastUpdate}
                 accentClass={theme.accentClass}
               />
 
-              {(perfMape != null || perfRmse != null) && (
+              {metricsByHorizon[1]?.mape != null && (
                 <div className="glass-card px-4 py-3 flex flex-wrap gap-6 text-sm text-slate-300">
                   <span className="text-slate-500 uppercase tracking-wide text-xs self-center">
                     Précision récente
                   </span>
-                  {perfMape != null && (
-                    <span>
-                      MAPE{' '}
-                      <strong className="text-slate-100">
-                        {(perfMape <= 1 ? perfMape * 100 : perfMape).toFixed(2)}%
-                      </strong>
-                    </span>
-                  )}
-                  {perfRmse != null && (
-                    <span>
-                      RMSE{' '}
-                      <strong className="text-slate-100">{perfRmse.toFixed(1)}</strong>
+                  <span>
+                    MAPE walk-forward J+1{' '}
+                    <strong className="text-slate-100">
+                      {Number(metricsByHorizon[1].mape).toFixed(2)}%
+                    </strong>
+                  </span>
+                  {validation?.origin_start && (
+                    <span className="text-slate-400">
+                      Origines {validation.origin_start} – {validation.origin_end}
+                      {validation.target_start
+                        ? ` · cibles ${validation.target_start} – ${validation.target_end}`
+                        : ''}
                     </span>
                   )}
                 </div>
@@ -469,6 +468,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                     priceCurrency={config.priceCurrency ?? 'USD'}
                     briefSignal={intelligence?.brief?.signal}
                     validation={metricsByHorizon[pred.horizon] ?? null}
+                    evaluatedPeriod={validation}
                   />
                 ))}
               </div>

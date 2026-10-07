@@ -28,7 +28,7 @@ from src.models.hybrid_features import (
     load_price_data_from_supabase,
     resolve_feature_cols,
 )
-from src.models.hybrid_trainer import HybridModelTrainer
+from src.models.hybrid_trainer import HybridModelTrainer, next_session_frame
 from src.models.market_registry import get_market_config
 from src.validation.report_loader import extract_walk_forward_reference, load_latest_summary
 
@@ -113,11 +113,12 @@ if micro:
 val_with_prophet = add_prophet_features(val_technical, prophet_val)
 val_df = val_with_prophet.iloc[split_pos + 1 :].dropna(subset=feature_cols)
 
-train_df = train_features.dropna(subset=feature_cols + ["price"])
+train_df = next_session_frame(train_features.dropna(subset=feature_cols + ["price"]))
+val_aligned = next_session_frame(val_df)
 X_train = train_df[feature_cols]
-y_train = train_df["price"]
-X_val = val_df[feature_cols]
-y_val = val_df["price"]
+y_train = train_df["target_price"]
+X_val = val_aligned[feature_cols]
+y_val = val_aligned["target_price"]
 
 print(f"[OK] {len(train_df)} points train | {len(val_df)} points val")
 
@@ -140,7 +141,7 @@ val_mape = np.mean(np.abs((y_val.values - val_pred) / y_val.values)) * 100
 
 print(f"\n   Performance:")
 print(f"      Train RMSE: {train_rmse:.2f} | MAE: {train_mae:.2f} | MAPE: {train_mape:.2f}%")
-print(f"      Val RMSE: {val_rmse:.2f} | MAE: {val_mae:.2f} | MAPE holdout 1-step: {val_mape:.2f}%")
+print(f"      Val RMSE: {val_rmse:.2f} | MAE: {val_mae:.2f} | MAPE holdout seance suivante: {val_mape:.2f}%")
 
 feature_importance = dict(zip(feature_cols, xgb_model.feature_importances_))
 sorted_features = sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)
@@ -180,6 +181,9 @@ print("SAUVEGARDE DES MODELES")
 print("=" * 80)
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+models_dir = Path("models") / "candidates" / args.market / timestamp
+models_dir.mkdir(parents=True, exist_ok=True)
+print(f"[OK] Candidat, pas encore actif: {models_dir}")
 
 prophet_path = str(models_dir / f"prophet_improved_{timestamp}.pkl")
 with open(prophet_path, "wb") as f:
@@ -194,6 +198,7 @@ print(f"[OK] XGBoost: {xgb_path}")
 model_info = {
     "timestamp": timestamp,
     "model_type": "hybrid_improved",
+    "target": "next_session",
     "feature_set": feature_set,
     "feature_cols": feature_cols,
     "market": args.market,

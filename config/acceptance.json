@@ -1,0 +1,10 @@
+{
+  "horizons": [1, 7, 14, 30],
+  "step_size": 5,
+  "min_relative_mape_gain": 0.10,
+  "max_fallback_rate": 0.20,
+  "coverage_level": 0.90,
+  "bootstrap_replicates": 1000,
+  "bootstrap_alpha": 0.05,
+  "notes": "Seuils figés avant le prochain test. Un gain de MAPE strictement positif ne suffit pas : il faut 10 % en relatif, et l'intervalle par blocs sur l'écart doit exclure zéro. Les replis vers la clôture restent dans la mesure principale."
+}

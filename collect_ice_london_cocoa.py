@@ -300,20 +300,62 @@ def main() -> int:
         print(f"\n[4/5] Scraping ICE London (jour recent)...")
         ice = fetch_ice_london_spot(url=ice_url, price_bounds=market.price_bounds)
         if ice is not None:
-            scrape_result = ice
-            attempts.extend(ice.attempts or [])
-            print(
-                f"[OK] ICE scrape {ice.price:,.2f} {market.unit} "
-                f"({ice.date}, strategie={ice.strategy})"
-            )
-            # N'upsert que si date >= Databento (ou Databento absent)
-            if last_db_date is None or ice.date >= last_db_date:
-                msg = _merge_upsert_price(
-                    supabase, market.price_table, ice, open_interest=None, include_oi=False
+            # Investing fallback souvent faux (autre contrat / cash).
+            # Si ICE n'affiche pas le jour J, mieux vaut ne pas ecrire un prix invente.
+            if (ice.strategy or "") == "investing_fallback":
+                ref = latest_front.price if latest_front else None
+                if ref is None:
+                    try:
+                        prev = (
+                            supabase.table(market.price_table)
+                            .select("price,source")
+                            .neq("source", "ice_london_fallback")
+                            .order("date", desc=True)
+                            .limit(1)
+                            .execute()
+                        )
+                        if prev.data:
+                            ref = float(prev.data[0]["price"])
+                    except Exception:
+                        ref = None
+                max_move = 0.04  # 4%
+                if ref and abs(float(ice.price) - ref) / ref > max_move:
+                    print(
+                        f"[SKIP] Investing fallback {ice.price:,.2f} trop eloigne "
+                        f"du ref {ref:,.2f} (>{max_move:.0%}) — non ecrit"
+                    )
+                    attempts.append(
+                        {
+                            "strategy": "investing_fallback_rejected",
+                            "ok": False,
+                            "price": ice.price,
+                            "ref": ref,
+                        }
+                    )
+                    ice = None
+                else:
+                    print(
+                        "[WARN] Prix issu d'Investing (ICE sans chiffre) — "
+                        "verifier vs TradingView / settlement"
+                    )
+
+            if ice is not None:
+                scrape_result = ice
+                attempts.extend(ice.attempts or [])
+                print(
+                    f"[OK] ICE scrape {ice.price:,.2f} {market.unit} "
+                    f"({ice.date}, strategie={ice.strategy})"
                 )
-                print(msg)
+                # N'upsert que si date >= Databento (ou Databento absent)
+                if last_db_date is None or ice.date >= last_db_date:
+                    msg = _merge_upsert_price(
+                        supabase, market.price_table, ice, open_interest=None, include_oi=False
+                    )
+                    print(msg)
+                else:
+                    print(f"[SKIP] Scrape {ice.date} plus ancien que Databento {last_db_date}")
             else:
-                print(f"[SKIP] Scrape {ice.date} plus ancien que Databento {last_db_date}")
+                print("[WARN] Scraping ICE: pas de prix fiable pour aujourd'hui")
         else:
             attempts.append({"strategy": "ice_playwright_chain", "ok": False})
             print("[WARN] Scraping ICE echoue")

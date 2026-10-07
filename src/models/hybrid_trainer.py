@@ -18,6 +18,13 @@ from src.models.hybrid_features import (
 )
 
 
+def next_session_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Keep rows whose next close is known. Features stay those of date t."""
+    out = frame.copy()
+    out["target_price"] = out["price"].shift(-1)
+    return out.dropna(subset=["target_price"]).reset_index(drop=True)
+
+
 class HybridModelTrainer:
     """Fit Prophet and XGBoost on a training slice without data leakage."""
 
@@ -58,12 +65,14 @@ class HybridModelTrainer:
             df_features[micro] = df_features[micro].ffill().fillna(0.0)
 
         df_clean = df_features.dropna(subset=self.feature_cols + ["price"]).reset_index(drop=True)
+        # Features at t include that close. The target is the next close, not price[t].
+        df_clean = next_session_frame(df_clean)
 
         if len(df_clean) < 2:
             raise ValueError("Not enough training rows after feature preparation")
 
         X = df_clean[self.feature_cols]
-        y = df_clean["price"]
+        y = df_clean["target_price"]
 
         eval_set = None
         if len(df_clean) >= 20 and self.val_fraction > 0:

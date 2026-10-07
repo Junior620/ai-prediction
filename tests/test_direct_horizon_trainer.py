@@ -95,8 +95,24 @@ def test_cap_breach_keeps_spot_as_central_scenario():
     assert change < 0
 
 
-def test_interval_away_from_spot_is_not_the_forecast():
-    central, change, failed = guard_forecast(3458.0, 4390.0, 22.0, (196.0, 196.0))
+def test_conformal_margin_does_not_zero_a_small_j1_move():
+    # +110 £ on a 4364 close is outside the ±71 J+1 band, but inside 2× that band.
+    central, change, failed = guard_forecast(4474.0, 4364.0, 6.0, (71.0, 71.0))
+    assert failed is False
+    assert central == 4474.0
+    assert change > 0
+
+
+def test_j30_inside_the_cap_is_not_zeroed_by_the_band():
+    # −807 £ is inside the 22% cap. The band no longer discards it.
+    central, change, failed = guard_forecast(3557.0, 4364.0, 22.0, (196.0, 196.0))
+    assert failed is False
+    assert central == 3557.0
+    assert change < 0
+
+
+def test_cap_breach_still_keeps_the_close():
+    central, change, failed = guard_forecast(3458.0, 4390.0, 14.0, (196.0, 196.0))
     assert failed is True
     assert central == 4390.0
     assert change == 0.0

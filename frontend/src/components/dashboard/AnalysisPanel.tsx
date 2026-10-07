@@ -4,6 +4,7 @@ import { formatPrice } from '@/lib/utils';
 import {
   buildInfluentialFactors,
   buildScenarios,
+  isForecastUnavailable,
 } from '@/lib/marketAnalytics';
 import type {
   MarketBriefContent,
@@ -63,7 +64,10 @@ export function AnalysisPanel({
     pred: pred7,
   });
 
-  const scenarios = buildScenarios(pred30, currentPrice);
+  const h30 = validation?.xgb_metrics?.find(row => row.horizon === (pred30?.horizon ?? 30));
+  const horizonValidated = h30?.validated === true;
+  const pred30Usable = horizonValidated && pred30 && !isForecastUnavailable(pred30) ? pred30 : undefined;
+  const scenarios = buildScenarios(pred30Usable, currentPrice);
 
   const m7 = validation?.xgb_metrics?.find(m => m.horizon === 7)
     ?? validation?.xgb_metrics?.[0];
@@ -107,20 +111,28 @@ export function AnalysisPanel({
           <Target className="w-4 h-4 text-amber-400" />
           Scénarios J+{pred30?.horizon ?? 30}
         </h3>
-        <div className="grid sm:grid-cols-3 gap-3">
-          {scenarios.map(s => (
-            <div key={s.label} className={`rounded-xl border p-4 ${scenarioColors[s.tone]}`}>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                {s.label}
-              </p>
-              <p className="text-lg font-black text-white font-mono-price">{formatPrice(s.price, priceCurrency)}</p>
-              <p className="text-xs text-slate-400 mt-2">Probabilité ~{s.probability}%</p>
+        {scenarios.length === 0 ? (
+          <p className="text-xs text-amber-200/90 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            Prévision J+30 indisponible. Le modèle s’écarte trop du cours, le dernier cours n’est pas un scénario.
+          </p>
+        ) : (
+          <>
+            <div className="grid sm:grid-cols-3 gap-3">
+              {scenarios.map(s => (
+                <div key={s.label} className={`rounded-xl border p-4 ${scenarioColors[s.tone]}`}>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    {s.label}
+                  </p>
+                  <p className="text-lg font-black text-white font-mono-price">{formatPrice(s.price, priceCurrency)}</p>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <p className="text-[10px] text-slate-600 mt-3">
-          Scénarios dérivés des bornes IC 90% et du prix médian du modèle — indicatif, pas probabiliste bayésien.
-        </p>
+            <p className="text-[10px] text-slate-600 mt-3">
+              Borne basse, centre et borne haute. Pas de pourcentage.
+            </p>
+          </>
+        )}
       </section>
 
       {/* Performance modèle */}

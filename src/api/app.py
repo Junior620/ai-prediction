@@ -429,8 +429,68 @@ async def startup_event():
 
     brief_service = BriefService(redis_cache=redis_cache)
     logger.info("BriefService (Claude) initialized")
+    app.state.journal_schema_ok = _journal_schema_ok()
+    if not app.state.journal_schema_ok:
+        logger.critical("Le journal des prévisions n'est pas enregistré.")
 
     logger.info("Cocoa Price Prediction API started successfully")
+
+
+def _latest_price_date(price_table: str) -> Optional[str]:
+    """Newest session date in the market table, or None if it cannot be read."""
+    if supabase_client is None:
+        return None
+    try:
+        response = (
+            supabase_client.table(price_table)
+            .select("date")
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return str(response.data[0]["date"])[:10]
+    except Exception as exc:
+        logger.warning(f"Lecture de la dernière séance impossible: {exc}")
+    return None
+
+
+def _journal_schema_ok() -> bool:
+    """True when the prediction journal has the columns the evaluator needs."""
+    if supabase_client is None:
+        return False
+    try:
+        supabase_client.table("predictions").select(
+            "market,origin_date,origin_price,target_date,feature_failure,currency,candidate_price"
+        ).limit(1).execute()
+        return True
+    except Exception as exc:
+        logger.critical(f"Journal des prévisions incomplet: {exc}")
+        try:
+            alert_system.send_alert(
+                severity=AlertSeverity.CRITICAL,
+                alert_type=AlertType.SYSTEM_ERROR,
+                message="Le journal des prévisions n'est pas enregistré",
+                details={"error": str(exc)},
+            )
+        except Exception:
+            logger.error("Alerte journal non envoyée")
+        return False
+
+
+def _mark_journal_unavailable(exc: Exception) -> None:
+    """A failed journal write is visible on /health until the process restarts."""
+    app.state.journal_schema_ok = False
+    logger.error(f"Journal des prévisions indisponible: {exc}")
+    try:
+        alert_system.send_alert(
+            severity=AlertSeverity.CRITICAL,
+            alert_type=AlertType.SYSTEM_ERROR,
+            message="Le journal des prévisions n'est pas enregistré",
+            details={"error": str(exc)},
+        )
+    except Exception:
+        logger.error("Alerte journal non envoyée")
 
 
 def _load_market_predictor(
@@ -439,26 +499,38 @@ def _load_market_predictor(
     nlp_analyzer,
     pred_cfg: dict,
 ) -> Optional[ImprovedPricePredictor]:
-    """Auto-discover and load the latest models for one market."""
+    """Load the artifacts named by the active release. Never the newest file."""
+    import json as _json
     import pickle
     from pathlib import Path
 
-    model_dir = Path(market_cfg.models_dir)
-    prophet_files = sorted(model_dir.glob("prophet_improved_*.pkl"))
-    xgboost_files = sorted(model_dir.glob("xgboost_improved_*.pkl"))
+    from src.models.release_manifest import artifact_path, load_active_release
 
-    if not prophet_files or not xgboost_files:
-        logger.info(
-            f"ℹ️ No trained models for market '{market_cfg.market_id}' in {model_dir}/ — skipping"
+    try:
+        release = load_active_release(market_cfg.market_id)
+    except (FileNotFoundError, ValueError) as exc:
+        logger.error(f"[{market_cfg.market_id}] {exc}")
+        return None
+
+    prophet_path = artifact_path(release, "prophet")
+    xgboost_path = artifact_path(release, "xgboost")
+    info_path = artifact_path(release, "improved_info")
+    if not prophet_path.exists() or not xgboost_path.exists() or not info_path.exists():
+        logger.error(f"[{market_cfg.market_id}] Artefact du manifeste introuvable.")
+        return None
+
+    meta = _json.loads(info_path.read_text(encoding="utf-8"))
+    if meta.get("target") != "next_session":
+        logger.error(
+            f"[{market_cfg.market_id}] Métadonnées sans cible next_session : non chargé."
         )
         return None
 
-    prophet_path = prophet_files[-1]  # Most recent by filename (timestamp-sorted)
-    xgboost_path = xgboost_files[-1]
-    model_version = prophet_path.stem.replace("prophet_", "")
-
+    model_version = release.get("version") or prophet_path.stem.replace("prophet_", "")
+    feature_cols = meta.get("feature_cols")
+    feature_set = meta.get("feature_set", "baseline")
     logger.info(
-        f"[{market_cfg.market_id}] Models: Prophet={prophet_path.name}, XGBoost={xgboost_path.name}"
+        f"[{market_cfg.market_id}] Manifeste {model_version}, validé={release.get('validated')}"
     )
 
     with open(prophet_path, "rb") as f:
@@ -466,57 +538,23 @@ def _load_market_predictor(
     with open(xgboost_path, "rb") as f:
         xgboost_model = pickle.load(f)
 
-    # Optional 3rd engine: N-HiTS
     nhits_model = None
+    nhits_path = artifact_path(release, "nhits")
     try:
-        nhits_dirs = [d for d in sorted(model_dir.glob("nhits_*")) if d.is_dir()]
-        if nhits_dirs:
+        if nhits_path.exists():
             from neuralforecast import NeuralForecast
-            nhits_model = NeuralForecast.load(path=str(nhits_dirs[-1]))
-            logger.info(f"[{market_cfg.market_id}] ✅ N-HiTS loaded from {nhits_dirs[-1]}")
-        else:
-            logger.info(f"[{market_cfg.market_id}] No N-HiTS model — 2 engines")
+            nhits_model = NeuralForecast.load(path=str(nhits_path))
+            logger.info(f"[{market_cfg.market_id}] N-HiTS chargé depuis {nhits_path.name}")
     except Exception as e:
-        logger.warning(f"[{market_cfg.market_id}] Failed to load N-HiTS: {e} — 2 engines")
+        logger.warning(f"[{market_cfg.market_id}] N-HiTS du manifeste illisible: {e}")
         nhits_model = None
 
-    direct_models = DirectHorizonTrainer.load_latest(str(model_dir))
-
-    # Lire feature_cols depuis model_info du timestamp charge
-    feature_cols = None
-    feature_set = "baseline"
-    info_candidates = sorted(model_dir.glob("model_info_improved_*.json"))
-    matching_info = None
-    for info_path in reversed(info_candidates):
-        if model_version.replace("improved_", "") in info_path.name or model_version in info_path.name:
-            matching_info = info_path
-            break
-    if matching_info is None and info_candidates:
-        matching_info = info_candidates[-1]
-    if matching_info and matching_info.exists():
-        try:
-            import json as _json
-            meta = _json.loads(matching_info.read_text(encoding="utf-8"))
-            feature_cols = meta.get("feature_cols")
-            feature_set = meta.get("feature_set", "baseline")
-            logger.info(
-                f"[{market_cfg.market_id}] feature_set={feature_set} "
-                f"from {matching_info.name}"
-            )
-        except Exception as e:
-            logger.warning(f"[{market_cfg.market_id}] model_info read failed: {e}")
-
-    if feature_cols is None and market_cfg.market_id == "cocoa":
-        from src.models.hybrid_features import resolve_feature_cols
-        feature_set = pred_cfg.get("cocoa_feature_set", "m3")
-        if feature_set == "m3":
-            feature_cols = resolve_feature_cols(include_ohlcv=True, include_oi=True)
-
-    sentiment_w = float(
-        pred_cfg.get(
-            "sentiment_weight_production",
-            pred_cfg.get("sentiment_weight", 0.05),
-        )
+    direct_models = DirectHorizonTrainer.load_from_info(
+        str(artifact_path(release, "direct_info"))
+    )
+    model_dir = prophet_path.parent
+    sentiment_w = 0.0 if release.get("scored_variant") == "no_sentiment" else float(
+        pred_cfg.get("sentiment_weight_production", pred_cfg.get("sentiment_weight", 0.05))
     )
 
     predictor = ImprovedPricePredictor(
@@ -528,11 +566,11 @@ def _load_market_predictor(
         supabase_url=settings.supabase_url,
         supabase_key=settings.supabase_key,
         nhits_model=nhits_model,
-        ensemble_weights_file=market_cfg.ensemble_weights_file,
+        ensemble_weights_file=str(artifact_path(release, "ensemble_weights")),
         ensemble_fallback=pred_cfg.get("ensemble_fallback"),
         multi_step_mode=pred_cfg.get("multi_step_mode", "recursive"),
         direct_horizon_models=direct_models,
-        conformal_intervals_file=market_cfg.conformal_intervals_file,
+        conformal_intervals_file=str(artifact_path(release, "conformal_intervals")),
         confidence_level=pred_cfg.get("confidence_level", 0.90),
         price_bounds=market_cfg.price_bounds,
         price_table=market_cfg.price_table,
@@ -545,6 +583,7 @@ def _load_market_predictor(
         feature_cols=feature_cols,
         feature_set=feature_set,
     )
+    predictor.active_release = release
     n_engines = 3 if nhits_model else 2
     logger.info(
         f"[{market_cfg.market_id}] ✅ Predictor ready: {n_engines} engines, "
@@ -608,11 +647,12 @@ async def health_check():
             "model_manager": model_manager is not None,
             "price_predictor": price_predictor is not None
         },
-        "markets_loaded": sorted(predictors.keys())
+        "markets_loaded": sorted(predictors.keys()),
+        "journal_schema_ok": bool(getattr(app.state, "journal_schema_ok", False)),
     }
     
     # Determine overall health
-    all_healthy = all(health_status["services"].values())
+    all_healthy = all(health_status["services"].values()) and health_status["journal_schema_ok"]
     health_status["status"] = "healthy" if all_healthy else "degraded"
     
     status_code = status.HTTP_200_OK if all_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
@@ -1197,8 +1237,20 @@ async def predict_price(
         )
         
         if cached_prediction:
-            logger.info("Returning cached prediction")
-            return cached_prediction
+            latest_session = _latest_price_date(market_cfg.price_table)
+            cached_day = str(cached_prediction.current_date or "")[:10]
+            if latest_session and cached_day and cached_day != latest_session:
+                logger.info("Cache ignoré: la dernière séance a changé.")
+            else:
+                logger.info("Returning cached prediction")
+                from src.models.served_forecast import publish_or_close
+
+                publish_or_close(
+                    cached_prediction.predictions,
+                    getattr(market_predictor, "active_release", None),
+                    cached_prediction.current_price,
+                )
+                return cached_prediction
     
     try:
         # Fetch recent news for sentiment analysis (cocoa-specific news pipeline)
@@ -1295,6 +1347,19 @@ async def predict_price(
         except Exception as e:
             logger.warning(f"Failed to fetch historical prices: {e}")
 
+        snapshot = getattr(market_predictor, "last_snapshot", None) or {}
+        if snapshot.get("origin_date"):
+            current_date = snapshot["origin_date"]
+            current_price = snapshot.get("origin_price", current_price)
+
+        from src.models.served_forecast import publish_or_close
+
+        publish_or_close(
+            prediction_items,
+            getattr(market_predictor, "active_release", None),
+            current_price,
+        )
+
         # Create response
         response = PredictionResponse(
             predictions=prediction_items,
@@ -1317,21 +1382,37 @@ async def predict_price(
         
         # Log prediction to database
         try:
-            for pred in predictions:
+            from src.models.served_forecast import snapshot_journal_fields
+
+            currency = "GBP" if "GBP" in (market_cfg.unit or "") else "USD"
+            for pred in prediction_items:
+                parts = pred.components or {}
+                journal = snapshot_journal_fields(parts, {"price": current_price, "date": current_date})
+                origin_date = journal.get("origin_date")
+                origin_price = journal.get("origin_price")
+                target_date = journal.get("target_date")
+                candidate_price = parts.get("candidate_price", pred.price)
                 supabase_client.table("predictions").insert({
                     "horizon": pred.horizon,
                     "predicted_price": pred.price,
                     "lower_bound": pred.confidence_interval[0],
                     "upper_bound": pred.confidence_interval[1],
                     "confidence_level": pred.confidence_level,
-                    "model_version": pred.model_version,
-                    "baseline_component": pred.components.get("baseline"),
-                    "residual_component": pred.components.get("residual"),
-                    "sentiment_component": pred.components.get("sentiment"),
-                    "created_at": pred.timestamp.isoformat()
+                    "model_version": market_predictor.model_version,
+                    "baseline_component": parts.get("baseline"),
+                    "residual_component": parts.get("residual"),
+                    "sentiment_component": parts.get("sentiment"),
+                    "created_at": pred.timestamp.isoformat(),
+                    "market": request.market,
+                    "origin_date": origin_date,
+                    "origin_price": float(origin_price) if origin_price else None,
+                    "target_date": target_date,
+                    "feature_failure": bool(parts.get("feature_failure")),
+                    "currency": currency,
+                    "candidate_price": float(candidate_price) if candidate_price is not None else None,
                 }).execute()
         except Exception as e:
-            logger.error(f"Failed to log prediction to database: {e}")
+            _mark_journal_unavailable(e)
         
         logger.info(f"Successfully generated {len(predictions)} predictions")
         return response
@@ -1356,6 +1437,8 @@ async def get_performance_metrics(
     start_date: datetime,
     end_date: datetime,
     model_version: Optional[str] = None,
+    market: Optional[str] = None,
+    horizon: Optional[int] = None,
     user: str = Depends(verify_token)
 ) -> PerformanceResponse:
     """
@@ -1389,6 +1472,10 @@ async def get_performance_metrics(
         # Filter by model version if specified
         if model_version:
             query = query.eq("model_version", model_version)
+        if market:
+            query = query.eq("market", market)
+        if horizon is not None:
+            query = query.eq("horizon", horizon)
         
         response = query.execute()
         
@@ -1398,7 +1485,9 @@ async def get_performance_metrics(
                 model_version=model_version or "unknown",
                 metrics=[],
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                market=market,
+                horizon=horizon,
             )
         
         # Convert to response format
@@ -1411,7 +1500,9 @@ async def get_performance_metrics(
                 mape=float(row["mape"]),
                 directional_accuracy=float(row["directional_accuracy"]),
                 coverage_rate=float(row["coverage_rate"]),
-                mean_interval_width=float(row["mean_interval_width"])
+                mean_interval_width=float(row["mean_interval_width"]),
+                market=row.get("market"),
+                horizon=row.get("horizon"),
             )
             metrics_items.append(item)
         
@@ -1425,7 +1516,9 @@ async def get_performance_metrics(
             model_version=model_version,
             metrics=metrics_items,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            market=market,
+            horizon=horizon,
         )
         
     except Exception as e:
@@ -1441,24 +1534,71 @@ async def get_performance_metrics(
     response_model=ValidationMetricsResponse,
     responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
 )
-async def get_validation_metrics(user: str = Depends(verify_token)) -> ValidationMetricsResponse:
-    """Return honest walk-forward validation metrics from the latest backtest report."""
-    from src.validation.report_loader import load_latest_summary, extract_walk_forward_reference
+async def get_validation_metrics(
+    market: Optional[str] = None,
+    user: str = Depends(verify_token),
+) -> ValidationMetricsResponse:
+    """Return walk-forward metrics for the report named by the active release."""
+    from src.validation.report_loader import load_release_summary
 
-    summary = load_latest_summary("reports/walk_forward")
+    if market:
+        market_cfg = resolve_api_market(market)
+        if market_cfg is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown market '{market}'. Valid markets: {list_api_markets()}",
+            )
+        reports_dir = (
+            "reports/walk_forward"
+            if market_cfg.market_id == "cocoa"
+            else f"reports/walk_forward/{market_cfg.market_id}"
+        )
+    else:
+        reports_dir = "reports/walk_forward"
+
+    from src.models.release_manifest import horizon_is_validated, load_active_release
+
+    release = None
+    release_version = None
+    market_id = market_cfg.market_id if market else "cocoa"
+    try:
+        release = load_active_release(market_id)
+        release_version = release.get("version")
+    except (FileNotFoundError, ValueError):
+        release = None
+
+    summary = load_release_summary(reports_dir, release)
     if summary is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No walk-forward validation report found. Run scripts/run_walk_forward_validation.py",
+            detail="Le manifeste ne nomme aucun rapport de validation présent.",
         )
 
-    ref = extract_walk_forward_reference(summary) or {}
     wf = summary.get("walk_forward", {})
-    xgb = wf.get("summary_by_component", {}).get("xgb_pred", {})
+    components = wf.get("summary_by_component", {})
+    component_name = "published_pred" if "published_pred" in components else "xgb_pred"
+    block = components.get(component_name, {})
+    period = wf.get("evaluated_period") or {}
+
+    report_version = (summary.get("promotion") or {}).get("candidate_version")
+    release_matches = bool(
+        release
+        and report_version
+        and report_version == release_version
+    )
+    decisions = ((summary.get("promotion") or {}).get("decisions")) or {}
 
     metrics = []
     for h in wf.get("horizons", []):
-        h_data = xgb.get(str(h), xgb.get(h, {}))
+        h_data = block.get(str(h), block.get(h, {}))
+        decision = decisions.get(str(h)) or {}
+        gap = decision.get("gap_ci") or [None, None]
+        validated = bool(
+            release
+            and horizon_is_validated(release, int(h))
+            and release_matches
+            and decision.get("validated")
+        )
         metrics.append(
             HorizonValidationMetrics(
                 horizon=int(h),
@@ -1467,21 +1607,40 @@ async def get_validation_metrics(user: str = Depends(verify_token)) -> Validatio
                 mae=h_data.get("mae"),
                 directional_accuracy=h_data.get("directional_accuracy"),
                 n_predictions=h_data.get("n_predictions"),
+                validated=validated,
+                relative_gain=decision.get("relative_gain"),
+                gap_ci_low=gap[0] if gap else None,
+                gap_ci_high=gap[1] if len(gap) > 1 else None,
+                n_effective=decision.get("n_effective"),
+                fallback_rate=decision.get("fallback_rate"),
+                measurement="procedure" if decision else None,
+                reason=(
+                    decision.get("reason")
+                    if release_matches
+                    else "Le rapport ne correspond pas au manifeste chargé."
+                ),
             )
         )
 
-    legacy = summary.get("legacy_holdout_baseline", {})
+    legacy = summary.get("legacy_holdout_baseline", {}) or {}
 
     return ValidationMetricsResponse(
         report_timestamp=summary.get("timestamp"),
         report_path=summary.get("_report_path"),
         validation_type=summary.get("validation_type", "walk_forward_multi_horizon"),
         n_origins=wf.get("n_origins"),
+        origin_start=period.get("origin_start"),
+        origin_end=period.get("origin_end"),
+        target_start=period.get("target_start"),
+        target_end=period.get("target_end"),
+        evaluated_component=component_name,
         horizons=wf.get("horizons", []),
         xgb_metrics=metrics,
         legacy_holdout_mape_1step=legacy.get("mape_1step_holdout"),
         ensemble_calibration=summary.get("ensemble_calibration"),
         conformal_intervals=summary.get("conformal_intervals"),
+        release_version=release_version,
+        release_matches_report=release_matches,
     )
 
 
@@ -1489,14 +1648,18 @@ async def get_validation_metrics(user: str = Depends(verify_token)) -> Validatio
 async def get_prediction_history(
     limit: int = 20,
     horizon: Optional[int] = None,
+    market: Optional[str] = None,
     token_payload: dict = Depends(verify_token)
 ):
-    """Return recent prediction history from the database."""
+    """Return recent prediction history for one market."""
     try:
         query = supabase_client.table("predictions").select(
-            "created_at,horizon,predicted_price,lower_bound,upper_bound,model_version"
+            "created_at,horizon,predicted_price,lower_bound,upper_bound,model_version,"
+            "market,origin_date,origin_price,target_date,feature_failure,currency"
         ).order("created_at", desc=True)
 
+        if market:
+            query = query.eq("market", market)
         if horizon:
             query = query.eq("horizon", horizon)
 

@@ -116,7 +116,7 @@ def live_check(market, df, feature_cols, caps, margins) -> bool:
         )
         lo, hi = (central - band[0], central + band[1]) if band else (np.nan, np.nan)
         covers = bool(band) and lo <= spot <= hi
-        status = "OK" if covers else "ECHEC"
+        status = "OK" if not failed else "ECHEC"
         if status != "OK":
             ok = False
         print(

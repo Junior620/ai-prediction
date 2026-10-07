@@ -5,13 +5,65 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional  # noqa: F401
 
 import pandas as pd
 
 from src.validation.metrics import compute_holdout_baseline
 from src.validation.nhits_validator import NHitsValidatorResult
 from src.validation.walk_forward_validator import WalkForwardResult
+
+
+def _evaluated_period(walk_forward: WalkForwardResult) -> Dict[str, Any]:
+    preds = walk_forward.predictions
+    if preds is None or preds.empty:
+        return {
+            "origin_start": None,
+            "origin_end": None,
+            "target_start": None,
+            "target_end": None,
+            "n_origins": walk_forward.n_origins,
+        }
+    origins = pd.to_datetime(preds["origin_date"])
+    targets = pd.to_datetime(preds["target_date"])
+    return {
+        "origin_start": str(origins.min().date()),
+        "origin_end": str(origins.max().date()),
+        "target_start": str(targets.min().date()),
+        "target_end": str(targets.max().date()),
+        "n_origins": int(origins.nunique()),
+    }
+
+
+def _metric(summary: Dict[str, Any], column: str, horizon: int, key: str) -> Optional[float]:
+    block = summary.get(column) or {}
+    row = block.get(horizon, block.get(str(horizon), {}))
+    value = row.get(key) if isinstance(row, dict) else None
+    return None if value is None else float(value)
+
+
+def _baseline_comparison(summary: Dict[str, Any]) -> Dict[str, Any]:
+    """MAPE and MAE of the published forecast against the unchanged close and drift."""
+    model_col = "published_pred" if "published_pred" in summary else "xgb_pred"
+    model = summary.get(model_col) or {}
+    out: Dict[str, Any] = {"model_column": model_col, "by_horizon": {}}
+    for horizon in model:
+        h = int(horizon)
+        model_mape = _metric(summary, model_col, h, "mape")
+        naive_mape = _metric(summary, "naive_pred", h, "mape")
+        gap = None
+        if model_mape is not None and naive_mape is not None:
+            gap = model_mape - naive_mape
+        out["by_horizon"][str(h)] = {
+            "model_mape": model_mape,
+            "model_mae": _metric(summary, model_col, h, "mae"),
+            "naive_mape": naive_mape,
+            "naive_mae": _metric(summary, "naive_pred", h, "mae"),
+            "drift_mape": _metric(summary, "drift_pred", h, "mape"),
+            "drift_mae": _metric(summary, "drift_pred", h, "mae"),
+            "mape_minus_naive": gap,
+        }
+    return out
 
 
 def _serialize_summary(obj: Any) -> Any:
@@ -33,7 +85,8 @@ def build_summary_payload(
         "validation_type": "walk_forward_multi_horizon",
         "notes": [
             "Sentiment FinBERT excluded from backtest (no historical news replay).",
-            "xgb_pred uses frozen lags for h>1; xgb_pred_recursive uses multi-step simulation.",
+            "published_pred is the served direct forecast after the guard.",
+            "The hybrid column at one session uses the origin row to forecast the next close.",
             "Prophet fit only on training slice at each origin (no leakage).",
         ],
         "walk_forward": {
@@ -41,6 +94,9 @@ def build_summary_payload(
             "horizons": walk_forward.config.horizons,
             "min_train_days": walk_forward.config.min_train_days,
             "step_size": walk_forward.config.step_size,
+            "origin_window": walk_forward.config.origin_window,
+            "evaluated_period": _evaluated_period(walk_forward),
+            "baseline_comparison": _baseline_comparison(walk_forward.summary),
             "summary_by_component": _serialize_summary(walk_forward.summary),
         },
     }
@@ -101,7 +157,13 @@ def print_console_report(
     print("VALIDATION WALK-FORWARD MULTI-HORIZON (HONNETE)")
     print("=" * 80)
 
+    period = _evaluated_period(walk_forward)
     print(f"\nOrigines evaluees: {walk_forward.n_origins}")
+    print(
+        f"Fenetre: origines {period['origin_start']} -> {period['origin_end']}, "
+        f"cibles {period['target_start']} -> {period['target_end']} "
+        f"({walk_forward.config.origin_window})"
+    )
     print(f"Horizons: {walk_forward.config.horizons}")
     print(f"Fenetre min. entrainement: {walk_forward.config.min_train_days} jours")
     print(f"Pas entre origines: {walk_forward.config.step_size} jours")
@@ -111,6 +173,9 @@ def print_console_report(
         ("xgb_pred", "XGBoost (frozen)"),
         ("xgb_pred_recursive", "XGBoost (recursive)"),
         ("xgb_pred_direct", "XGBoost (direct h-step)"),
+        ("published_pred", "Prevision publiee"),
+        ("naive_pred", "Cours inchange"),
+        ("drift_pred", "Derive"),
         ("prophet_pred", "Prophet"),
     ]:
         if component not in walk_forward.summary:

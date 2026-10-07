@@ -138,6 +138,28 @@ class DirectHorizonTrainer:
         return paths
 
     @staticmethod
+    def load_from_info(info_path: str) -> Dict[int, xgb.XGBRegressor]:
+        """Load the direct models named by one metadata file, not the newest name."""
+        path = Path(info_path)
+        if not path.exists():
+            return {}
+        with open(path, encoding="utf-8") as f:
+            meta = json.load(f)
+        root = path.parent
+        loaded: Dict[int, xgb.XGBRegressor] = {}
+        for h_str, h_meta in meta.get("horizons", {}).items():
+            model_path = h_meta.get("model_path")
+            if not model_path:
+                continue
+            candidate = Path(model_path)
+            if not candidate.exists():
+                candidate = root / Path(str(model_path).replace("\\", "/")).name
+            if candidate.exists():
+                with open(candidate, "rb") as f:
+                    loaded[int(h_str)] = pickle.load(f)
+        return loaded
+
+    @staticmethod
     def load_latest(models_dir: str = "models") -> Dict[int, xgb.XGBRegressor]:
         """Load most recent direct horizon models from models/."""
         root = Path(models_dir)

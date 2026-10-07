@@ -9,7 +9,15 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
+
+# On Windows, NeuralForecast must be imported before pandas, scikit-learn and XGBoost.
+if "--replay-nhits" in sys.argv:
+    import neuralforecast  # noqa: F401
+    from neuralforecast.models import NHITS  # noqa: F401
+
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -21,11 +29,6 @@ load_dotenv(ROOT / "config" / ".env")
 load_dotenv()
 
 from src.models.hybrid_features import load_price_data_from_supabase
-from src.validation.conformal_interval_calibrator import (
-    ConformalIntervalCalibrator,
-    ConformalIntervalCalibratorConfig,
-)
-from src.validation.ensemble_calibrator import EnsembleCalibrator
 from src.validation.metrics import compute_holdout_baseline
 from src.validation.nhits_validator import NHitsValidator, NHitsValidatorConfig
 from src.validation.report import _serialize_summary, print_console_report, save_report
@@ -46,6 +49,29 @@ def load_config_from_yaml() -> dict:
         return {}
 
 
+def _feature_cols_for_market(market_id: str):
+    from src.models.hybrid_features import resolve_feature_cols
+
+    if market_id == "cocoa":
+        return resolve_feature_cols(include_ohlcv=True, include_oi=True)
+    return resolve_feature_cols()
+
+
+def _guard_config(conformal_file: str):
+    import yaml
+
+    from src.models.conformal_intervals import load_conformal_margins
+
+    caps = {"1": 6.0, "7": 14.0, "14": 18.0, "30": 22.0}
+    cfg_path = ROOT / "config" / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path, encoding="utf-8") as f:
+            pred = (yaml.safe_load(f) or {}).get("prediction", {})
+        caps = pred.get("max_abs_change_pct", caps)
+    margins = load_conformal_margins(str(ROOT / conformal_file))
+    return caps, margins
+
+
 def parse_args() -> argparse.Namespace:
     yaml_cfg = load_config_from_yaml()
     nhits_cfg = yaml_cfg.get("nhits", {}) or {}
@@ -58,14 +84,145 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-train-days", type=int, default=yaml_cfg.get("min_train_days", 252))
     parser.add_argument("--step-size", type=int, default=yaml_cfg.get("step_size", 5))
     parser.add_argument("--max-origins", type=int, default=yaml_cfg.get("max_origins"))
+    parser.add_argument(
+        "--origin-window",
+        choices=("recent", "historical"),
+        default="recent",
+        help="recent = dernieres origines realisees; historical = debut de l'historique",
+    )
     parser.add_argument("--output-dir", type=str, default=yaml_cfg.get("output_dir", "reports/walk_forward"))
     parser.add_argument("--skip-nhits", action="store_true", default=not nhits_cfg.get("enabled", True))
     parser.add_argument("--skip-calibration", action="store_true")
     parser.add_argument("--direct-hstep", action="store_true", help="Include direct h-step in walk-forward (slow)")
+    parser.add_argument(
+        "--replay-nhits",
+        action="store_true",
+        help="Rejouer un N-HiTS neuf a chaque origine, aux reglages servis",
+    )
     parser.add_argument("--nhits-n-windows", type=int, default=nhits_cfg.get("n_windows", 12))
     parser.add_argument("--nhits-val-size", type=int, default=nhits_cfg.get("val_size", 30))
     parser.add_argument("--nhits-step-size", type=int, default=nhits_cfg.get("step_size", 5))
     return parser.parse_args()
+
+
+def _calibrate_if_better(walk_forward_csv: str, nhits_csv, market):
+    """Calibrate on the early origins. Promote a horizon only when its later slice passes.
+
+    Ensemble weights are not refit here. ``nhits_csv`` is ignored on purpose.
+    """
+    del nhits_csv
+    import yaml
+
+    from src.validation.served_backtest import (
+        held_out_coverage,
+        residual_margins,
+        served_prediction_column,
+        split_chronological,
+    )
+
+    frame = pd.read_csv(walk_forward_csv)
+    pred_col = served_prediction_column(frame)
+    cal_df, test_df = split_chronological(frame)
+    coverage = 0.90
+    cfg_path = ROOT / "config" / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path, encoding="utf-8") as f:
+            coverage = (yaml.safe_load(f) or {}).get("prediction", {}).get("confidence_level", 0.90)
+
+    from src.validation.acceptance import evaluate_horizon, load_acceptance
+
+    rules = load_acceptance(str(ROOT / "config" / "acceptance.json"))
+    margins = residual_margins(cal_df, pred_col, coverage)
+    naive_margins = residual_margins(cal_df, "naive_pred", coverage)
+    for horizon, row in margins.items():
+        row["provenance"] = "calibration_slice_of_this_candidate"
+        row["coverage_is_not_a_held_out_proof"] = True
+    test_cov = held_out_coverage(test_df, pred_col, margins)
+    proof_start = pd.Timestamp("2026-10-02")
+    decisions = {}
+    for horizon in rules.get("horizons", []):
+        decision = evaluate_horizon(
+            test_df,
+            int(horizon),
+            rules,
+            frozen_margin=margins.get(str(horizon)),
+            frozen_naive_margin=naive_margins.get(str(horizon)),
+        )
+        subset = test_df[test_df["horizon"] == int(horizon)] if not test_df.empty else test_df
+        targets = (
+            pd.to_datetime(subset["target_date"], errors="coerce")
+            if not subset.empty
+            else pd.Series(dtype="datetime64[ns]")
+        )
+        unused_period = (
+            (not subset.empty)
+            and bool(targets.notna().all())
+            and bool((targets > proof_start).all())
+        )
+        if not unused_period:
+            decision["validated"] = False
+            decision["reason"] = (
+                "Mesure de procédure seulement : les cibles ne sont pas toutes postérieures au 2 octobre 2026. "
+                + str(decision.get("reason") or "")
+            ).strip()
+        decisions[str(horizon)] = decision
+    accepted = [horizon for horizon, row in decisions.items() if row.get("validated")]
+    promoted = bool(accepted)
+    print(
+        f"\nCalibration sur {cal_df['origin_date'].nunique() if not cal_df.empty else 0} origines, "
+        f"test reserve sur {test_df['origin_date'].nunique() if not test_df.empty else 0}."
+    )
+    print(f"  Colonne servie: {pred_col}")
+    print("  La couverture de calibration n'est pas une preuve hors echantillon.")
+    for horizon, row in decisions.items():
+        gain = row.get("relative_gain")
+        gain_txt = "n/a" if gain is None else f"{gain:.1%}"
+        print(
+            f"    h{horizon}: valide={row['validated']} gain={gain_txt} "
+            f"repli={row.get('fallback_rate')} n={row.get('n')} "
+            f"n_eff={row.get('n_effective')}"
+        )
+
+    source_report = Path(walk_forward_csv).stem.replace("_walk_forward_predictions", "")
+    conformal_payload = {
+        "source_report": source_report,
+        "calibrated_at": datetime.now().isoformat(),
+        "coverage_level": coverage,
+        "asymmetric": False,
+        "coverage_is_held_out": False,
+        "applies_to_candidate": source_report,
+        "provenance": "calibration_margins_frozen_before_the_test",
+        "by_horizon": margins,
+        "naive_by_horizon": naive_margins,
+        "test_coverage": test_cov,
+        "acceptance": decisions,
+    }
+    from src.models.release_manifest import latest_candidate, promote_accepted_horizons
+
+    candidate = latest_candidate(market.market_id, ROOT)
+    wrote = promote_accepted_horizons(
+        market.market_id,
+        accepted,
+        source_report,
+        conformal_payload if accepted else None,
+        ROOT,
+    )
+    promotion = {
+        "promoted": promoted,
+        "accepted_horizons": accepted,
+        "candidate_version": (candidate or {}).get("version"),
+        "prediction_column": pred_col,
+        "measurement": "held_out" if promoted else "procedure",
+        "weights_refit": False,
+        "decisions": decisions,
+        "reason": (
+            "Les horizons acceptés sont inscrits dans le manifeste. Les autres restent non validés."
+            if wrote
+            else "Aucun horizon n'est accepté. Le manifeste actif et ses marges restent."
+        ),
+    }
+    print(f"  Promotion: {promotion['reason']}")
+    return None, conformal_payload, promotion
 
 
 def main() -> int:
@@ -89,13 +246,34 @@ def main() -> int:
     df = load_price_data_from_supabase(supabase, table_name=market.price_table)
     print(f"  {len(df)} points charges ({df['date'].min().date()} -> {df['date'].max().date()})")
 
+    feature_cols = _feature_cols_for_market(args.market)
+    caps, margins = _guard_config(market.conformal_intervals_file)
+    import yaml
+
+    pred_cfg = {}
+    cfg_path = ROOT / "config" / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path, encoding="utf-8") as f:
+            pred_cfg = (yaml.safe_load(f) or {}).get("prediction", {}) or {}
     wf_config = WalkForwardConfig(
         horizons=args.horizons,
         min_train_days=args.min_train_days,
         step_size=args.step_size,
         max_origins=args.max_origins,
-        include_recursive=True,
+        origin_window=args.origin_window,
+        include_recursive=not args.direct_hstep,
         include_direct_hstep=args.direct_hstep,
+        feature_cols=feature_cols,
+        max_abs_change_pct=caps,
+        conformal_margins=margins,
+        ensemble_weights_file=market.ensemble_weights_file,
+        replay_nhits=bool(args.replay_nhits),
+        price_bounds=market.price_bounds,
+        recent_range_days=int(pred_cfg.get("recent_range_days", 252)),
+        recent_range_padding_pct=float(pred_cfg.get("recent_range_padding_pct", 15.0)),
+        garch_enabled=bool(market.garch_enabled),
+        confidence_level=float(pred_cfg.get("confidence_level", 0.90)),
+        nhits_unique_id=market.nhits_unique_id,
     )
 
     print("\nWalk-forward Prophet + XGBoost...")
@@ -130,54 +308,16 @@ def main() -> int:
 
     ensemble_payload = None
     conformal_payload = None
+    promotion_payload = None
     if not args.skip_calibration and wf_paths.get("walk_forward_csv"):
-        print("\nCalibration ensemble...")
         try:
-            calibrator = EnsembleCalibrator()
-            cal_result = calibrator.run(
-                walk_forward_csv=wf_paths["walk_forward_csv"],
-                nhits_csv=nhits_csv,
-                xgb_only=nhits_csv is None or not Path(nhits_csv).exists(),
+            ensemble_payload, conformal_payload, promotion_payload = _calibrate_if_better(
+                wf_paths["walk_forward_csv"],
+                nhits_csv,
+                market,
             )
-            ensemble_path = str(ROOT / market.ensemble_weights_file)
-            Path(ensemble_path).parent.mkdir(parents=True, exist_ok=True)
-            calibrator.save(cal_result, ensemble_path)
-            ensemble_payload = cal_result.weights_payload
-            print(f"  Poids sauvegardes: {ensemble_path}")
         except Exception as exc:
             print(f"  AVERTISSEMENT calibration: {exc}")
-
-        print("\nCalibration intervalles conformes...")
-        try:
-            import yaml
-
-            pred_cfg = {}
-            cfg_path = ROOT / "config" / "config.yaml"
-            if cfg_path.exists():
-                with open(cfg_path, encoding="utf-8") as f:
-                    pred_cfg = (yaml.safe_load(f) or {}).get("prediction", {})
-
-            coverage = pred_cfg.get("confidence_level", 0.90)
-            conformal_path = str(ROOT / market.conformal_intervals_file)
-            Path(conformal_path).parent.mkdir(parents=True, exist_ok=True)
-            conformal_calibrator = ConformalIntervalCalibrator(
-                ConformalIntervalCalibratorConfig(coverage_level=coverage)
-            )
-            conformal_result = conformal_calibrator.run(
-                walk_forward_csv=wf_paths["walk_forward_csv"],
-                nhits_csv=nhits_csv,
-                ensemble_weights_file=str(ROOT / market.ensemble_weights_file),
-            )
-            conformal_calibrator.save(conformal_result, conformal_path)
-            conformal_payload = conformal_result.intervals_payload
-            print(f"  Intervalles sauvegardes: {conformal_path}")
-            for h, meta in conformal_payload.get("by_horizon", {}).items():
-                print(
-                    f"    h{h}: marge +/-${meta['margin_lower']:.0f}  "
-                    f"coverage={meta['empirical_coverage']:.1%}"
-                )
-        except Exception as exc:
-            print(f"  AVERTISSEMENT calibration conforme: {exc}")
 
     summary_path = Path(wf_paths["summary_json"])
     if summary_path.exists():
@@ -192,6 +332,8 @@ def main() -> int:
             payload["ensemble_calibration"] = ensemble_payload
         if conformal_payload is not None:
             payload["conformal_intervals"] = conformal_payload
+        if promotion_payload is not None:
+            payload["promotion"] = promotion_payload
         if "xgb_pred_recursive" in wf_result.summary:
             payload["walk_forward"]["recursive_vs_frozen"] = _serialize_summary(
                 {

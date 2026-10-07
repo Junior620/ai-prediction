@@ -15,13 +15,18 @@ from src.models.hybrid_features import (
     DEFAULT_XGB_PARAMS,
     FEATURE_COLS,
     build_prediction_row,
-    direct_feature_row,
     build_price_lookup,
     future_business_date,
+    prepare_training_frame,
 )
 from src.models.hybrid_trainer import HybridModelTrainer
 from src.models.direct_horizon_trainer import DirectHorizonTrainer
-from src.models.multi_step_predictor import predict_recursive
+from src.models.multi_step_predictor import predict_frozen, predict_recursive
+from src.models.ensemble_weights import (
+    get_weights_for_horizon,
+    load_ensemble_weights,
+)
+from src.models.served_forecast import compose_served_price, direct_level
 from src.validation.metrics import aggregate_by_horizon
 
 
@@ -31,8 +36,22 @@ class WalkForwardConfig:
     min_train_days: int = 252
     step_size: int = 5
     max_origins: Optional[int] = None
+    origin_window: str = "recent"
     include_recursive: bool = True
     include_direct_hstep: bool = False
+    ensemble_weights_file: Optional[str] = None
+    replay_nhits: bool = False
+    nhits_unique_id: str = "cocoa_ice_london"
+    feature_cols: Optional[List[str]] = None
+    max_abs_change_pct: Dict[str, float] = field(
+        default_factory=lambda: {"1": 6.0, "7": 14.0, "14": 18.0, "30": 22.0}
+    )
+    conformal_margins: Optional[Dict[str, Any]] = None
+    price_bounds: tuple = (1000.0, 15000.0)
+    recent_range_days: int = 252
+    recent_range_padding_pct: float = 15.0
+    garch_enabled: bool = False
+    confidence_level: float = 0.90
     prophet_params: Dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_PROPHET_PARAMS))
     xgb_params: Dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_XGB_PARAMS))
 
@@ -43,6 +62,17 @@ class WalkForwardResult:
     summary: Dict[str, Dict[int, Dict[str, float]]]
     n_origins: int
     config: WalkForwardConfig
+
+
+def drift_price(prices: pd.Series, horizon: int, lookback: int = 20) -> float:
+    """Project the origin close by the mean daily return known up to that date."""
+    series = pd.Series(prices).astype(float).dropna()
+    if series.empty:
+        return float("nan")
+    origin = float(series.iloc[-1])
+    returns = series.pct_change().dropna().tail(lookback)
+    mean_return = float(returns.mean()) if len(returns) else 0.0
+    return origin * ((1.0 + mean_return) ** int(horizon))
 
 
 class WalkForwardValidator:
@@ -63,9 +93,28 @@ class WalkForwardValidator:
             return []
 
         indices = list(range(start, end + 1, self.config.step_size))
-        if self.config.max_origins is not None:
-            indices = indices[: self.config.max_origins]
+        limit = self.config.max_origins
+        if limit is not None and len(indices) > limit:
+            if self.config.origin_window == "historical":
+                indices = indices[:limit]
+            else:
+                indices = indices[-limit:]
         return indices
+
+    def _direct_last_row(self, df_train: pd.DataFrame, prophet_model) -> Optional[pd.Series]:
+        """Last training session with the same feature columns as the direct model."""
+        frame, _ = prepare_training_frame(df_train, prophet_model=prophet_model)
+        cols = list(self.config.feature_cols or FEATURE_COLS)
+        for col in cols:
+            if col not in frame.columns:
+                frame[col] = 0.0
+        frame[cols] = frame[cols].ffill()
+        clean = frame.dropna(subset=["price", "price_lag_30"])
+        if clean.empty:
+            return None
+        clean = clean.copy()
+        clean[cols] = clean[cols].fillna(0.0)
+        return clean.iloc[-1]
 
     def run(self, df: pd.DataFrame) -> WalkForwardResult:
         """
@@ -95,6 +144,42 @@ class WalkForwardValidator:
                 continue
 
             last_row = train_clean.iloc[-1]
+            direct_models = None
+            direct_last = None
+            direct_target = "close_delta"
+            nhits_levels: Dict[int, float] = {}
+            if self.config.replay_nhits:
+                try:
+                    from src.models.nhits_replay import forecast_nhits
+
+                    nhits_levels = forecast_nhits(df_train, self.config.nhits_unique_id)
+                except Exception as exc:
+                    logger.warning(f"N-HiTS replay failed at {origin_date}: {exc}")
+            garch_forecast = None
+            if self.config.garch_enabled:
+                try:
+                    from src.models.garch_engine import fit_garch_forecast
+
+                    garch_forecast = fit_garch_forecast(
+                        df_train["price"],
+                        horizons=tuple(self.config.horizons),
+                    )
+                except Exception as exc:
+                    logger.warning(f"GARCH replay failed at {origin_date}: {exc}")
+            if self.config.include_direct_hstep:
+                try:
+                    direct_trainer = DirectHorizonTrainer(
+                        horizons=list(self.config.horizons),
+                        feature_cols=self.config.feature_cols,
+                    )
+                    direct_models, _ = direct_trainer.fit(
+                        df_train, prophet_model=prophet_model
+                    )
+                    direct_target = direct_trainer.target
+                    direct_last = self._direct_last_row(df_train, prophet_model)
+                except Exception as exc:
+                    logger.warning(f"Direct h-step fit failed at {origin_date}: {exc}")
+                    direct_models = None
 
             for horizon in self.config.horizons:
                 target_date = future_business_date(origin_date, horizon)
@@ -107,9 +192,13 @@ class WalkForwardValidator:
                 features_future = build_prediction_row(
                     last_row, origin_price, target_date, prophet_model
                 )
-                xgb_pred = float(xgb_model.predict(features_future[FEATURE_COLS])[0])
+                xgb_pred = predict_frozen(
+                    last_row, origin_price, origin_date, horizon, prophet_model, xgb_model
+                )
                 prophet_pred = float(features_future["prophet_yhat"].iloc[0])
 
+                naive_pred = float(origin_price)
+                drift_pred = drift_price(df_train["price"], horizon)
                 record: Dict[str, Any] = {
                     "origin_date": origin_date,
                     "origin_price": origin_price,
@@ -118,6 +207,8 @@ class WalkForwardValidator:
                     "actual": actual,
                     "xgb_pred": xgb_pred,
                     "prophet_pred": prophet_pred,
+                    "naive_pred": naive_pred,
+                    "drift_pred": drift_pred,
                     "xgb_error": xgb_pred - actual,
                     "xgb_error_pct": abs(xgb_pred - actual) / actual * 100,
                     "prophet_error": prophet_pred - actual,
@@ -136,36 +227,64 @@ class WalkForwardValidator:
                     except Exception:
                         record["xgb_pred_recursive"] = float("nan")
 
-                if self.config.include_direct_hstep and horizon in (1, 7, 14, 30):
+                if (
+                    direct_models is not None
+                    and direct_last is not None
+                    and horizon in direct_models
+                ):
                     try:
-                        direct_trainer = DirectHorizonTrainer(horizons=[horizon])
-                        direct_models, _ = direct_trainer.fit(df_train, prophet_model=prophet_model)
-                        direct_model = direct_models[horizon]
-                        train_clean = df_train_features.dropna(subset=["price_lag_30"])
-                        if not train_clean.empty:
-                            last = train_clean.iloc[-1]
-                            feat_row = direct_feature_row(last, feature_cols=FEATURE_COLS)
-                            raw_direct = float(
-                                direct_model.predict(feat_row[FEATURE_COLS])[0]
+                        cols = self.config.feature_cols or list(FEATURE_COLS)
+                        raw_level = direct_level(
+                            direct_models[horizon],
+                            direct_last,
+                            cols,
+                            origin_price,
+                            direct_target,
+                        )
+                        weights = {"xgb": 1.0, "prophet": 0.0, "nhits": 0.0}
+                        if self.config.ensemble_weights_file:
+                            weights = get_weights_for_horizon(
+                                horizon,
+                                load_ensemble_weights(self.config.ensemble_weights_file),
+                                weights,
                             )
-                            direct_pred = DirectHorizonTrainer.level_from_prediction(
-                                raw_direct,
-                                origin_price,
-                                str(direct_trainer.target),
-                            )
-                            record["xgb_pred_direct"] = direct_pred
-                            record["xgb_direct_error_pct"] = abs(direct_pred - actual) / actual * 100
+                        nhits_price = (
+                            nhits_levels.get(horizon)
+                            if float(weights.get("nhits", 0.0)) > 0
+                            else None
+                        )
+                        served = compose_served_price(
+                            xgb_price=raw_level,
+                            prophet_price=prophet_pred,
+                            nhits_price=nhits_price,
+                            weights=weights,
+                            spot=origin_price,
+                            horizon=horizon,
+                            max_abs_change_pct=self.config.max_abs_change_pct,
+                            conformal_margins=self.config.conformal_margins,
+                            price_bounds=self.config.price_bounds,
+                            recent_prices=df_train["price"],
+                            recent_range_days=self.config.recent_range_days,
+                            recent_range_padding_pct=self.config.recent_range_padding_pct,
+                            garch_forecast=garch_forecast,
+                            confidence_level=self.config.confidence_level,
+                            price_volatility=float(df_train["price"].std()),
+                        )
+                        record["xgb_pred_direct"] = raw_level
+                        record["published_pred"] = served["price"]
+                        record["feature_failure"] = bool(served["feature_failure"])
+                        record["xgb_direct_error_pct"] = abs(raw_level - actual) / actual * 100
                     except Exception:
                         record["xgb_pred_direct"] = float("nan")
+                        record["published_pred"] = float("nan")
 
                 records.append(record)
 
         predictions_df = pd.DataFrame(records)
-        pred_columns = ["xgb_pred", "prophet_pred"]
-        if "xgb_pred_recursive" in predictions_df.columns:
-            pred_columns.append("xgb_pred_recursive")
-        if "xgb_pred_direct" in predictions_df.columns:
-            pred_columns.append("xgb_pred_direct")
+        pred_columns = ["xgb_pred", "prophet_pred", "naive_pred", "drift_pred"]
+        for extra in ("xgb_pred_recursive", "xgb_pred_direct", "published_pred"):
+            if extra in predictions_df.columns:
+                pred_columns.append(extra)
         summary = aggregate_by_horizon(
             predictions_df,
             pred_columns=pred_columns,

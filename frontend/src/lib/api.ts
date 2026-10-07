@@ -45,7 +45,7 @@ export const api = {
     return response.data;
   },
 
-  async healthCheck(): Promise<{ status: string }> {
+  async healthCheck(): Promise<{ status: string; journal_schema_ok?: boolean }> {
     const response = await apiClient.get('/health');
     return response.data;
   },
@@ -53,9 +53,11 @@ export const api = {
   async getPredictionHistory(
     limit = 30,
     horizon?: number,
+    market?: string,
   ): Promise<PredictionHistoryResponse> {
-    const params: { limit: number; horizon?: number } = { limit };
+    const params: { limit: number; horizon?: number; market?: string } = { limit };
     if (horizon) params.horizon = horizon;
+    if (market) params.market = market;
     const response = await apiClient.get<PredictionHistoryResponse>(
       '/api/v1/prediction-history',
       { params },
@@ -104,9 +106,11 @@ export const api = {
     }
   },
 
-  async getValidationMetrics(): Promise<ValidationMetricsResponse | null> {
+  async getValidationMetrics(market?: string): Promise<ValidationMetricsResponse | null> {
     try {
-      const response = await apiClient.get<ValidationMetricsResponse>('/api/v1/validation/metrics');
+      const response = await apiClient.get<ValidationMetricsResponse>('/api/v1/validation/metrics', {
+        params: market ? { market } : undefined,
+      });
       return response.data;
     } catch {
       return null;

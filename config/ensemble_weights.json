@@ -1,6 +1,6 @@
 {
-  "source_report": "20260910_034413",
-  "calibrated_at": "2026-09-10T03:44:13.732605",
+  "source_report": "20261006_024613",
+  "calibrated_at": "2026-10-06T02:46:13.125953",
   "by_horizon": {
     "1": {
       "xgb": 1.0,

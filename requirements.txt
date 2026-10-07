@@ -30,7 +30,7 @@ redis==5.0.1
 hiredis==2.3.2
 
 # MLflow for Model Management
-mlflow==2.10.2
+mlflow>=2.19,<3
 
 # Data Validation and Processing
 pydantic-settings==2.1.0
@@ -60,6 +60,7 @@ pytest>=7.0.0,<8.0.0
 pytest-asyncio==0.23.4
 pytest-cov==4.1.0
 httpx>=0.26.0,<0.29.0
+sympy==1.13.1
 
 # Logging and Monitoring
 loguru==0.7.2

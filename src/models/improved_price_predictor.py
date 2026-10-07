@@ -7,7 +7,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 from datetime import datetime
 from loguru import logger
@@ -18,7 +17,6 @@ from src.models.data_models import Prediction, NewsArticle
 from src.models.direct_horizon_trainer import DirectHorizonTrainer
 from src.models.ensemble_weights import (
     DEFAULT_FALLBACK,
-    combine_ensemble,
     get_weights_for_horizon,
     load_ensemble_weights,
 )
@@ -26,18 +24,12 @@ from src.models.hybrid_features import (
     FEATURE_COLS,
     build_prediction_row,
     clean_price_dataframe,
-    direct_feature_row,
     future_business_date,
-    guard_forecast,
     prepare_training_frame,
     resolve_feature_cols,
 )
-from src.models.conformal_intervals import (
-    apply_interval,
-    get_margins_for_horizon,
-    heuristic_interval,
-    load_conformal_margins,
-)
+from src.models.conformal_intervals import load_conformal_margins
+from src.models.served_forecast import direct_level, publish_level
 from src.models.multi_step_predictor import predict_frozen, predict_recursive
 
 
@@ -141,28 +133,27 @@ class ImprovedPricePredictor:
 
     def _recent_price_range(self, df_clean: pd.DataFrame) -> Tuple[float, float]:
         """Min/max recents avec marge, bornes par price_bounds marche."""
-        tail = df_clean.tail(max(30, self.recent_range_days))
-        lo = float(tail["price"].min())
-        hi = float(tail["price"].max())
-        pad = self.recent_range_padding_pct / 100.0
-        mid = (lo + hi) / 2.0 if hi > lo else lo
-        span = max(hi - lo, mid * 0.05)
-        lo2 = lo - span * pad
-        hi2 = hi + span * pad
-        b_lo, b_hi = self.price_bounds
-        return (max(b_lo, lo2), min(b_hi, hi2))
+        from src.models.served_forecast import recent_price_range
+
+        return recent_price_range(
+            df_clean["price"],
+            self.recent_range_days,
+            self.recent_range_padding_pct,
+            self.price_bounds,
+        )
 
     def _dampen_vs_spot(
         self, price: float, spot: float, horizon: int
     ) -> Tuple[float, float, bool]:
-        """Garde-fou vs spot.
-
-        Un écart au-delà de ``max_abs_change_pct`` est un échec de features :
-        le scénario central reste le cours, le plafond n'est pas publié.
-        """
+        """Garde-fou vs spot. Seul le plafond en pourcentage ramène au cours."""
+        central, change_pct, feature_failure = publish_level(
+            price,
+            spot,
+            horizon,
+            self.max_abs_change_pct,
+            self._conformal_margins,
+        )
         max_pct = float(self.max_abs_change_pct.get(str(horizon), 20.0))
-        margin = get_margins_for_horizon(horizon, self._conformal_margins or {})
-        central, change_pct, feature_failure = guard_forecast(price, spot, max_pct, margin)
         if feature_failure:
             raw_pct = (price / spot - 1.0) * 100.0 if spot > 0 else float("nan")
             logger.warning(
@@ -177,10 +168,26 @@ class ImprovedPricePredictor:
         return central, change_pct, feature_failure
 
     def _fetch_historical_data(self, force_refresh: bool = False) -> pd.DataFrame:
+        latest_session = None
+        if self.supabase_client is not None:
+            try:
+                probe = (
+                    self.supabase_client.table(self.price_table)
+                    .select("date")
+                    .order("date", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if probe.data:
+                    latest_session = str(probe.data[0]["date"])[:10]
+            except Exception as exc:
+                logger.warning(f"Latest session probe failed: {exc}")
         if not force_refresh and self._historical_data is not None:
             if self._last_data_fetch is not None:
                 age = (datetime.now() - self._last_data_fetch).total_seconds()
-                if age < 3600:
+                cached_day = str(pd.to_datetime(self._historical_data["date"].iloc[-1]).date())
+                same_session = latest_session is None or cached_day == latest_session
+                if age < 3600 and same_session:
                     return self._historical_data
 
         if self.supabase_client is None:
@@ -266,11 +273,12 @@ class ImprovedPricePredictor:
         """XGBoost price using direct h-step, recursive, or frozen strategy."""
         cols = self.feature_cols
         if horizon in self.direct_horizon_models:
-            # Same row the direct model was trained on (features known at t).
-            features = direct_feature_row(last_row, feature_cols=cols)
-            raw = float(self.direct_horizon_models[horizon].predict(features[cols])[0])
-            return DirectHorizonTrainer.level_from_prediction(
-                raw, current_price, self.direct_target
+            return direct_level(
+                self.direct_horizon_models[horizon],
+                last_row,
+                cols,
+                current_price,
+                self.direct_target,
             )
 
         if horizon == 1 or self.multi_step_mode == "frozen":
@@ -326,6 +334,12 @@ class ImprovedPricePredictor:
         current_price = float(df_clean["price"].iloc[-1])
         current_date = df_clean["date"].iloc[-1]
         last_row = df_clean.iloc[-1]
+        origin_day = pd.to_datetime(current_date).date().isoformat()
+        self.last_snapshot = {
+            "origin_date": origin_day,
+            "origin_price": current_price,
+            "snapshot_id": f"{origin_day}:{current_price:.4f}",
+        }
         model_date = pd.to_datetime(current_date)
         if (
             model_date.normalize() != published_date.normalize()
@@ -367,8 +381,11 @@ class ImprovedPricePredictor:
                 horizon, df_clean, last_row, current_price, current_date
             )
 
+            weights = get_weights_for_horizon(
+                horizon, self._ensemble_weights, self.ensemble_fallback
+            )
             nhits_price = None
-            if self.nhits_model is not None:
+            if self.nhits_model is not None and float(weights.get("nhits", 0.0)) > 0:
                 try:
                     nhits_input = df_clean[["date", "price"]].copy()
                     nhits_input.columns = ["ds", "y"]
@@ -379,71 +396,35 @@ class ImprovedPricePredictor:
                 except Exception as e:
                     logger.warning(f"N-HiTS prediction failed for horizon {horizon}d: {e}")
 
-            weights = get_weights_for_horizon(
-                horizon, self._ensemble_weights, self.ensemble_fallback
-            )
-            # Toujours passer par combine_ensemble : si N-HiTS est absent,
-            # les poids xgb/prophet sont renormalises (ne pas retomber sur xgb seul).
-            ensemble_price = combine_ensemble(
-                xgb_price, prophet_yhat_future, nhits_price, weights
-            )
+            from src.models.served_forecast import compose_served_price
 
-            sentiment_adjustment = sentiment_score * self.sentiment_weight * ensemble_price
-            raw_price = ensemble_price + sentiment_adjustment
-            # Plafond mesuré sur le cours publié, pas sur une séance plus ancienne.
             spot_anchor = published_price if published_price > 0 else current_price
-            raw_change_pct = (
-                (raw_price / spot_anchor - 1.0) * 100.0 if spot_anchor > 0 else 0.0
+            served = compose_served_price(
+                xgb_price=xgb_price,
+                prophet_price=prophet_yhat_future,
+                nhits_price=nhits_price,
+                weights=weights,
+                spot=spot_anchor,
+                horizon=horizon,
+                max_abs_change_pct=self.max_abs_change_pct,
+                conformal_margins=self._conformal_margins,
+                price_bounds=historical_range,
+                garch_forecast=garch_forecast,
+                confidence_level=self.confidence_level,
+                price_volatility=float(df_clean["price"].std()),
             )
-            final_price, dampened_pct, feature_failure = self._dampen_vs_spot(
-                raw_price, spot_anchor, horizon
-            )
-            final_price = float(np.clip(final_price, historical_range[0], historical_range[1]))
-
-            sentiment_factor = 1.3 if abs(sentiment_score) > 0.6 else 1.0
-            if self._conformal_margins:
-                lower_bound, upper_bound = apply_interval(
-                    final_price,
+            final_price = served["price"]
+            lower_bound = served["lower"]
+            upper_bound = served["upper"]
+            feature_failure = served["feature_failure"]
+            if feature_failure:
+                logger.warning(
+                    "h=%sd feature failure: raw ensemble %.2f vs spot %.2f. "
+                    "Central scenario stays at the spot.",
                     horizon,
-                    self._conformal_margins,
-                    (historical_range[0], historical_range[1]),
+                    served["ensemble"],
+                    spot_anchor,
                 )
-                if not np.isfinite(lower_bound) or not np.isfinite(upper_bound):
-                    lower_bound, upper_bound = heuristic_interval(
-                        final_price,
-                        horizon,
-                        float(df_clean["price"].std()),
-                        (historical_range[0], historical_range[1]),
-                        self.confidence_level,
-                        sentiment_factor,
-                    )
-            else:
-                lower_bound, upper_bound = heuristic_interval(
-                    final_price,
-                    horizon,
-                    float(df_clean["price"].std()),
-                    (historical_range[0], historical_range[1]),
-                    self.confidence_level,
-                    sentiment_factor,
-                )
-
-            # Couche GARCH : par borne, on garde la plus large entre conforme et GARCH.
-            # Le conforme garantit la couverture en régime normal ; le GARCH élargit
-            # l'intervalle en période de forte volatilité.
-            garch_ann_vol = None
-            high_vol_regime = False
-            if garch_forecast is not None:
-                garch_interval = garch_forecast.interval_around(
-                    final_price, horizon, self.confidence_level
-                )
-                if garch_interval is not None:
-                    g_lo, g_hi = garch_interval
-                    lower_bound = min(lower_bound, g_lo)
-                    upper_bound = max(upper_bound, g_hi)
-                garch_ann_vol = garch_forecast.annualized_volatility(horizon)
-                high_vol_regime = garch_forecast.high_volatility_regime(horizon)
-                lower_bound = float(np.clip(lower_bound, historical_range[0], historical_range[1]))
-                upper_bound = float(np.clip(upper_bound, historical_range[0], historical_range[1]))
 
             predictions.append(
                 Prediction(
@@ -457,19 +438,23 @@ class ImprovedPricePredictor:
                         "baseline": float(xgb_price),
                         "nhits": float(nhits_price) if nhits_price is not None else None,
                         "prophet": float(prophet_yhat_future),
-                        "ensemble": float(ensemble_price),
+                        "ensemble": float(served["ensemble"]),
                         "residual": 0.0,
-                        "sentiment": float(sentiment_adjustment),
-                        "dampened_change_pct": float(dampened_pct),
-                        "raw_change_pct": float(raw_change_pct),
+                        "sentiment": 0.0,
+                        "sentiment_score": float(sentiment_score),
+                        "dampened_change_pct": float(served["dampened_change_pct"]),
+                        "raw_change_pct": float(served["raw_change_pct"]),
                         "feature_failure": bool(feature_failure),
+                        "origin_date": origin_day,
+                        "origin_price": float(current_price),
+                        "target_date": pd.to_datetime(future_date).date().isoformat(),
+                        "snapshot_id": self.last_snapshot["snapshot_id"],
+                        "scored_variant": "no_sentiment",
                         "model_spot": float(current_price),
                         "published_spot": float(published_price),
                         "ensemble_weights": weights,
-                        "garch_annualized_volatility": (
-                            float(garch_ann_vol) if garch_ann_vol is not None else None
-                        ),
-                        "high_volatility_regime": bool(high_vol_regime),
+                        "garch_annualized_volatility": served["garch_annualized_volatility"],
+                        "high_volatility_regime": bool(served["high_volatility_regime"]),
                         "xgb_mode": (
                             "direct_hstep" if horizon in self.direct_horizon_models
                             else ("frozen" if horizon == 1 or self.multi_step_mode == "frozen"

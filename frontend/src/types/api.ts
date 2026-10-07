@@ -11,6 +11,7 @@ export interface PredictionItem {
     ensemble?: number;
     residual?: number;
     sentiment?: number;
+    feature_failure?: boolean;
     garch_annualized_volatility?: number | null;
     high_volatility_regime?: boolean;
   };
@@ -45,12 +46,24 @@ export interface HorizonValidationMetrics {
   mae?: number | null;
   directional_accuracy?: number | null;
   n_predictions?: number | null;
+  validated?: boolean;
+  relative_gain?: number | null;
+  gap_ci_low?: number | null;
+  gap_ci_high?: number | null;
+  n_effective?: number | null;
+  fallback_rate?: number | null;
+  measurement?: string | null;
+  reason?: string | null;
 }
 
 export interface ValidationMetricsResponse {
   report_timestamp?: string | null;
   validation_type: string;
   n_origins?: number | null;
+  origin_start?: string | null;
+  origin_end?: string | null;
+  target_start?: string | null;
+  target_end?: string | null;
   horizons: number[];
   xgb_metrics: HorizonValidationMetrics[];
   legacy_holdout_mape_1step?: number | null;

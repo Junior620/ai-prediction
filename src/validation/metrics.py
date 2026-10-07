@@ -78,16 +78,22 @@ def compute_holdout_baseline(
     val_df = df.iloc[split_idx:]
 
     trainer = HybridModelTrainer()
-    _, xgb_model, df_features = trainer.fit(train_df)
-    val_features = df_features.iloc[split_idx:].dropna()
+    prophet_model, xgb_model, _ = trainer.fit(train_df)
+    from src.models.hybrid_features import FEATURE_COLS, prepare_training_frame
+
+    full_features, _ = prepare_training_frame(df, prophet_model=prophet_model)
+    val_features = full_features.iloc[split_idx:].dropna()
 
     if val_features.empty:
         return None
 
-    from src.models.hybrid_features import FEATURE_COLS
+    from src.models.hybrid_trainer import next_session_frame
 
-    preds = xgb_model.predict(val_features[FEATURE_COLS])
-    actual = val_features["price"].values
+    aligned = next_session_frame(val_features)
+    if aligned.empty:
+        return None
+    preds = xgb_model.predict(aligned[FEATURE_COLS])
+    actual = aligned["target_price"].values
     mape = float(np.mean(np.abs((actual - preds) / actual)) * 100)
 
-    return {"mape_1step_holdout": mape, "n_val": int(len(val_features))}
+    return {"mape_1step_holdout": mape, "n_val": int(len(aligned))}

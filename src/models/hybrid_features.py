@@ -12,12 +12,15 @@ Feature sets (pour etude comparative / production) :
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
-from pandas.tseries.offsets import BusinessDay
+from pandas.tseries.offsets import BDay as BusinessDay
+from pandas.tseries.offsets import CustomBusinessDay
 from prophet import Prophet
 
 FEATURE_COLS = [
@@ -212,7 +215,7 @@ def load_term_structure_from_supabase(
 
 
 def clean_price_dataframe(df: pd.DataFrame, min_date: str = "2020-01-01") -> pd.DataFrame:
-    """Normalize, filter, and remove extreme outliers from a price DataFrame."""
+    """Sort, drop duplicate dates, apply the minimum date, and drop impossible OHLC bars."""
     if df is None or len(df) == 0:
         return pd.DataFrame(columns=["date", "price"])
 
@@ -223,17 +226,22 @@ def clean_price_dataframe(df: pd.DataFrame, min_date: str = "2020-01-01") -> pd.
     if len(out) == 0:
         return out.reset_index(drop=True)
 
-    mean_price = out["price"].mean()
-    std_price = out["price"].std()
-    if pd.isna(mean_price) or pd.isna(std_price) or std_price == 0:
-        return out.reset_index(drop=True)
-
-    out = out[
-        (out["price"] >= mean_price - 3 * std_price)
-        & (out["price"] <= mean_price + 3 * std_price)
-    ].copy()
-
+    out = _drop_impossible_ohlc(out)
     return out.reset_index(drop=True)
+
+
+def _drop_impossible_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop bars that cannot be a real session. No statistic uses future rows."""
+    if not {"high", "low"}.issubset(frame.columns):
+        return frame
+    high = pd.to_numeric(frame["high"], errors="coerce")
+    low = pd.to_numeric(frame["low"], errors="coerce")
+    price = pd.to_numeric(frame["price"], errors="coerce") if "price" in frame.columns else None
+    impossible = high.notna() & low.notna() & (high < low)
+    if price is not None:
+        priced = price.notna() & high.notna() & low.notna()
+        impossible = impossible | (priced & ((price > high) | (price < low)))
+    return frame.loc[~impossible].copy()
 
 
 def _compute_rsi(series: pd.Series, window: int = 14) -> pd.Series:
@@ -242,7 +250,8 @@ def _compute_rsi(series: pd.Series, window: int = 14) -> pd.Series:
     loss = (-delta).clip(lower=0.0)
     avg_gain = gain.rolling(window=window, min_periods=window).mean()
     avg_loss = loss.rolling(window=window, min_periods=window).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
+    # A window of only gains has a zero average loss. RSI is then 100, not missing.
+    rs = avg_gain / avg_loss
     return 100.0 - (100.0 / (1.0 + rs))
 
 
@@ -414,18 +423,15 @@ def guard_forecast(
     max_pct: float,
     margin: Optional[tuple] = None,
 ) -> tuple[float, float, bool]:
-    """Central scenario after the cap and the spot-coverage check.
+    """Central scenario after the percentage cap.
 
-    If the raw move exceeds ``max_pct``, or the interval around the forecast
-    does not contain the spot, the central price stays at the spot.
+    A move past ``max_pct`` is replaced by the spot. The conformal band is
+    not a reason to discard the price: an unvalidated horizon is hidden by
+    the release state, not by shrinking the forecast to the close.
+    ``margin`` is accepted so older callers keep working and is ignored.
     """
-    central, change, failed = resolve_capped_forecast(price, spot, max_pct)
-    if failed or margin is None or spot <= 0:
-        return central, change, failed
-    lower, upper = float(margin[0]), float(margin[1])
-    if not (central - lower <= spot <= central + upper):
-        return float(spot), 0.0, True
-    return central, change, failed
+    del margin
+    return resolve_capped_forecast(price, spot, max_pct)
 
 
 def resolve_capped_forecast(
@@ -505,9 +511,27 @@ def build_prediction_row(
     return pd.DataFrame({k: [row.get(k)] for k in cols})
 
 
-def future_business_date(origin_date: Union[datetime, pd.Timestamp], horizon: int) -> datetime:
-    """Return origin + horizon business days (matches production inference)."""
-    return (pd.to_datetime(origin_date) + BusinessDay(horizon)).to_pydatetime()
+def exchange_holidays(extra: Optional[Sequence] = None) -> list:
+    """Venue closures. A test can pass extra dates without editing the file."""
+    path = Path(__file__).resolve().parents[2] / "config" / "exchange_holidays.json"
+    closed: list = []
+    if path.exists():
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        closed.extend(payload.get("dates") or [])
+    if extra:
+        closed.extend(extra)
+    return [pd.Timestamp(day).normalize() for day in closed]
+
+
+def future_business_date(
+    origin_date: Union[datetime, pd.Timestamp],
+    horizon: int,
+    holidays: Optional[Sequence] = None,
+) -> datetime:
+    """Origin plus horizon sessions, skipping weekends and listed closures."""
+    closed = exchange_holidays(holidays)
+    rule = CustomBusinessDay(holidays=closed) if closed else BusinessDay()
+    return (pd.to_datetime(origin_date) + int(horizon) * rule).to_pydatetime()
 
 
 def price_at_date(df: pd.DataFrame, target_date: Union[datetime, pd.Timestamp]) -> Optional[float]:

@@ -1,0 +1,27 @@
+{
+  "market": "cocoa",
+  "version": "improved_20261006_213603",
+  "validated": false,
+  "scored_variant": "no_sentiment",
+  "measurement_note": "Aucun horizon n'est validé. Les rapports du 6 octobre ont servi à écrire les critères ; ils ne sont pas la preuve finale.",
+  "artifacts": {
+    "prophet": "models/prophet_improved_20261006_213603.pkl",
+    "xgboost": "models/xgboost_improved_20261006_213603.pkl",
+    "direct_info": "models/model_info_direct_horizon_20261006_213603.json",
+    "improved_info": "models/model_info_improved_20261006_213603.json",
+    "nhits": "models/nhits_20261006_211833",
+    "ensemble_weights": "config/ensemble_weights.json",
+    "conformal_intervals": "config/conformal_intervals.json"
+  },
+  "margins_provenance": {
+    "source_report": "20261006_024613",
+    "kind": "procedure_residuals_of_an_older_run",
+    "limit": "Pas les erreurs réalisées de cette version. Un candidat refusé ne les remplace pas."
+  },
+  "horizons": {
+    "1": {"validated": false},
+    "7": {"validated": false},
+    "14": {"validated": false},
+    "30": {"validated": false}
+  }
+}

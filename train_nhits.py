@@ -87,14 +87,9 @@ df = pd.DataFrame(all_data)
 df['date'] = pd.to_datetime(df['date'])
 df = df.sort_values('date').drop_duplicates(subset=['date'], keep='last')
 
-df = df[df['date'] >= '2020-01-01'].copy()
+from src.models.hybrid_features import clean_price_dataframe
 
-mean_price = df['price'].mean()
-std_price = df['price'].std()
-df = df[
-    (df['price'] >= mean_price - 3 * std_price) &
-    (df['price'] <= mean_price + 3 * std_price)
-].copy()
+df = clean_price_dataframe(df, min_date="2020-01-01")
 
 print("[OK] %d points de donnees (2020-2026)" % len(df))
 print("   Prix min: $%.2f" % df['price'].min())

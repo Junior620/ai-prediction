@@ -7,6 +7,35 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
+def find_release_summary(reports_dir: str, release: Optional[Dict[str, Any]]) -> Optional[Path]:
+    """Summary named by the active release. Never the newest file in the folder."""
+    from src.models.release_manifest import report_id
+
+    named = report_id(release)
+    if not named:
+        return None
+    root = Path(reports_dir)
+    direct = root / f"{named}_summary.json"
+    if direct.exists():
+        return direct
+    matches = sorted(root.glob(f"**/{named}_summary.json"))
+    return matches[-1] if matches else None
+
+
+def load_release_summary(
+    reports_dir: str,
+    release: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Load the walk-forward summary the manifest names."""
+    path = find_release_summary(reports_dir, release)
+    if path is None:
+        return None
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    data["_report_path"] = str(path)
+    return data
+
+
 def find_latest_summary(reports_dir: str = "reports/walk_forward") -> Optional[Path]:
     """Return path to the most recent *_summary.json report.
 
@@ -57,7 +86,8 @@ def extract_walk_forward_reference(summary: Optional[Dict[str, Any]]) -> Optiona
     if not summary or "walk_forward" not in summary:
         return None
     wf = summary["walk_forward"]
-    xgb = wf.get("summary_by_component", {}).get("xgb_pred", {})
+    components = wf.get("summary_by_component", {})
+    xgb = components.get("published_pred") or components.get("xgb_pred", {})
     return {
         "source_report": Path(summary.get("_report_path", "")).stem.replace("_summary", ""),
         "timestamp": summary.get("timestamp"),

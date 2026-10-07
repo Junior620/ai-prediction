@@ -401,15 +401,6 @@ export default function PremiumDashboard() {
                   <div key={idx} className="bg-slate-700/50 rounded-xl p-6 text-center">
                     <p className="text-gray-400 text-sm mb-2">{scenario.name}</p>
                     <p className="text-3xl font-bold text-white mb-2">{formatPrice(scenario.price)}</p>
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="w-full h-2 bg-gray-600 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500"
-                          style={{ width: `${scenario.probability}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-sm text-gray-400">{scenario.probability}%</span>
-                    </div>
                   </div>
                 ))}
               </div>

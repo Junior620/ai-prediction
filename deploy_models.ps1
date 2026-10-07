@@ -192,17 +192,29 @@ try {
     throw ("SSH vers " + $SshTarget + " impossible (" + $_.Exception.Message + "). Verifie DEPLOY_SSH_KEY dans .env.deploy et: ssh " + $SshTarget)
 }
 
-# --- Discover latest artifacts ---
-$cocoaDir = Join-Path $Root "models"
-$robustaDir = Join-Path $Root "models\coffee_robusta"
-
-$cocoaProphet = Get-LatestFile $cocoaDir "prophet_improved_*.pkl"
-$cocoaXgb = Get-LatestFile $cocoaDir "xgboost_improved_*.pkl"
-$cocoaNhits = Get-LatestDir $cocoaDir "nhits_*"
-
-$robustaProphet = Get-LatestFile $robustaDir "prophet_improved_*.pkl"
-$robustaXgb = Get-LatestFile $robustaDir "xgboost_improved_*.pkl"
-$robustaNhits = Get-LatestDir $robustaDir "nhits_*"
+# --- Artefacts nommés par le manifeste, jamais le fichier le plus récent ---
+function Get-ActiveRelease([string]$Market) {
+    $path = Join-Path $Root ("config\active_release_" + $Market + ".json")
+    if (-not (Test-Path $path)) { throw ("Manifeste actif absent: " + $path) }
+    return Get-Content $path -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+function Resolve-ReleaseFile($Release, [string]$Key) {
+    $relative = $Release.artifacts.$Key
+    if (-not $relative) { throw ("Artefact absent du manifeste: " + $Key) }
+    return Join-Path $Root (($relative -replace '/', '\'))
+}
+$cocoaRelease = Get-ActiveRelease "cocoa"
+$robustaRelease = Get-ActiveRelease "coffee_robusta"
+$cocoaProphet = Get-Item (Resolve-ReleaseFile $cocoaRelease "prophet")
+$cocoaXgb = Get-Item (Resolve-ReleaseFile $cocoaRelease "xgboost")
+$cocoaNhitsPath = Resolve-ReleaseFile $cocoaRelease "nhits"
+$cocoaNhits = if (Test-Path $cocoaNhitsPath) { Get-Item $cocoaNhitsPath } else { $null }
+$robustaProphet = Get-Item (Resolve-ReleaseFile $robustaRelease "prophet")
+$robustaXgb = Get-Item (Resolve-ReleaseFile $robustaRelease "xgboost")
+$robustaNhitsPath = Resolve-ReleaseFile $robustaRelease "nhits"
+$robustaNhits = if (Test-Path $robustaNhitsPath) { Get-Item $robustaNhitsPath } else { $null }
+$cocoaDir = $cocoaProphet.Directory.FullName
+$robustaDir = $robustaProphet.Directory.FullName
 
 if (-not $cocoaProphet -or -not $cocoaXgb) {
     throw "Modeles cacao introuvables (prophet/xgboost) dans models/"
@@ -223,20 +235,21 @@ Write-Host ""
 
 # --- Ensure remote dirs ---
 Write-Host '[INFO] Preparation des dossiers distants...'
-Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/models/futures $RemotePath/models/futures_london $RemotePath/models/futures_london_named $RemotePath/config/coffee_robusta $RemotePath/src/models"
+Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/models/futures $RemotePath/models/futures_london $RemotePath/models/futures_london_named $RemotePath/config/coffee_robusta $RemotePath/src/models $RemotePath/src/monitoring $RemotePath/src/validation"
 
 # --- Upload models ---
 Write-Host '[INFO] Upload modeles cacao...'
 Invoke-Scp -Sources @($cocoaProphet.FullName, $cocoaXgb.FullName) -Destination "$RemotePath/models/"
-$cocoaInfo = Get-LatestFile $cocoaDir "model_info_improved_*.json"
+$cocoaInfo = Get-Item (Resolve-ReleaseFile $cocoaRelease "improved_info")
 if ($cocoaInfo) {
     Invoke-Scp -Sources @($cocoaInfo.FullName) -Destination "$RemotePath/models/"
 }
-$cocoaH1 = Get-LatestFile $cocoaDir "xgboost_h1_*.pkl"
-$cocoaH7 = Get-LatestFile $cocoaDir "xgboost_h7_*.pkl"
-$cocoaH14 = Get-LatestFile $cocoaDir "xgboost_h14_*.pkl"
-$cocoaH30 = Get-LatestFile $cocoaDir "xgboost_h30_*.pkl"
-$cocoaDirectInfo = Get-LatestFile $cocoaDir "model_info_direct_horizon_*.json"
+$cocoaDirectInfo = Get-Item (Resolve-ReleaseFile $cocoaRelease "direct_info")
+$cocoaDirectMeta = Get-Content $cocoaDirectInfo.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+$cocoaH1 = Get-Item (Join-Path $cocoaDir ([IO.Path]::GetFileName(($cocoaDirectMeta.horizons."1".model_path -replace '\\','/'))))
+$cocoaH7 = Get-Item (Join-Path $cocoaDir ([IO.Path]::GetFileName(($cocoaDirectMeta.horizons."7".model_path -replace '\\','/'))))
+$cocoaH14 = Get-Item (Join-Path $cocoaDir ([IO.Path]::GetFileName(($cocoaDirectMeta.horizons."14".model_path -replace '\\','/'))))
+$cocoaH30 = Get-Item (Join-Path $cocoaDir ([IO.Path]::GetFileName(($cocoaDirectMeta.horizons."30".model_path -replace '\\','/'))))
 $directUploads = @()
 if ($cocoaH1) { $directUploads += $cocoaH1.FullName }
 if ($cocoaH7) { $directUploads += $cocoaH7.FullName }
@@ -253,11 +266,14 @@ if ($cocoaNhits) {
 
 Write-Host '[INFO] Upload modeles robusta...'
 Invoke-Scp -Sources @($robustaProphet.FullName, $robustaXgb.FullName) -Destination "$RemotePath/models/coffee_robusta/"
-$robustaH1 = Get-LatestFile $robustaDir "xgboost_h1_*.pkl"
-$robustaH7 = Get-LatestFile $robustaDir "xgboost_h7_*.pkl"
-$robustaH14 = Get-LatestFile $robustaDir "xgboost_h14_*.pkl"
-$robustaH30 = Get-LatestFile $robustaDir "xgboost_h30_*.pkl"
-$robustaDirectInfo = Get-LatestFile $robustaDir "model_info_direct_horizon_*.json"
+$robustaDirectInfo = Get-Item (Resolve-ReleaseFile $robustaRelease "direct_info")
+$robustaDirectMeta = Get-Content $robustaDirectInfo.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+$robustaInfo = Get-Item (Resolve-ReleaseFile $robustaRelease "improved_info")
+Invoke-Scp -Sources @($robustaInfo.FullName) -Destination "$RemotePath/models/coffee_robusta/"
+$robustaH1 = Get-Item (Join-Path $robustaDir ([IO.Path]::GetFileName(($robustaDirectMeta.horizons."1".model_path -replace '\\','/'))))
+$robustaH7 = Get-Item (Join-Path $robustaDir ([IO.Path]::GetFileName(($robustaDirectMeta.horizons."7".model_path -replace '\\','/'))))
+$robustaH14 = Get-Item (Join-Path $robustaDir ([IO.Path]::GetFileName(($robustaDirectMeta.horizons."14".model_path -replace '\\','/'))))
+$robustaH30 = Get-Item (Join-Path $robustaDir ([IO.Path]::GetFileName(($robustaDirectMeta.horizons."30".model_path -replace '\\','/'))))
 $robustaDirectUploads = @()
 if ($robustaH1) { $robustaDirectUploads += $robustaH1.FullName }
 if ($robustaH7) { $robustaDirectUploads += $robustaH7.FullName }
@@ -307,6 +323,11 @@ $modelCodeFiles = @(
     @{ Local = "src\models\hybrid_trainer.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\direct_horizon_trainer.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\multi_step_predictor.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\served_forecast.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\release_manifest.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\validation\acceptance.py"; Remote = "$RemotePath/src/validation/" },
+    @{ Local = "src\validation\served_backtest.py"; Remote = "$RemotePath/src/validation/" },
+    @{ Local = "src\monitoring\performance_monitor.py"; Remote = "$RemotePath/src/monitoring/" },
     @{ Local = "src\validation\report_loader.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "docker-compose.yml"; Remote = "$RemotePath/" }
 )
@@ -324,6 +345,9 @@ $configFiles = @(
     @{ Local = "config\settings.py"; Remote = "$RemotePath/config/" },
     @{ Local = "config\ensemble_weights.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\conformal_intervals.json"; Remote = "$RemotePath/config/" },
+    @{ Local = "config\acceptance.json"; Remote = "$RemotePath/config/" },
+    @{ Local = "config\active_release_cocoa.json"; Remote = "$RemotePath/config/" },
+    @{ Local = "config\active_release_coffee_robusta.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\model_comparison_latest.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\coffee_robusta\ensemble_weights.json"; Remote = "$RemotePath/config/coffee_robusta/" },
     @{ Local = "config\coffee_robusta\conformal_intervals.json"; Remote = "$RemotePath/config/coffee_robusta/" }
@@ -364,6 +388,22 @@ if (Test-Path $wfDir) {
                 -Destination "$RemotePath/reports/walk_forward/" -TimeoutSec 60
         } catch {
             Write-Host ('[AVERTISSEMENT] Upload reports ignore (non bloquant): ' + $_.Exception.Message)
+        }
+    }
+    $coffeeWf = Join-Path $wfDir "coffee_robusta"
+    if (Test-Path $coffeeWf) {
+        $coffeeSummaries = Get-ChildItem -Path $coffeeWf -Filter "*_summary.json" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 2
+        if ($coffeeSummaries) {
+            Write-Host '[INFO] Upload reports/walk_forward/coffee_robusta summaries...'
+            try {
+                Invoke-Ssh "mkdir -p $RemotePath/reports/walk_forward/coffee_robusta" -TimeoutSec 45
+                Invoke-Scp -Sources @($coffeeSummaries.FullName) `
+                    -Destination "$RemotePath/reports/walk_forward/coffee_robusta/" -TimeoutSec 60
+            } catch {
+                Write-Host ('[AVERTISSEMENT] Upload reports cafe ignore (non bloquant): ' + $_.Exception.Message)
+            }
         }
     }
 }

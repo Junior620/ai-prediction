@@ -85,7 +85,8 @@ class PerformanceMonitor:
         y_true: np.ndarray,
         y_pred: np.ndarray,
         y_pred_lower: np.ndarray,
-        y_pred_upper: np.ndarray
+        y_pred_upper: np.ndarray,
+        origin_price: Optional[np.ndarray] = None,
     ) -> Dict[str, float]:
         """
         Compute comprehensive performance metrics for predictions.
@@ -151,14 +152,23 @@ class PerformanceMonitor:
             mape = 0.0
             logger.warning("All y_true values are zero, MAPE set to 0.0")
         
-        # Compute Directional Accuracy
-        # Requires at least 2 observations to compute direction
-        if len(y_true) >= 2:
-            # Compute actual direction (up=1, down=0)
+        # Direction versus the origin price when it is known.
+        # Otherwise keep the successive-move comparison.
+        if origin_price is not None:
+            origin = np.asarray(origin_price, dtype=float)
+            if len(origin) != len(y_true):
+                raise ValueError(
+                    "origin_price must have the same length as y_true. "
+                    f"Got origin_price={len(origin)}, y_true={len(y_true)}"
+                )
+            if np.any(~np.isfinite(origin)):
+                raise ValueError("origin_price contains NaN or infinite values")
+            actual_sign = np.sign(y_true - origin)
+            predicted_sign = np.sign(y_pred - origin)
+            directional_accuracy = float(np.mean(actual_sign == predicted_sign))
+        elif len(y_true) >= 2:
             actual_direction = np.diff(y_true) > 0
-            # Compute predicted direction
             predicted_direction = np.diff(y_pred) > 0
-            # Calculate accuracy
             directional_accuracy = float(np.mean(actual_direction == predicted_direction))
         else:
             directional_accuracy = 0.0

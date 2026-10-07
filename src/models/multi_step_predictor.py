@@ -25,8 +25,15 @@ def predict_frozen(
     xgb_model,
     feature_cols: Optional[Sequence[str]] = None,
 ) -> float:
-    """Single-shot prediction with frozen lags (legacy production behavior)."""
+    """One-step model: the last session's features forecast the next close.
+
+    Horizons above one still shift the calendar. That row is not the training
+    convention; the recursive path is the multi-session fallback.
+    """
     cols = list(feature_cols) if feature_cols is not None else list(FEATURE_COLS)
+    if int(horizon) == 1:
+        row = pd.DataFrame([{c: last_row.get(c, 0.0) for c in cols}])
+        return float(xgb_model.predict(row[cols])[0])
     future_date = future_business_date(current_date, horizon)
     features = build_prediction_row(
         last_row, current_price, future_date, prophet_model, feature_cols=cols
@@ -87,9 +94,7 @@ def predict_recursive(
         current_price = float(last["price"])
         current_date = last["date"]
         next_date = future_business_date(current_date, 1)
-        row = build_prediction_row(
-            last, current_price, next_date, prophet_model, feature_cols=cols
-        )
+        row = pd.DataFrame([{c: last.get(c, 0.0) for c in cols}])
         prediction = float(xgb_model.predict(row[cols])[0])
 
         new_row = {"date": pd.Timestamp(next_date).normalize(), "price": prediction}

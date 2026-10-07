@@ -14,7 +14,6 @@ interface MarketKPIBarProps {
   priceCurrency?: 'USD' | 'GBP';
   includeSentiment: boolean;
   priceSource: string;
-  lastUpdate: Date | null;
   accentClass: string;
   /** Affiche l'équivalent GBP (defaut: true si USD). */
   showGbp?: boolean;
@@ -26,7 +25,6 @@ export function MarketKPIBar({
   priceCurrency = 'USD',
   includeSentiment,
   priceSource,
-  lastUpdate,
   accentClass,
   showGbp,
 }: MarketKPIBarProps) {
@@ -119,17 +117,11 @@ export function MarketKPIBar({
             <span>FX USD/GBP : {usdGbp.toFixed(4)} (Frankfurter / BCE)</span>
           </>
         )}
-        {lastUpdate && (
+        {data.current_date && (
           <>
             <span>·</span>
             <span>
-              Dernière MAJ :{' '}
-              {lastUpdate.toLocaleTimeString('fr-FR', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false,
-              })}
+              Cotation : {String(data.current_date).slice(0, 10)}
             </span>
           </>
         )}

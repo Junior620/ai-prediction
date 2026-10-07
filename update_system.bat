@@ -128,12 +128,20 @@ if errorlevel 1 (
 echo [OK] Hybride cacao reentraine
 echo.
 
-echo --- CACAO WALK-FORWARD (metriques dashboard) ---
-call venv_py311\Scripts\python.exe scripts\run_walk_forward_validation.py --market cocoa --max-origins 48 --skip-nhits --horizons 1 7 14 30
+echo --- CACAO WALK-FORWARD (metriques dashboard, origines recentes) ---
+call venv_py311\Scripts\python.exe scripts\run_walk_forward_validation.py --market cocoa --max-origins 24 --skip-nhits --horizons 1 7 14 30 --origin-window recent --direct-hstep --skip-calibration --output-dir reports/walk_forward/daily
 if errorlevel 1 (
     echo [AVERTISSEMENT] Walk-forward cacao echoue — section Performance peut rester vide
 ) else (
     echo [OK] Walk-forward cacao genere
+)
+echo.
+echo --- CACAO WALK-FORWARD HISTORIQUE (rapport distinct, ne remplace pas le tableau de bord) ---
+call venv_py311\Scripts\python.exe scripts\run_walk_forward_validation.py --market cocoa --max-origins 48 --skip-nhits --horizons 1 7 14 30 --origin-window historical --skip-calibration --output-dir reports/walk_forward/historical
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Walk-forward historique cacao echoue
+) else (
+    echo [OK] Walk-forward historique cacao genere
 )
 echo.
 
@@ -144,6 +152,15 @@ if errorlevel 1 (
     echo                Relancer: update_system_resume.bat
 ) else (
     echo [OK] Hybride robusta reentraine
+)
+echo.
+
+echo --- CAFE ROBUSTA WALK-FORWARD (metriques dashboard, origines recentes) ---
+call venv_py311\Scripts\python.exe scripts\run_walk_forward_validation.py --market coffee_robusta --max-origins 24 --skip-nhits --horizons 1 7 14 30 --origin-window recent --direct-hstep --skip-calibration --output-dir reports/walk_forward/coffee_robusta/daily
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Walk-forward robusta echoue — metriques cafe peuvent rester vides
+) else (
+    echo [OK] Walk-forward robusta genere
 )
 echo.
 
@@ -276,7 +293,7 @@ echo ETAPE 6/6: DEPLOY MODELES VERS VPS
 echo ================================================================================
 echo.
 
-echo [INFO] Envoi des derniers modeles vers Contabo + restart API...
+echo [INFO] Copie du manifeste actif seulement. Un candidat non accepte n'est pas promu.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0deploy_models.ps1"
 if errorlevel 1 (
     echo [AVERTISSEMENT] Deploy VPS echoue — l'API locale est a jour, le VPS non.

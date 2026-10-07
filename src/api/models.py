@@ -151,6 +151,8 @@ class PerformanceMetricsItem(BaseModel):
         ...,
         description="Mean confidence interval width"
     )
+    market: Optional[str] = Field(None, description="Market of this row")
+    horizon: Optional[int] = Field(None, description="Horizon of this row")
 
 
 class PerformanceResponse(BaseModel):
@@ -171,6 +173,8 @@ class PerformanceResponse(BaseModel):
     )
     start_date: datetime = Field(..., description="Start date of metrics period")
     end_date: datetime = Field(..., description="End date of metrics period")
+    market: Optional[str] = Field(None, description="Market filter echoed in the response")
+    horizon: Optional[int] = Field(None, description="Horizon filter echoed in the response")
 
 
 class HorizonValidationMetrics(BaseModel):
@@ -182,6 +186,14 @@ class HorizonValidationMetrics(BaseModel):
     mae: Optional[float] = None
     directional_accuracy: Optional[float] = None
     n_predictions: Optional[int] = None
+    validated: bool = False
+    relative_gain: Optional[float] = None
+    gap_ci_low: Optional[float] = None
+    gap_ci_high: Optional[float] = None
+    n_effective: Optional[float] = None
+    fallback_rate: Optional[float] = None
+    measurement: Optional[str] = None
+    reason: Optional[str] = None
 
 
 class ValidationMetricsResponse(BaseModel):
@@ -191,11 +203,18 @@ class ValidationMetricsResponse(BaseModel):
     report_path: Optional[str] = None
     validation_type: str = "walk_forward_multi_horizon"
     n_origins: Optional[int] = None
+    origin_start: Optional[str] = None
+    origin_end: Optional[str] = None
+    target_start: Optional[str] = None
+    target_end: Optional[str] = None
+    evaluated_component: Optional[str] = None
     horizons: List[int] = Field(default_factory=list)
     xgb_metrics: List[HorizonValidationMetrics] = Field(default_factory=list)
     legacy_holdout_mape_1step: Optional[float] = None
     ensemble_calibration: Optional[Dict[str, Any]] = None
     conformal_intervals: Optional[Dict[str, Any]] = None
+    release_version: Optional[str] = None
+    release_matches_report: bool = False
 
 
 class ModelInfo(BaseModel):

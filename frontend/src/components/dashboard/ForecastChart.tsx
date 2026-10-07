@@ -5,6 +5,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { formatPrice } from '@/lib/utils';
+import { isForecastUnavailable } from '@/lib/marketAnalytics';
 import type { MarketBriefContent, PredictionItem } from '@/types/api';
 import { BarChart3 } from 'lucide-react';
 
@@ -66,13 +67,16 @@ export function ForecastChart({
     }));
 
   const lastHist = histPoints[histPoints.length - 1];
-  const forecastPoints = predictions.map(p => ({
-    date: `+${p.horizon}j`,
-    actual: null as number | null,
-    forecast: p.price,
-    bandLow: p.confidence_interval[0],
-    bandHigh: p.confidence_interval[1],
-  }));
+  const forecastPoints = predictions.map(p => {
+    const unavailable = isForecastUnavailable(p);
+    return {
+      date: `+${p.horizon}j`,
+      actual: null as number | null,
+      forecast: unavailable ? null : p.price,
+      bandLow: unavailable ? null : p.confidence_interval[0],
+      bandHigh: unavailable ? null : p.confidence_interval[1],
+    };
+  });
 
   const bridge = lastHist
     ? [{
