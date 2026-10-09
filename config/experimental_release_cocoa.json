@@ -1,0 +1,30 @@
+{
+  "market": "cocoa",
+  "version": "improved_20261009_001100",
+  "release_mode": "experimental",
+  "validated": false,
+  "scored_variant": "no_sentiment",
+  "artifacts": {
+    "prophet": "models/candidates/cocoa/20261009_001100/prophet_improved_20261009_001100.pkl",
+    "xgboost": "models/candidates/cocoa/20261009_001100/xgboost_improved_20261009_001100.pkl",
+    "direct_info": "models/candidates/cocoa/20261009_001100/model_info_direct_horizon_20261009_001100.json",
+    "improved_info": "models/candidates/cocoa/20261009_001100/model_info_improved_20261009_001100.json",
+    "nhits": "models/nhits_20261008_233556",
+    "ensemble_weights": "config/ensemble_weights.json",
+    "conformal_intervals": "config/conformal_intervals.json"
+  },
+  "horizons": {
+    "1": {
+      "validated": false
+    },
+    "7": {
+      "validated": false
+    },
+    "14": {
+      "validated": false
+    },
+    "30": {
+      "validated": false
+    }
+  }
+}

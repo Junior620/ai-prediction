@@ -55,7 +55,7 @@ export function buildScenarios(
   pred: PredictionItem | undefined,
   _currentPrice: number,
 ): ScenarioOutlook[] {
-  if (!pred) return [];
+  if (!pred || pred.price == null || !pred.confidence_interval) return [];
   const [lo, hi] = pred.confidence_interval;
   return [
     { label: 'Borne basse', price: lo, tone: 'bearish' },

@@ -8,7 +8,7 @@ REM 2. Collecte news + sentiment (cacao)
 REM 3. Reentrainement hybride + N-HiTS pour les deux marches
 REM 4. Redemarrage API locale (decouverte auto des modeles)
 REM 5. Verification predictions API locale
-REM 6. Deploy modeles vers VPS Contabo + restart API distante
+REM Le deploiement VPS n'est pas lance par cette commande.
 REM ================================================================================
 
 set PYTHONIOENCODING=utf-8
@@ -92,6 +92,15 @@ if errorlevel 1 (
 )
 echo.
 
+echo [INFO] Meteo regions cacao (WeatherAPI) — non bloquant...
+call venv_py311\Scripts\python.exe collect_cocoa_weather.py
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Meteo non mise a jour — non bloquant
+) else (
+    echo [OK] Meteo cacao collectee
+)
+echo.
+
 REM ================================================================================
 REM ETAPE 2: NEWS ET SENTIMENT
 REM ================================================================================
@@ -108,6 +117,15 @@ if errorlevel 1 (
     exit /b 1
 )
 echo [OK] News collectees et sentiment analyse
+echo.
+
+echo [INFO] Versions d'evenements NLP — non bloquant...
+call venv_py311\Scripts\python.exe scripts\record_news_events.py
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Evenements NLP non enregistres — non bloquant
+) else (
+    echo [OK] Evenements NLP enregistres
+)
 echo.
 
 REM ================================================================================
@@ -162,6 +180,7 @@ if errorlevel 1 (
 ) else (
     echo [OK] Walk-forward robusta genere
 )
+echo [INFO] Walk-forward robusta quotidien sans rejeu N-HiTS : mesure incomplete.
 echo.
 
 echo --- CACAO (N-HiTS via Docker Linux) ---
@@ -240,8 +259,10 @@ echo        - models\              (cacao)
 echo        - models\coffee_robusta\ (robusta)
 echo.
 
-echo [INFO] Redemarrage de l'API Docker...
-docker-compose restart api
+echo [INFO] Recree l'API locale pour prendre le montage data et le mode experimental...
+set PREDICTION_RELEASE_MODE=experimental
+call venv_py311\Scripts\python.exe scripts\write_experimental_release.py
+docker compose up -d --force-recreate api
 
 echo [INFO] Attente du demarrage de l'API (jusqu'a 2 minutes)...
 set API_READY=0
@@ -273,36 +294,19 @@ echo ETAPE 5/6: VERIFICATION DES PREDICTIONS
 echo ================================================================================
 echo.
 
-echo [INFO] Test prediction CACAO (ICE London, GBP/T)...
-powershell -NoProfile -Command "$t=$env:API_TOKEN; $headers = @{'Authorization' = \"Bearer $t\"; 'Content-Type' = 'application/json'}; $body = @{market = 'ICE_NY'; horizons = @(1); include_sentiment = $true} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 60; Write-Host ('  Prix: ' + [math]::Round($r.current_price,2) + ' GBP/T  J+1: ' + [math]::Round($r.predictions[0].price,2) + ' GBP/T') } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
+echo [INFO] Test prediction CACAO (ICE London, GBP/T) J+1 J+7 J+14 J+30...
+powershell -NoProfile -Command "$t=$env:API_TOKEN; $headers = @{'Authorization' = \"Bearer $t\"; 'Content-Type' = 'application/json'}; $body = @{market = 'ICE_NY'; horizons = @(1,7,14,30); include_sentiment = $true} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 120; Write-Host ('  version=' + $r.model_version); foreach ($p in $r.predictions) { Write-Host ('  J+' + $p.horizon + ' status=' + $p.status + ' prix=' + $p.price) } } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
 
 echo.
-echo [INFO] Test prediction CAFE ROBUSTA (COFFEE_ROBUSTA)...
-powershell -NoProfile -Command "$t=$env:API_TOKEN; $headers = @{'Authorization' = \"Bearer $t\"; 'Content-Type' = 'application/json'}; $body = @{market = 'COFFEE_ROBUSTA'; horizons = @(1); include_sentiment = $false} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 60; Write-Host ('  Prix: $' + $r.current_price + ' USD/T  J+1: $' + $r.predictions[0].price) } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
+echo [INFO] Test prediction CAFE ROBUSTA (COFFEE_ROBUSTA) J+1 J+7 J+14 J+30...
+powershell -NoProfile -Command "$t=$env:API_TOKEN; $headers = @{'Authorization' = \"Bearer $t\"; 'Content-Type' = 'application/json'}; $body = @{market = 'COFFEE_ROBUSTA'; horizons = @(1,7,14,30); include_sentiment = $false} | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/predict' -Method Post -Headers $headers -Body $body -TimeoutSec 120; Write-Host ('  version=' + $r.model_version); foreach ($p in $r.predictions) { Write-Host ('  J+' + $p.horizon + ' status=' + $p.status + ' prix=' + $p.price) } } catch { Write-Host ('  [AVERTISSEMENT] ' + $_.Exception.Message) }"
 
 echo.
 echo [INFO] Marches disponibles: GET http://localhost:8000/api/v1/markets
 echo [INFO] Dashboard: http://localhost:3000 (cacao)  /  http://localhost:3000/coffee (robusta)
 echo.
 
-REM ================================================================================
-REM ETAPE 6: DEPLOY VERS VPS
-REM ================================================================================
-echo ================================================================================
-echo ETAPE 6/6: DEPLOY MODELES VERS VPS
-echo ================================================================================
-echo.
-
-echo [INFO] Copie du manifeste actif seulement. Un candidat non accepte n'est pas promu.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0deploy_models.ps1"
-if errorlevel 1 (
-    echo [AVERTISSEMENT] Deploy VPS echoue — l'API locale est a jour, le VPS non.
-    echo                Verifie SSH / .env.deploy puis lance: deploy_models.bat
-) else (
-    echo [OK] VPS mis a jour
-)
-echo.
-
+REM Le deploiement VPS n'est pas lance par cette commande.
 REM ================================================================================
 REM RESUME
 REM ================================================================================
@@ -315,7 +319,7 @@ echo [OK] News et sentiment
 echo [OK] Modeles hybrides cacao + robusta reentraines
 echo [OK] N-HiTS cacao + robusta (si succes ci-dessus)
 echo [OK] API locale redemarree
-echo [OK] Deploy VPS (si SSH OK)
+echo [INFO] Deploiement VPS non lance
 echo.
 echo Prod: https://api.market.ste-scpb.com/health
 echo Duree totale estimee: 10-20 minutes (selon N-HiTS)

@@ -231,6 +231,7 @@ def _parse_oi_df(df: pd.DataFrame) -> Dict[Tuple[str, str], float]:
 
     work = work.dropna(subset=["date"])
     work = work.sort_values(by=[c for c in ("ts_recv", "ts_event") if c in work.columns])
+    _append_oi_receipts(work, qty_col)
     grouped = work.groupby(["date", "symbol"], as_index=False).last()
 
     out: Dict[Tuple[str, str], float] = {}
@@ -389,25 +390,48 @@ def fetch_open_interest(
         return {}, attempts
 
 
+def _append_oi_receipts(work: pd.DataFrame, qty_col: str) -> None:
+    """Persist receipt time. Training joins this file; it does not trust ts_ref alone."""
+    path = Path(__file__).resolve().parents[2] / "data" / "cocoa_oi_receipts.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for _, row in work.iterrows():
+        quantity = _safe_float(row.get(qty_col))
+        if quantity is None:
+            continue
+        received = row.get("ts_recv")
+        if pd.isna(received):
+            continue
+        rows.append(
+            {
+                "symbol": str(row.get("symbol")),
+                "ts_ref": str(row.get("date")),
+                "ts_recv": pd.to_datetime(received, utc=True, errors="coerce").isoformat(),
+                "quantity": quantity,
+            }
+        )
+    if not rows:
+        return
+    fresh = pd.DataFrame(rows).dropna(subset=["ts_recv"])
+    if path.exists():
+        previous = pd.read_csv(path)
+        fresh = pd.concat([previous, fresh], ignore_index=True)
+    fresh = fresh.drop_duplicates(subset=["symbol", "ts_ref", "ts_recv"], keep="last")
+    fresh.to_csv(path, index=False)
+
+
 def attach_open_interest(
     bars: List[DatabentoBar],
     oi_map: Dict[Tuple[str, str], float],
 ) -> List[DatabentoBar]:
-    """Joint OI aux barres par (date, symbol). Fallback : OI max du jour (parent)."""
+    """Joint l'OI du même contrat et de la même date. Un autre contrat ne comble pas le trou."""
     if not oi_map:
         return bars
-
-    by_date_max: Dict[str, float] = {}
-    for (d, _sym), qty in oi_map.items():
-        by_date_max[d] = max(by_date_max.get(d, 0.0), qty)
 
     for bar in bars:
         key = (bar.date, bar.symbol)
         if key in oi_map:
             bar.open_interest = oi_map[key]
-        elif bar.date in by_date_max and bar.contract_rank == 0:
-            # Front month : prendre le max OI du jour si continuous n'a pas matche
-            bar.open_interest = by_date_max[bar.date]
     return bars
 
 

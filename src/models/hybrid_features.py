@@ -8,6 +8,7 @@ Feature sets (pour etude comparative / production) :
 - FEATURE_COLS_OHLCV        : + RSI, high-low, volume, momentum
 - FEATURE_COLS_OI           : + open interest
 - FEATURE_COLS_TERM         : + spreads d'echeances
+- FEATURE_COLS_WEATHER      : cumuls, retards, anomalies, secheresse (candidat seul)
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ import pandas as pd
 from pandas.tseries.offsets import BDay as BusinessDay
 from pandas.tseries.offsets import CustomBusinessDay
 from prophet import Prophet
+
+from src.models.weather_features import FEATURE_COLS_WEATHER
 
 FEATURE_COLS = [
     "price_lag_1",
@@ -97,6 +100,7 @@ def resolve_feature_cols(
     include_ohlcv: bool = False,
     include_oi: bool = False,
     include_term: bool = False,
+    include_weather: bool = False,
 ) -> List[str]:
     cols = list(FEATURE_COLS)
     if include_ohlcv:
@@ -105,6 +109,8 @@ def resolve_feature_cols(
         cols.extend(FEATURE_COLS_OI)
     if include_term:
         cols.extend(FEATURE_COLS_TERM)
+    if include_weather:
+        cols.extend(FEATURE_COLS_WEATHER)
     return cols
 
 
@@ -170,7 +176,10 @@ def load_price_data_from_supabase(
         print(f"[WARN] Table {table_name}: 0 lignes retournees (select={selected})")
 
     df = pd.DataFrame(all_data)
-    return clean_price_dataframe(df, min_date=min_date)
+    cleaned = clean_price_dataframe(df, min_date=min_date)
+    if table_name == "cocoa_london_prices":
+        cleaned = apply_oi_receipts(cleaned)
+    return cleaned
 
 
 def load_term_structure_from_supabase(
@@ -212,6 +221,44 @@ def load_term_structure_from_supabase(
     pivot = pivot.rename(columns={i: f"close_{i}" for i in pivot.columns})
     pivot = pivot.reset_index()
     return pivot
+
+
+def apply_oi_receipts(frame: pd.DataFrame, ledger_path: Optional[Path] = None) -> pd.DataFrame:
+    """Keep open interest only when a receipt for that contract was already in hand.
+
+    The maximum open interest of another contract is never used. A session
+    without ``ts_recv`` loses its open interest.
+    """
+    out = frame.copy()
+    if "open_interest" not in out.columns:
+        out["open_interest"] = np.nan
+    path = ledger_path or (Path(__file__).resolve().parents[2] / "data" / "cocoa_oi_receipts.csv")
+    if not path.exists():
+        out["open_interest"] = np.nan
+        return out
+    ledger = pd.read_csv(path)
+    if ledger.empty or "ts_recv" not in ledger.columns or "quantity" not in ledger.columns or "symbol" not in ledger.columns:
+        out["open_interest"] = np.nan
+        return out
+    ledger = ledger[ledger["symbol"].astype(str) == "C.v.0"].copy()
+    if ledger.empty:
+        out["open_interest"] = np.nan
+        return out
+    ledger["ts_recv"] = pd.to_datetime(ledger["ts_recv"], utc=True, errors="coerce")
+    ledger = ledger.dropna(subset=["ts_recv", "quantity"]).sort_values("ts_recv")
+    ledger["available_on"] = ledger["ts_recv"].dt.tz_convert(None).dt.normalize()
+    right = ledger.groupby("available_on", as_index=False)["quantity"].last()
+    right = right.rename(columns={"available_on": "date", "quantity": "open_interest_received"})
+    left = out.drop(columns=["open_interest"], errors="ignore")
+    left["date"] = pd.to_datetime(left["date"]).dt.tz_localize(None).dt.normalize()
+    merged = pd.merge_asof(
+        left.sort_values("date"),
+        right.sort_values("date"),
+        on="date",
+        direction="backward",
+    )
+    merged["open_interest"] = merged["open_interest_received"]
+    return merged.drop(columns=["open_interest_received"])
 
 
 def clean_price_dataframe(df: pd.DataFrame, min_date: str = "2020-01-01") -> pd.DataFrame:

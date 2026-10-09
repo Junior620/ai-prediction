@@ -102,13 +102,15 @@ def _parse_rss_items(xml_text: str, source_name: str, max_items: int) -> List[Di
                 )
                 published = getattr(entry, "published", None) or getattr(entry, "updated", None)
                 if title and link:
+                    parsed, verified = _parse_published(published)
                     items.append(
                         {
                             "title": title,
                             "description": summary[:500],
                             "url": link,
                             "source": source_name,
-                            "published_at": _normalize_date(published),
+                            "published_at": parsed if verified else datetime.now(timezone.utc).isoformat(),
+                            "published_at_verified": verified,
                         }
                     )
             return items
@@ -148,35 +150,51 @@ def _parse_rss_items(xml_text: str, source_name: str, max_items: int) -> List[Di
             or node.findtext("{http://www.w3.org/2005/Atom}published")
         )
         if title and link:
+            parsed, verified = _parse_published(published)
             items.append(
                 {
                     "title": title,
                     "description": desc[:500],
                     "url": link.strip(),
                     "source": source_name,
-                    "published_at": _normalize_date(published),
+                    "published_at": parsed if verified else datetime.now(timezone.utc).isoformat(),
+                    "published_at_verified": verified,
                 }
             )
     return items
 
 
-def _normalize_date(raw: Optional[str]) -> str:
-    if not raw:
-        return datetime.now(timezone.utc).isoformat()
-    raw = raw.strip()
-    # Already ISO-ish
+def _parse_published(raw: Optional[str]) -> tuple[Optional[str], bool]:
+    """Return a UTC timestamp only when the source actually provided a date."""
+    if not raw or not str(raw).strip():
+        return None, False
+    text = str(raw).strip()
     try:
-        if "T" in raw:
-            return datetime.fromisoformat(raw.replace("Z", "+00:00")).isoformat()
+        if "T" in text or text.endswith("Z"):
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).isoformat(), True
     except Exception:
         pass
-    # RFC2822 via email.utils
     try:
         from email.utils import parsedate_to_datetime
 
-        return parsedate_to_datetime(raw).isoformat()
+        parsed = parsedate_to_datetime(text)
+        if parsed is None:
+            return None, False
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat(), True
     except Exception:
-        return datetime.now(timezone.utc).isoformat()
+        return None, False
+
+
+def _normalize_date(raw: Optional[str]) -> str:
+    parsed, verified = _parse_published(raw)
+    if verified and parsed:
+        return parsed
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _parse_html_list(html: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -212,6 +230,7 @@ def _parse_html_list(html: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "url": url,
                 "source": source["name"],
                 "published_at": datetime.now(timezone.utc).isoformat(),
+                "published_at_verified": False,
             }
         )
         if len(items) >= max_items:
@@ -240,6 +259,7 @@ def _parse_html_list(html: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:
                         "url": url,
                         "source": source["name"],
                         "published_at": datetime.now(timezone.utc).isoformat(),
+                        "published_at_verified": False,
                     }
                 )
                 if len(items) >= max_items:
@@ -260,6 +280,7 @@ def _parse_html_list(html: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "url": source["url"] + f"?d={datetime.now().date().isoformat()}",
                 "source": source["name"],
                 "published_at": datetime.now(timezone.utc).isoformat(),
+                "published_at_verified": False,
             }
         )
     return items
@@ -407,6 +428,7 @@ def collect_newsapi(days_back: Optional[int] = None) -> Dict[str, Any]:
             rejected += 1
             continue
         src = a.get("source") or {}
+        parsed, verified = _parse_published(a.get("publishedAt"))
         kept.append(
             {
                 "title": title,
@@ -414,7 +436,8 @@ def collect_newsapi(days_back: Optional[int] = None) -> Dict[str, Any]:
                 "content": a.get("content") or desc or "",
                 "url": url,
                 "source": src.get("name") or "NewsAPI",
-                "published_at": a.get("publishedAt") or datetime.now(timezone.utc).isoformat(),
+                "published_at": parsed if verified else datetime.now(timezone.utc).isoformat(),
+                "published_at_verified": verified,
             }
         )
 

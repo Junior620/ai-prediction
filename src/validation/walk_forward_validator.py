@@ -4,9 +4,11 @@ Walk-forward expanding-window validation for Prophet + XGBoost hybrid model.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -51,6 +53,7 @@ class WalkForwardConfig:
     recent_range_days: int = 252
     recent_range_padding_pct: float = 15.0
     garch_enabled: bool = False
+    defer_bands: bool = False
     confidence_level: float = 0.90
     prophet_params: Dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_PROPHET_PARAMS))
     xgb_params: Dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_XGB_PARAMS))
@@ -139,7 +142,12 @@ class WalkForwardValidator:
             origin_price = float(df_train["price"].iloc[-1])
 
             prophet_model, xgb_model, df_train_features = self.trainer.fit(df_train)
-            train_clean = df_train_features.dropna()
+            observed = [
+                column
+                for column in df_train_features.columns
+                if df_train_features[column].notna().any()
+            ]
+            train_clean = df_train_features.dropna(subset=observed)
             if train_clean.empty:
                 continue
 
@@ -248,11 +256,9 @@ class WalkForwardValidator:
                                 load_ensemble_weights(self.config.ensemble_weights_file),
                                 weights,
                             )
-                        nhits_price = (
-                            nhits_levels.get(horizon)
-                            if float(weights.get("nhits", 0.0)) > 0
-                            else None
-                        )
+                        nhits_weight = float(weights.get("nhits", 0.0))
+                        nhits_price = nhits_levels.get(horizon) if nhits_weight > 0 else None
+                        engine_missing = nhits_weight > 0 and nhits_price is None
                         served = compose_served_price(
                             xgb_price=raw_level,
                             prophet_price=prophet_pred,
@@ -261,7 +267,9 @@ class WalkForwardValidator:
                             spot=origin_price,
                             horizon=horizon,
                             max_abs_change_pct=self.config.max_abs_change_pct,
-                            conformal_margins=self.config.conformal_margins,
+                            conformal_margins=(
+                                None if self.config.defer_bands else self.config.conformal_margins
+                            ),
                             price_bounds=self.config.price_bounds,
                             recent_prices=df_train["price"],
                             recent_range_days=self.config.recent_range_days,
@@ -273,6 +281,20 @@ class WalkForwardValidator:
                         record["xgb_pred_direct"] = raw_level
                         record["published_pred"] = served["price"]
                         record["feature_failure"] = bool(served["feature_failure"])
+                        record["engine_missing"] = bool(engine_missing)
+                        record["engines_present"] = ",".join(
+                            name
+                            for name, present in (
+                                ("xgb", np.isfinite(raw_level)),
+                                ("prophet", np.isfinite(prophet_pred)),
+                                ("nhits", nhits_price is not None),
+                            )
+                            if present
+                        )
+                        record["weights_used"] = json.dumps(weights, sort_keys=True)
+                        if not self.config.defer_bands:
+                            record["published_lower"] = served["lower"]
+                            record["published_upper"] = served["upper"]
                         record["xgb_direct_error_pct"] = abs(raw_level - actual) / actual * 100
                     except Exception:
                         record["xgb_pred_direct"] = float("nan")

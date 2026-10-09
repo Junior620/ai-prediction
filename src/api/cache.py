@@ -56,7 +56,9 @@ class RedisCache:
         self,
         market: str,
         horizons: list[int],
-        include_sentiment: bool
+        include_sentiment: bool,
+        identity: str = "",
+        data_fingerprint: str = "",
     ) -> str:
         """
         Generate cache key for a prediction request.
@@ -71,13 +73,18 @@ class RedisCache:
         """
         horizons_str = "_".join(str(h) for h in sorted(horizons))
         sentiment_flag = "with_sentiment" if include_sentiment else "no_sentiment"
-        return f"prediction:{market}:{horizons_str}:{sentiment_flag}"
+        return (
+            f"prediction:{market}:{horizons_str}:{sentiment_flag}:"
+            f"{identity}:{data_fingerprint}"
+        )
     
     def get_prediction(
         self,
         market: str,
         horizons: list[int],
-        include_sentiment: bool
+        include_sentiment: bool,
+        identity: str = "",
+        data_fingerprint: str = "",
     ) -> Optional[PredictionResponse]:
         """
         Retrieve cached prediction if available.
@@ -90,7 +97,9 @@ class RedisCache:
         Returns:
             PredictionResponse if cache hit, None if cache miss
         """
-        cache_key = self._generate_cache_key(market, horizons, include_sentiment)
+        cache_key = self._generate_cache_key(
+            market, horizons, include_sentiment, identity, data_fingerprint
+        )
         
         try:
             cached_data = self.redis_client.get(cache_key)
@@ -118,7 +127,9 @@ class RedisCache:
         horizons: list[int],
         include_sentiment: bool,
         prediction_response: PredictionResponse,
-        ttl: Optional[int] = None
+        ttl: Optional[int] = None,
+        identity: str = "",
+        data_fingerprint: str = "",
     ) -> bool:
         """
         Store prediction in cache with TTL.
@@ -133,7 +144,9 @@ class RedisCache:
         Returns:
             True if successful, False otherwise
         """
-        cache_key = self._generate_cache_key(market, horizons, include_sentiment)
+        cache_key = self._generate_cache_key(
+            market, horizons, include_sentiment, identity, data_fingerprint
+        )
         
         if ttl is None:
             ttl = self.default_ttl
@@ -161,7 +174,9 @@ class RedisCache:
         self,
         market: str,
         horizons: list[int],
-        include_sentiment: bool
+        include_sentiment: bool,
+        identity: str = "",
+        data_fingerprint: str = "",
     ) -> bool:
         """
         Invalidate a cached prediction.
@@ -174,7 +189,9 @@ class RedisCache:
         Returns:
             True if successful, False otherwise
         """
-        cache_key = self._generate_cache_key(market, horizons, include_sentiment)
+        cache_key = self._generate_cache_key(
+            market, horizons, include_sentiment, identity, data_fingerprint
+        )
         
         try:
             deleted = self.redis_client.delete(cache_key)

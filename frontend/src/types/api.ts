@@ -1,9 +1,12 @@
+export type ForecastStatus = 'experimental' | 'validated' | 'unavailable';
+
 export interface PredictionItem {
   horizon: number;
-  price: number;
-  confidence_interval: [number, number];
-  confidence_level: number;
+  price: number | null;
+  confidence_interval: [number, number] | null;
+  confidence_level: number | null;
   timestamp: string;
+  status?: ForecastStatus;
   components?: {
     baseline?: number;
     nhits?: number | null;
@@ -12,6 +15,9 @@ export interface PredictionItem {
     residual?: number;
     sentiment?: number;
     feature_failure?: boolean;
+    status?: ForecastStatus;
+    label?: string;
+    band_label?: string;
     garch_annualized_volatility?: number | null;
     high_volatility_regime?: boolean;
   };
@@ -256,4 +262,20 @@ export interface ModelComparisonResponse {
   n_test?: number | null;
   metrics: ModelComparisonMetric[];
   note?: string | null;
+}
+
+export interface CocoaWeatherLocation {
+  location: string;
+  country: string;
+  temperature_c?: number | null;
+  precipitation_mm?: number | null;
+  humidity?: number | null;
+  condition?: string | null;
+  collected_at?: string | null;
+}
+
+export interface CocoaWeatherResponse {
+  locations: CocoaWeatherLocation[];
+  collected_at?: string | null;
+  note: string;
 }

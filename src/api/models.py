@@ -6,7 +6,7 @@ ensuring proper validation and documentation.
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Literal, Optional, Any
 from pydantic import BaseModel, Field
 
 
@@ -59,15 +59,19 @@ class PredictionItem(BaseModel):
     """
     
     horizon: int = Field(..., description="Prediction horizon in days")
-    price: float = Field(..., description="Predicted price in USD/MT")
-    confidence_interval: List[float] = Field(
-        ...,
+    price: Optional[float] = Field(None, description="Predicted price in USD/MT")
+    confidence_interval: Optional[List[float]] = Field(
+        None,
         description="Confidence interval [lower, upper]",
         min_length=2,
-        max_length=2
+        max_length=2,
     )
-    confidence_level: float = Field(..., description="Confidence level")
+    confidence_level: Optional[float] = Field(None, description="Confidence level")
     timestamp: datetime = Field(..., description="Prediction timestamp")
+    status: Literal["experimental", "validated", "unavailable"] = Field(
+        "experimental",
+        description="experimental and unavailable in experimental mode; validated only for an active validated horizon",
+    )
     components: Optional[dict] = Field(None, description="Individual engine predictions (baseline, nhits, prophet, etc.)")
 
 
@@ -530,3 +534,21 @@ class ModelComparisonResponse(BaseModel):
     n_test: Optional[int] = None
     metrics: List[ModelComparisonMetric] = Field(default_factory=list)
     note: Optional[str] = None
+
+
+class CocoaWeatherLocation(BaseModel):
+    location: str
+    country: str
+    temperature_c: Optional[float] = None
+    precipitation_mm: Optional[float] = None
+    humidity: Optional[int] = None
+    condition: Optional[str] = None
+    collected_at: Optional[str] = None
+
+
+class CocoaWeatherResponse(BaseModel):
+    """Instantané WeatherAPI. Il n'entre pas dans le prix publié."""
+
+    locations: List[CocoaWeatherLocation] = Field(default_factory=list)
+    collected_at: Optional[str] = None
+    note: str = "Contexte météo, non utilisé par la prévision."

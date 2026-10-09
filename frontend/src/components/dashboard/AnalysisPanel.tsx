@@ -53,7 +53,7 @@ export function AnalysisPanel({
 }: AnalysisPanelProps) {
   const pred7 = predictions.find(p => p.horizon === 7);
   const pred30 = predictions.find(p => p.horizon === 30) ?? predictions[predictions.length - 1];
-  const change7 = pred7 && currentPrice ? ((pred7.price - currentPrice) / currentPrice) * 100 : 0;
+  const change7 = pred7 && pred7.price != null && currentPrice ? ((pred7.price - currentPrice) / currentPrice) * 100 : 0;
 
   const factors = buildInfluentialFactors({
     changePct7d: change7,
@@ -65,8 +65,8 @@ export function AnalysisPanel({
   });
 
   const h30 = validation?.xgb_metrics?.find(row => row.horizon === (pred30?.horizon ?? 30));
-  const horizonValidated = h30?.validated === true;
-  const pred30Usable = horizonValidated && pred30 && !isForecastUnavailable(pred30) ? pred30 : undefined;
+  const pred30Status = pred30?.status ?? pred30?.components?.status;
+  const pred30Usable = pred30 && pred30.price != null && pred30Status !== 'unavailable' ? pred30 : undefined;
   const scenarios = buildScenarios(pred30Usable, currentPrice);
 
   const m7 = validation?.xgb_metrics?.find(m => m.horizon === 7)

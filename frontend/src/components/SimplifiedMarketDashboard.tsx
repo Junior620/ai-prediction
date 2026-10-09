@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -12,10 +12,12 @@ import type {
   LondonMarketResponse,
   ModelComparisonResponse,
   PredictionHistoryItem,
+  CocoaWeatherResponse,
 } from '@/types/api';
 import { TradingViewEmbed } from '@/components/TradingViewEmbed';
 import { MarketBrief } from '@/components/MarketBrief';
 import { MarketKPIBar } from '@/components/dashboard/MarketKPIBar';
+import { CocoaWeatherStrip } from '@/components/dashboard/CocoaWeatherStrip';
 import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonCard';
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
@@ -28,6 +30,8 @@ import { useDashboardNotifications } from '@/hooks/useDashboardNotifications';
 import {
   RefreshCw, AlertTriangle, BarChart3, Coffee, Bell,
 } from 'lucide-react';
+
+const DASHBOARD_REFRESH_MS = 30_000;
 
 export interface MarketDashboardConfig {
   market: string;
@@ -93,6 +97,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const [validation, setValidation] = useState<ValidationMetricsResponse | null>(null);
   const [futures, setFutures] = useState<FuturesCurveResponse | null>(null);
   const [londonMarket, setLondonMarket] = useState<LondonMarketResponse | null>(null);
+  const [cocoaWeather, setCocoaWeather] = useState<CocoaWeatherResponse | null>(null);
   const [modelComparison, setModelComparison] = useState<ModelComparisonResponse | null>(null);
   const [predictionHistory, setPredictionHistory] = useState<PredictionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +106,25 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const [error, setError] = useState<string | null>(null);
   const [briefError, setBriefError] = useState<string | null>(null);
   const [journalOk, setJournalOk] = useState(true);
+  const buildId = useRef<string | null>(null);
+
+  const pullLatestPage = useCallback(async () => {
+    try {
+      const res = await fetch('/api/build-id', { cache: 'no-store' });
+      if (!res.ok) return false;
+      const body = (await res.json()) as { id?: string };
+      const id = body.id;
+      if (!id) return false;
+      if (buildId.current && buildId.current !== id) {
+        window.location.reload();
+        return true;
+      }
+      buildId.current = id;
+    } catch {
+      /* la requête de prévision continue */
+    }
+    return false;
+  }, []);
 
   const fallback = TV_FALLBACKS[config.market];
   const [tvEmbedSymbol, setTvEmbedSymbol] = useState<string | null>(fallback?.embedSymbol ?? null);
@@ -182,18 +206,19 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
 
   const fetchAll = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = Boolean(opts?.silent);
+    if (await pullLatestPage()) return;
     if (!silent) {
       setLoading(true);
       setError(null);
     }
     try {
-      const [predRes, valRes, histRes] = await Promise.all([
-        api.getPredictions({
-          market: config.market,
-          horizons: [1, 7, 14, 30],
-          include_sentiment: config.includeSentiment,
-        }),
-        api.getValidationMetrics(config.market),
+      const predRes = await api.getPredictions({
+        market: config.market,
+        horizons: [1, 7, 14, 30],
+        include_sentiment: config.includeSentiment,
+      });
+      const [valRes, histRes] = await Promise.all([
+        api.getValidationMetrics(config.market, predRes.model_version),
         api.getPredictionHistory(36, undefined, config.market).catch(() => ({ predictions: [], count: 0 })),
       ]);
       setData(predRes);
@@ -201,25 +226,29 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
       setPredictionHistory(histRes?.predictions ?? []);
       if (config.market === 'ICE_NY') {
         try {
-          const [fut, london, comparison] = await Promise.all([
+          const [fut, london, comparison, weather] = await Promise.all([
             api.getFutures(true),
             api.getLondonMarket(60),
             api.getModelComparison(),
+            api.getCocoaWeather(),
           ]);
           setFutures(fut);
           setLondonMarket(london);
           setModelComparison(comparison);
+          setCocoaWeather(weather);
         } catch {
           if (!silent) {
             setFutures(null);
             setLondonMarket(null);
             setModelComparison(null);
+            setCocoaWeather(null);
           }
         }
       } else {
         setFutures(null);
         setLondonMarket(null);
         setModelComparison(null);
+        setCocoaWeather(null);
       }
       api.healthCheck()
         .then(health => setJournalOk(health.journal_schema_ok !== false))
@@ -237,16 +266,15 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
       if (!silent) setLoading(false);
     }
     void loadBrief(false);
-  }, [config.market, config.includeSentiment, loadBrief]);
+  }, [config.market, config.includeSentiment, loadBrief, pullLatestPage]);
 
   useEffect(() => {
     void fetchAll();
-    // Auto-refresh silencieux toutes les 60 s (onglet visible)
     const id = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
         void fetchAll({ silent: true });
       }
-    }, 60_000);
+    }, DASHBOARD_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [fetchAll]);
 
@@ -436,6 +464,10 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 priceSource={config.priceSource}
                 accentClass={theme.accentClass}
               />
+
+              {config.market === 'ICE_NY' && (
+                <CocoaWeatherStrip data={cocoaWeather} />
+              )}
 
               {metricsByHorizon[1]?.mape != null && (
                 <div className="glass-card px-4 py-3 flex flex-wrap gap-6 text-sm text-slate-300">

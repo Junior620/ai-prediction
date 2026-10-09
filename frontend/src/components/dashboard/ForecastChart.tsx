@@ -68,13 +68,14 @@ export function ForecastChart({
 
   const lastHist = histPoints[histPoints.length - 1];
   const forecastPoints = predictions.map(p => {
-    const unavailable = isForecastUnavailable(p);
+    const status = p.status ?? p.components?.status;
+    const unavailable = status === 'unavailable' || p.price == null;
     return {
       date: `+${p.horizon}j`,
       actual: null as number | null,
       forecast: unavailable ? null : p.price,
-      bandLow: unavailable ? null : p.confidence_interval[0],
-      bandHigh: unavailable ? null : p.confidence_interval[1],
+      bandLow: unavailable || !p.confidence_interval ? null : p.confidence_interval[0],
+      bandHigh: unavailable || !p.confidence_interval ? null : p.confidence_interval[1],
     };
   });
 

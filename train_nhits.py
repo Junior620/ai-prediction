@@ -140,9 +140,13 @@ nhits_model = NHITS(
     enable_progress_bar=True,
 )
 
+from pandas.tseries.offsets import CustomBusinessDay
+from src.models.hybrid_features import exchange_holidays
+
+ice_freq = CustomBusinessDay(holidays=exchange_holidays())
 nf = NeuralForecast(
     models=[nhits_model],
-    freq='B'
+    freq=ice_freq,
 )
 
 val_size = HORIZON
@@ -171,7 +175,30 @@ print("[OK] N-HiTS entraine avec succes!")
 print("")
 print("[4/5] Evaluation des performances...")
 
-cv_results = nf.cross_validation(df=nf_df, val_size=val_size, n_windows=1)
+# A fresh network. The fitted object above is the one that gets saved.
+eval_model = NHITS(
+    h=HORIZON,
+    input_size=INPUT_SIZE,
+    stack_types=['identity', 'identity', 'identity'],
+    n_blocks=[1, 1, 1],
+    mlp_units=3 * [[256, 256]],
+    n_pool_kernel_size=[4, 2, 1],
+    n_freq_downsample=[4, 2, 1],
+    learning_rate=1e-3,
+    max_steps=500,
+    early_stop_patience_steps=50,
+    val_check_steps=25,
+    dropout_prob_theta=0.1,
+    scaler_type='robust',
+    batch_size=32,
+    windows_batch_size=256,
+    random_seed=42,
+    loss=MAE(),
+    accelerator='cpu',
+    enable_progress_bar=True,
+)
+eval_nf = NeuralForecast(models=[eval_model], freq=ice_freq)
+cv_results = eval_nf.cross_validation(df=nf_df, val_size=val_size, n_windows=1)
 
 y_true = cv_results['y'].values
 y_pred = cv_results['NHITS'].values

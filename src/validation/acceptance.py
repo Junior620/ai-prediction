@@ -72,6 +72,28 @@ def moving_block_ci(
     return float(lo), float(hi)
 
 
+def failure_mask(frame: pd.DataFrame) -> np.ndarray:
+    """A row is a fallback when the model did not produce a usable price.
+
+    The mask is the union of a recorded feature failure, a non-finite
+    published price, and a required engine that was absent.
+    """
+    n = int(len(frame))
+    failed = np.zeros(n, dtype=bool)
+    if n == 0:
+        return failed
+    if "feature_failure" in frame.columns:
+        failed |= frame["feature_failure"].fillna(False).astype(bool).to_numpy()
+    if "engine_missing" in frame.columns:
+        failed |= frame["engine_missing"].fillna(False).astype(bool).to_numpy()
+    if "published_pred" in frame.columns:
+        raw = pd.to_numeric(frame["published_pred"], errors="coerce").to_numpy(dtype=float)
+        failed |= ~np.isfinite(raw)
+    else:
+        failed |= True
+    return failed
+
+
 def _published_column(frame: pd.DataFrame) -> pd.Series:
     """Price that would have been shown. A missing price is the close."""
     if "published_pred" not in frame.columns:
@@ -79,10 +101,18 @@ def _published_column(frame: pd.DataFrame) -> pd.Series:
     else:
         published = pd.to_numeric(frame["published_pred"], errors="coerce")
     origin = pd.to_numeric(frame["origin_price"], errors="coerce")
-    if "feature_failure" in frame.columns:
-        failed = frame["feature_failure"].fillna(False).astype(bool)
-        published = published.where(~failed, origin)
+    failed = failure_mask(frame)
+    published = published.mask(failed, origin)
     return published.where(published.notna(), origin)
+
+
+def _served_band(frame: pd.DataFrame, lower_name: str, upper_name: str):
+    """Final bounds already stored on the rows. Missing columns are not invented."""
+    if lower_name not in frame.columns or upper_name not in frame.columns:
+        return None, None
+    lower = pd.to_numeric(frame[lower_name], errors="coerce").to_numpy(dtype=float)
+    upper = pd.to_numeric(frame[upper_name], errors="coerce").to_numpy(dtype=float)
+    return lower, upper
 
 
 def _margin_width(entry: Optional[Dict[str, Any]]) -> float:
@@ -140,13 +170,7 @@ def evaluate_horizon(
     published = _published_column(subset).to_numpy(dtype=float)
     actual = subset["actual"].to_numpy(dtype=float)
     naive = subset["naive_pred"].to_numpy(dtype=float)
-    if "feature_failure" in subset.columns:
-        failed = subset["feature_failure"].fillna(False).astype(bool).to_numpy()
-    elif "published_pred" in subset.columns:
-        raw = pd.to_numeric(subset["published_pred"], errors="coerce").to_numpy(dtype=float)
-        failed = ~np.isfinite(raw)
-    else:
-        failed = np.ones(n, dtype=bool)
+    failed = failure_mask(subset)
     fallback_rate = float(np.mean(failed)) if n else 0.0
 
     model_ape = np.abs((actual - published) / actual) * 100.0
@@ -164,14 +188,28 @@ def evaluate_horizon(
     gap_lo, gap_hi = moving_block_ci(gap, length, replicates, alpha, seed=int(horizon))
 
     coverage_level = float(acceptance.get("coverage_level", 0.90))
-    model_width = _margin_width(frozen_margin)
-    naive_width = _margin_width(frozen_naive_margin)
-    if frozen_margin and np.isfinite(model_width):
-        lower = float(frozen_margin["margin_lower"])
-        upper = float(frozen_margin["margin_upper"])
-        covered = (actual >= published - lower) & (actual <= published + upper)
+    del frozen_margin, frozen_naive_margin
+    model_lower, model_upper = _served_band(subset, "published_lower", "published_upper")
+    naive_lower, naive_upper = _served_band(subset, "naive_lower", "naive_upper")
+    model_bounds_ok = (
+        model_lower is not None
+        and bool(np.isfinite(model_lower).all())
+        and bool(np.isfinite(model_upper).all())
+    )
+    naive_bounds_ok = (
+        naive_lower is not None
+        and bool(np.isfinite(naive_lower).all())
+        and bool(np.isfinite(naive_upper).all())
+    )
+    if model_bounds_ok:
+        covered = (actual >= model_lower) & (actual <= model_upper)
+        model_width = float(np.mean(model_upper - model_lower))
     else:
         covered = np.zeros(n, dtype=bool)
+        model_width = float("nan")
+    naive_width = (
+        float(np.mean(naive_upper - naive_lower)) if naive_bounds_ok else float("nan")
+    )
     cov_lo, cov_hi = moving_block_ci(covered.astype(float), length, replicates, alpha, seed=1000 + int(horizon))
 
     spoken = ~failed
@@ -181,17 +219,25 @@ def evaluate_horizon(
 
     min_gain = float(acceptance.get("min_relative_mape_gain", 0.10))
     max_fallback = float(acceptance.get("max_fallback_rate", 0.20))
+    min_observations = int(acceptance.get("min_observations", 30))
+    min_blocks = float(acceptance.get("min_temporal_blocks", 6))
     reasons = []
+    if n < min_observations:
+        reasons.append("Le nombre d'observations est sous le minimum écrit à l'avance.")
+    if (n / float(length)) < min_blocks:
+        reasons.append("Le nombre de blocs temporels est sous le minimum écrit à l'avance.")
     if not (relative_gain is not None and relative_gain >= min_gain):
         reasons.append("Le gain sur la clôture inchangée est inférieur au minimum utile.")
     if not (np.isfinite(gap_hi) and gap_hi < 0):
         reasons.append("L'intervalle par blocs sur l'écart n'exclut pas zéro.")
     if fallback_rate >= max_fallback:
         reasons.append("Le taux de repli vers la clôture dépasse le plafond.")
-    if not (np.isfinite(model_width) and np.isfinite(naive_width) and model_width < naive_width):
+    if not model_bounds_ok:
+        reasons.append("Bornes finales absentes.")
+    elif not naive_bounds_ok:
+        reasons.append("Bornes finales de la clôture inchangée absentes.")
+    elif not (np.isfinite(model_width) and np.isfinite(naive_width) and model_width < naive_width):
         reasons.append("La bande n'est pas plus étroite que celle de la clôture inchangée.")
-    if not (frozen_margin and np.isfinite(model_width)):
-        reasons.append("Aucune marge de calibration figée pour cet horizon.")
     elif not (np.isfinite(cov_hi) and cov_hi >= coverage_level):
         reasons.append("L'intervalle par blocs de la couverture hors échantillon reste sous la cible.")
 

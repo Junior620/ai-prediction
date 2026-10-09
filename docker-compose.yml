@@ -56,6 +56,8 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DATABENTO_API_KEY=${DATABENTO_API_KEY}
       - TRADINGVIEW_WEBHOOK_SECRET=${TRADINGVIEW_WEBHOOK_SECRET:-}
+      - PREDICTION_RELEASE_MODE=${PREDICTION_RELEASE_MODE:-active}
+      - HF_HUB_DISABLE_XET=1
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - MLFLOW_TRACKING_URI=http://mlflow:5000
@@ -68,6 +70,7 @@ services:
       - ./.env:/app/.env:ro
       - ./logs:/app/logs
       - ./models:/app/models
+      - ./data:/app/data
       - ./reports:/app/reports
       - ./train_nhits.py:/app/train_nhits.py:ro
       - mlruns:/app/mlruns

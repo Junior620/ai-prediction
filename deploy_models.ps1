@@ -203,6 +203,15 @@ function Resolve-ReleaseFile($Release, [string]$Key) {
     if (-not $relative) { throw ("Artefact absent du manifeste: " + $Key) }
     return Join-Path $Root (($relative -replace '/', '\'))
 }
+function Send-RepoFile([string]$Relative) {
+    $normalized = ($Relative -replace '\\', '/').TrimStart('/')
+    $local = Join-Path $Root ($normalized -replace '/', '\')
+    if (-not (Test-Path $local)) { throw ("Fichier absent: " + $normalized) }
+    $remoteParent = Split-Path $normalized -Parent
+    $remoteDir = if ($remoteParent) { "$RemotePath/" + ($remoteParent -replace '\\', '/') } else { "$RemotePath" }
+    Invoke-Ssh ("mkdir -p '" + $remoteDir + "'")
+    Invoke-Scp -Sources @($local) -Destination ($remoteDir + "/")
+}
 $cocoaRelease = Get-ActiveRelease "cocoa"
 $robustaRelease = Get-ActiveRelease "coffee_robusta"
 $cocoaProphet = Get-Item (Resolve-ReleaseFile $cocoaRelease "prophet")
@@ -239,51 +248,35 @@ Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/models/future
 
 # --- Upload models ---
 Write-Host '[INFO] Upload modeles cacao...'
-Invoke-Scp -Sources @($cocoaProphet.FullName, $cocoaXgb.FullName) -Destination "$RemotePath/models/"
+Send-RepoFile $cocoaRelease.artifacts.prophet
+Send-RepoFile $cocoaRelease.artifacts.xgboost
 $cocoaInfo = Get-Item (Resolve-ReleaseFile $cocoaRelease "improved_info")
 if ($cocoaInfo) {
     Invoke-Scp -Sources @($cocoaInfo.FullName) -Destination "$RemotePath/models/"
 }
 $cocoaDirectInfo = Get-Item (Resolve-ReleaseFile $cocoaRelease "direct_info")
 $cocoaDirectMeta = Get-Content $cocoaDirectInfo.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-$cocoaH1 = Get-Item (Join-Path $cocoaDir ([IO.Path]::GetFileName(($cocoaDirectMeta.horizons."1".model_path -replace '\\','/'))))
-$cocoaH7 = Get-Item (Join-Path $cocoaDir ([IO.Path]::GetFileName(($cocoaDirectMeta.horizons."7".model_path -replace '\\','/'))))
-$cocoaH14 = Get-Item (Join-Path $cocoaDir ([IO.Path]::GetFileName(($cocoaDirectMeta.horizons."14".model_path -replace '\\','/'))))
-$cocoaH30 = Get-Item (Join-Path $cocoaDir ([IO.Path]::GetFileName(($cocoaDirectMeta.horizons."30".model_path -replace '\\','/'))))
-$directUploads = @()
-if ($cocoaH1) { $directUploads += $cocoaH1.FullName }
-if ($cocoaH7) { $directUploads += $cocoaH7.FullName }
-if ($cocoaH14) { $directUploads += $cocoaH14.FullName }
-if ($cocoaH30) { $directUploads += $cocoaH30.FullName }
-if ($cocoaDirectInfo) { $directUploads += $cocoaDirectInfo.FullName }
-if ($directUploads.Count -gt 0) {
-    Write-Host '[INFO] Upload modeles direct-horizon cacao...'
-    Invoke-Scp -Sources $directUploads -Destination "$RemotePath/models/"
+Write-Host '[INFO] Upload modeles direct-horizon cacao (chemin du manifeste conserve)...'
+foreach ($horizonKey in @("1", "7", "14", "30")) {
+    Send-RepoFile $cocoaDirectMeta.horizons.$horizonKey.model_path
 }
+Send-RepoFile $cocoaRelease.artifacts.direct_info
 if ($cocoaNhits) {
     Invoke-Scp -Recurse -Sources @($cocoaNhits.FullName) -Destination "$RemotePath/models/"
 }
 
 Write-Host '[INFO] Upload modeles robusta...'
-Invoke-Scp -Sources @($robustaProphet.FullName, $robustaXgb.FullName) -Destination "$RemotePath/models/coffee_robusta/"
+Send-RepoFile $robustaRelease.artifacts.prophet
+Send-RepoFile $robustaRelease.artifacts.xgboost
 $robustaDirectInfo = Get-Item (Resolve-ReleaseFile $robustaRelease "direct_info")
 $robustaDirectMeta = Get-Content $robustaDirectInfo.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
 $robustaInfo = Get-Item (Resolve-ReleaseFile $robustaRelease "improved_info")
 Invoke-Scp -Sources @($robustaInfo.FullName) -Destination "$RemotePath/models/coffee_robusta/"
-$robustaH1 = Get-Item (Join-Path $robustaDir ([IO.Path]::GetFileName(($robustaDirectMeta.horizons."1".model_path -replace '\\','/'))))
-$robustaH7 = Get-Item (Join-Path $robustaDir ([IO.Path]::GetFileName(($robustaDirectMeta.horizons."7".model_path -replace '\\','/'))))
-$robustaH14 = Get-Item (Join-Path $robustaDir ([IO.Path]::GetFileName(($robustaDirectMeta.horizons."14".model_path -replace '\\','/'))))
-$robustaH30 = Get-Item (Join-Path $robustaDir ([IO.Path]::GetFileName(($robustaDirectMeta.horizons."30".model_path -replace '\\','/'))))
-$robustaDirectUploads = @()
-if ($robustaH1) { $robustaDirectUploads += $robustaH1.FullName }
-if ($robustaH7) { $robustaDirectUploads += $robustaH7.FullName }
-if ($robustaH14) { $robustaDirectUploads += $robustaH14.FullName }
-if ($robustaH30) { $robustaDirectUploads += $robustaH30.FullName }
-if ($robustaDirectInfo) { $robustaDirectUploads += $robustaDirectInfo.FullName }
-if ($robustaDirectUploads.Count -gt 0) {
-    Write-Host '[INFO] Upload modeles direct-horizon robusta...'
-    Invoke-Scp -Sources $robustaDirectUploads -Destination "$RemotePath/models/coffee_robusta/"
+Write-Host '[INFO] Upload modeles direct-horizon robusta (chemin du manifeste conserve)...'
+foreach ($horizonKey in @("1", "7", "14", "30")) {
+    Send-RepoFile $robustaDirectMeta.horizons.$horizonKey.model_path
 }
+Send-RepoFile $robustaRelease.artifacts.direct_info
 if ($robustaNhits) {
     Invoke-Scp -Recurse -Sources @($robustaNhits.FullName) -Destination "$RemotePath/models/coffee_robusta/"
 }
@@ -325,6 +318,11 @@ $modelCodeFiles = @(
     @{ Local = "src\models\multi_step_predictor.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\served_forecast.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\release_manifest.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\prediction_journal.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\nhits_replay.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\weather_features.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\ensemble_weights.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\conformal_intervals.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\validation\acceptance.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "src\validation\served_backtest.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "src\monitoring\performance_monitor.py"; Remote = "$RemotePath/src/monitoring/" },
@@ -346,6 +344,7 @@ $configFiles = @(
     @{ Local = "config\ensemble_weights.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\conformal_intervals.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\acceptance.json"; Remote = "$RemotePath/config/" },
+    @{ Local = "config\exchange_holidays.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\active_release_cocoa.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\active_release_coffee_robusta.json"; Remote = "$RemotePath/config/" },
     @{ Local = "config\model_comparison_latest.json"; Remote = "$RemotePath/config/" },

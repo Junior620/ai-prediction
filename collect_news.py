@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -28,6 +28,8 @@ except Exception:
 from src.data_collection.news_feed_collector import collect_all_sources
 from src.data_collection.news_sources import source_weight
 from src.data_collection.sentiment_scoring import score_sentiment
+from src.nlp.event_store import append_local
+from src.nlp.nlp_analyzer import NLPAnalyzer
 
 
 # Sources francophones connues (traduction forcee meme si langdetect hesite)
@@ -75,6 +77,74 @@ def _write_journal(
     }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+def _record_events(articles: list) -> None:
+    """Store event versions. A failure here does not fail the news collection."""
+    if not articles:
+        return
+    try:
+        seen_at = datetime.now(timezone.utc).isoformat()
+        versions = []
+        prior: list = []
+        for article in articles:
+            payload = dict(article)
+            payload["first_seen_at"] = payload.get("first_seen_at") or seen_at
+            payload["source_weight"] = source_weight(str(payload.get("source") or ""))
+            version = NLPAnalyzer.classify_event(
+                payload.get("title") or "",
+                payload.get("description") or "",
+                source=str(payload.get("source") or ""),
+                source_weight=float(payload["source_weight"]),
+                sentiment_score=payload.get("sentiment_score"),
+                published_at=payload.get("published_at"),
+                published_at_verified=bool(payload.get("published_at_verified")),
+                first_seen_at=payload["first_seen_at"],
+                as_of=payload["first_seen_at"],
+                prior_visible=prior,
+            )
+            version["url"] = str(payload.get("url") or "")
+            if version["url"]:
+                versions.append(version)
+                prior.append(version)
+        added = append_local(versions)
+        _try_supabase(versions)
+        print(f"[OK] Evenements NLP: {added} nouvelles versions locales")
+    except Exception as exc:
+        print(f"[AVERTISSEMENT] Classement evenementiel ignore: {exc}")
+
+
+def _try_supabase(versions: list) -> None:
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    if not url or not key or not versions:
+        return
+    try:
+        supabase = create_client(url, key)
+        supabase.table("cocoa_news_event_versions").select("url").limit(1).execute()
+    except Exception as exc:
+        print(f"[AVERTISSEMENT] cocoa_news_event_versions absente ({exc})")
+        return
+    for row in versions:
+        try:
+            supabase.table("cocoa_news_events").upsert(
+                {"event_key": row["event_key"], "url": row["url"], "source": row["source"]},
+                on_conflict="url",
+            ).execute()
+            supabase.table("cocoa_news_event_versions").upsert(_version_row(row), on_conflict="url,rules_version,content_hash").execute()
+        except Exception as exc:
+            print(f"[AVERTISSEMENT] version non enregistree: {exc}")
+
+
+def _version_row(row: dict) -> dict:
+    keep = [
+        "url", "event_key", "source", "source_weight", "title", "excerpt", "category",
+        "country", "zone", "severity", "reliability", "novelty", "duration_days",
+        "sentiment_score", "economic_direction", "surprise", "published_at",
+        "published_at_verified", "observed_at", "observed_source", "first_seen_at",
+        "available_at", "available_source", "content_hash", "rules_version", "classified_at",
+    ]
+    return {key: row.get(key) for key in keep}
 
 
 def main() -> int:
@@ -199,6 +269,8 @@ def main() -> int:
             print("Sentiment: NEGATIF (marche pessimiste)")
         else:
             print("Sentiment: NEUTRE (marche stable)")
+
+    _record_events(analyzed)
 
     path = _write_journal(
         journal,

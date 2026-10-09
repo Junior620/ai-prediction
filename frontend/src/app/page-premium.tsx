@@ -88,12 +88,12 @@ export default function PremiumDashboard() {
     const pred1d = data.predictions.find(p => p.horizon === 1);
     const pred7d = data.predictions.find(p => p.horizon === 7);
     
-    if (!pred1d) {
+    if (!pred1d || pred1d.price == null || !pred1d.confidence_interval) {
       return { signal: 'HOLD', confidence: 0, trend: 'neutral', recommendation: 'Données insuffisantes' };
     }
 
     const change1d = ((pred1d.price - currentPrice) / currentPrice) * 100;
-    const change7d = pred7d ? ((pred7d.price - currentPrice) / currentPrice) * 100 : 0;
+    const change7d = pred7d && pred7d.price != null ? ((pred7d.price - currentPrice) / currentPrice) * 100 : 0;
     
     // Calcul de la confiance basé sur l'intervalle
     const intervalWidth = pred1d.confidence_interval[1] - pred1d.confidence_interval[0];
@@ -139,7 +139,7 @@ export default function PremiumDashboard() {
     if (!data || data.predictions.length === 0) return [];
     
     const pred30d = data.predictions.find(p => p.horizon === 30);
-    if (!pred30d) return [];
+    if (!pred30d || pred30d.price == null || !pred30d.confidence_interval) return [];
 
     return [
       { name: 'Optimiste', price: pred30d.confidence_interval[1], probability: 20 },
@@ -155,11 +155,11 @@ export default function PremiumDashboard() {
   // Préparer données pour graphique historique + forecast
   const combinedChartData = [
     ...historicalData.map(d => ({ ...d, type: 'historical' })),
-    ...data?.predictions.map((pred, idx) => ({
+    ...data?.predictions.filter(pred => pred.price != null && pred.confidence_interval).map((pred) => ({
       date: `+${pred.horizon}j`,
-      price: pred.price,
-      lower: pred.confidence_interval[0],
-      upper: pred.confidence_interval[1],
+      price: pred.price as number,
+      lower: pred.confidence_interval?.[0] as number,
+      upper: pred.confidence_interval?.[1] as number,
       type: 'forecast'
     })) || []
   ];
@@ -409,6 +409,14 @@ export default function PremiumDashboard() {
             {/* Prédictions détaillées */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {data.predictions.map((pred) => {
+                if (pred.price == null) {
+                  return (
+                    <div key={pred.horizon} className="bg-slate-800/90 rounded-xl p-6 border-l-4 border-amber-500">
+                      <h3 className="text-lg font-semibold text-white">Dans {pred.horizon} jour{pred.horizon > 1 ? 's' : ''}</h3>
+                      <p className="text-3xl font-bold text-slate-300 mt-4">Indisponible</p>
+                    </div>
+                  );
+                }
                 const change = pred.price - currentPrice;
                 const changePercent = (change / currentPrice) * 100;
                 const isPositive = change > 0;
@@ -435,9 +443,13 @@ export default function PremiumDashboard() {
                       {formatPercentage(changePercent)}
                     </p>
                     <div className="mt-4 pt-4 border-t border-gray-700">
-                      <p className="text-xs text-gray-400">IC 95%</p>
+                      <p className="text-xs text-gray-400">
+                        {pred.status === 'validated' ? 'IC 95%' : 'Bande expérimentale — couverture non démontrée'}
+                      </p>
                       <p className="text-sm font-medium text-gray-300">
-                        {formatPrice(pred.confidence_interval[0])} - {formatPrice(pred.confidence_interval[1])}
+                        {pred.confidence_interval
+                          ? `${formatPrice(pred.confidence_interval[0])} - ${formatPrice(pred.confidence_interval[1])}`
+                          : 'Indisponible'}
                       </p>
                     </div>
                   </div>

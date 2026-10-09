@@ -41,7 +41,34 @@ def _mape(actual: np.ndarray, pred: np.ndarray) -> float:
     return float(np.mean(np.abs((actual - pred) / actual)) * 100.0)
 
 
+def _report_local_journal() -> None:
+    """Coverage uses only bounds stored in the local journal."""
+    from src.models.prediction_journal import load_forecasts
+
+    rows = load_forecasts()
+    print(f"Journal local: {len(rows)} ligne(s)")
+    if not rows:
+        print("Couverture candidat: indisponible (journal local vide)")
+        return
+    grouped: dict[tuple, list] = defaultdict(list)
+    for row in rows:
+        grouped[(row.get("market"), row.get("horizon"), row.get("model_version"))].append(row)
+    for key, bucket in sorted(grouped.items(), key=lambda item: str(item[0])):
+        bounded = [
+            row for row in bucket
+            if row.get("lower") is not None and row.get("upper") is not None and row.get("status") != "unavailable"
+        ]
+        if not bounded:
+            print(f"Couverture {key}: indisponible")
+            continue
+        print(
+            f"Couverture {key}: bornes présentes sur {len(bounded)}/{len(bucket)} "
+            f"statut={[row.get('status') for row in bucket[:4]]}"
+        )
+
+
 def main() -> int:
+    _report_local_journal()
     print("=" * 80)
     print("EVALUATION PREDICTIONS -> PRIX REELS")
     print("=" * 80)

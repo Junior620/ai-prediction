@@ -62,6 +62,7 @@ class ImprovedPricePredictor:
         recent_range_padding_pct: float = 15.0,
         feature_cols: Optional[List[str]] = None,
         feature_set: str = "baseline",
+        direct_info_path: Optional[str] = None,
     ):
         self.prophet_model = prophet_model
         self.xgboost_model = xgboost_model
@@ -110,9 +111,17 @@ class ImprovedPricePredictor:
         self._last_data_fetch = None
 
         self.direct_target = "price"
+        self.direct_info_path = direct_info_path
         try:
-            meta = DirectHorizonTrainer.load_latest_meta(self.models_dir)
-            self.direct_target = str(meta.get("target") or "price")
+            if direct_info_path:
+                meta_path = Path(direct_info_path)
+                meta = {}
+                if meta_path.exists():
+                    import json
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            else:
+                meta = DirectHorizonTrainer.load_latest_meta(self.models_dir)
+            self.direct_target = str((meta or {}).get("target") or "price")
         except Exception as e:
             logger.debug(f"No direct horizon metadata: {e}")
 
@@ -368,103 +377,152 @@ class ImprovedPricePredictor:
         garch_forecast = self._get_garch_forecast(df_clean, horizons)
 
         for horizon in horizons:
-            future_date = future_business_date(current_date, horizon)
-            features_future = build_prediction_row(
+            try:
+                self._append_horizon(
+                    predictions,
+                    horizon=horizon,
+                    df_clean=df_clean,
+                    last_row=last_row,
+                    current_price=current_price,
+                    current_date=current_date,
+                    origin_day=origin_day,
+                    sentiment_score=sentiment_score,
+                    historical_range=historical_range,
+                    garch_forecast=garch_forecast,
+                    current_time=current_time,
+                    published_price=published_price,
+                )
+            except Exception as exc:
+                logger.warning(f"Horizon {horizon} indisponible: {exc}")
+                predictions.append(
+                    Prediction(
+                        horizon=horizon,
+                        price=max(float(current_price), 500.0),
+                        confidence_interval=(float(current_price), float(current_price)),
+                        confidence_level=self.confidence_level,
+                        timestamp=current_time,
+                        model_version=self.model_version,
+                        components={
+                            "calculation_failed": True,
+                            "origin_date": origin_day,
+                            "origin_price": float(current_price),
+                            "ensemble_weights": {},
+                        },
+                    )
+                )
+        return predictions
+
+    def _append_horizon(
+        self,
+        predictions,
+        *,
+        horizon,
+        df_clean,
+        last_row,
+        current_price,
+        current_date,
+        origin_day,
+        sentiment_score,
+        historical_range,
+        garch_forecast,
+        current_time,
+        published_price,
+    ):
+        future_date = future_business_date(current_date, horizon)
+        features_future = build_prediction_row(
                 last_row,
                 current_price,
                 future_date,
                 self.prophet_model,
                 feature_cols=self.feature_cols,
             )
-            prophet_yhat_future = float(features_future["prophet_yhat"].iloc[0])
-            xgb_price = self._predict_xgb_price(
-                horizon, df_clean, last_row, current_price, current_date
+        prophet_yhat_future = float(features_future["prophet_yhat"].iloc[0])
+        xgb_price = self._predict_xgb_price(
+            horizon, df_clean, last_row, current_price, current_date
+        )
+
+        weights = get_weights_for_horizon(
+            horizon, self._ensemble_weights, self.ensemble_fallback
+        )
+        nhits_price = None
+        if self.nhits_model is not None and float(weights.get("nhits", 0.0)) > 0:
+            try:
+                nhits_input = df_clean[["date", "price"]].copy()
+                nhits_input.columns = ["ds", "y"]
+                nhits_input["unique_id"] = self.nhits_unique_id
+                nhits_forecast = self.nhits_model.predict(df=nhits_input.sort_values("ds"))
+                if horizon <= len(nhits_forecast):
+                    nhits_price = float(nhits_forecast["NHITS"].iloc[horizon - 1])
+            except Exception as e:
+                logger.warning(f"N-HiTS prediction failed for horizon {horizon}d: {e}")
+
+        from src.models.served_forecast import compose_served_price
+
+        spot_anchor = published_price if published_price > 0 else current_price
+        served = compose_served_price(
+            xgb_price=xgb_price,
+            prophet_price=prophet_yhat_future,
+            nhits_price=nhits_price,
+            weights=weights,
+            spot=spot_anchor,
+            horizon=horizon,
+            max_abs_change_pct=self.max_abs_change_pct,
+            conformal_margins=self._conformal_margins,
+            price_bounds=historical_range,
+            garch_forecast=garch_forecast,
+            confidence_level=self.confidence_level,
+            price_volatility=float(df_clean["price"].std()),
+        )
+        final_price = served["price"]
+        lower_bound = served["lower"]
+        upper_bound = served["upper"]
+        feature_failure = served["feature_failure"]
+        if feature_failure:
+            logger.warning(
+                "h=%sd feature failure: raw ensemble %.2f vs spot %.2f. "
+                "Central scenario stays at the spot.",
+                horizon,
+                served["ensemble"],
+                spot_anchor,
             )
 
-            weights = get_weights_for_horizon(
-                horizon, self._ensemble_weights, self.ensemble_fallback
-            )
-            nhits_price = None
-            if self.nhits_model is not None and float(weights.get("nhits", 0.0)) > 0:
-                try:
-                    nhits_input = df_clean[["date", "price"]].copy()
-                    nhits_input.columns = ["ds", "y"]
-                    nhits_input["unique_id"] = self.nhits_unique_id
-                    nhits_forecast = self.nhits_model.predict(df=nhits_input.sort_values("ds"))
-                    if horizon <= len(nhits_forecast):
-                        nhits_price = float(nhits_forecast["NHITS"].iloc[horizon - 1])
-                except Exception as e:
-                    logger.warning(f"N-HiTS prediction failed for horizon {horizon}d: {e}")
-
-            from src.models.served_forecast import compose_served_price
-
-            spot_anchor = published_price if published_price > 0 else current_price
-            served = compose_served_price(
-                xgb_price=xgb_price,
-                prophet_price=prophet_yhat_future,
-                nhits_price=nhits_price,
-                weights=weights,
-                spot=spot_anchor,
+        predictions.append(
+            Prediction(
                 horizon=horizon,
-                max_abs_change_pct=self.max_abs_change_pct,
-                conformal_margins=self._conformal_margins,
-                price_bounds=historical_range,
-                garch_forecast=garch_forecast,
+                price=float(final_price),
+                confidence_interval=(float(lower_bound), float(upper_bound)),
                 confidence_level=self.confidence_level,
-                price_volatility=float(df_clean["price"].std()),
+                timestamp=current_time,
+                model_version=self.model_version,
+                components={
+                    "baseline": float(xgb_price),
+                    "nhits": float(nhits_price) if nhits_price is not None else None,
+                    "prophet": float(prophet_yhat_future),
+                    "ensemble": float(served["ensemble"]),
+                    "residual": 0.0,
+                    "sentiment": 0.0,
+                    "sentiment_score": float(sentiment_score),
+                    "dampened_change_pct": float(served["dampened_change_pct"]),
+                    "raw_change_pct": float(served["raw_change_pct"]),
+                    "feature_failure": bool(feature_failure),
+                    "origin_date": origin_day,
+                    "origin_price": float(current_price),
+                    "target_date": pd.to_datetime(future_date).date().isoformat(),
+                    "snapshot_id": self.last_snapshot["snapshot_id"],
+                    "scored_variant": "no_sentiment",
+                    "model_spot": float(current_price),
+                    "published_spot": float(published_price),
+                    "ensemble_weights": weights,
+                    "garch_annualized_volatility": served["garch_annualized_volatility"],
+                    "high_volatility_regime": bool(served["high_volatility_regime"]),
+                    "xgb_mode": (
+                        "direct_hstep" if horizon in self.direct_horizon_models
+                        else ("frozen" if horizon == 1 or self.multi_step_mode == "frozen"
+                              else "recursive")
+                    ),
+                },
             )
-            final_price = served["price"]
-            lower_bound = served["lower"]
-            upper_bound = served["upper"]
-            feature_failure = served["feature_failure"]
-            if feature_failure:
-                logger.warning(
-                    "h=%sd feature failure: raw ensemble %.2f vs spot %.2f. "
-                    "Central scenario stays at the spot.",
-                    horizon,
-                    served["ensemble"],
-                    spot_anchor,
-                )
-
-            predictions.append(
-                Prediction(
-                    horizon=horizon,
-                    price=float(final_price),
-                    confidence_interval=(float(lower_bound), float(upper_bound)),
-                    confidence_level=self.confidence_level,
-                    timestamp=current_time,
-                    model_version=self.model_version,
-                    components={
-                        "baseline": float(xgb_price),
-                        "nhits": float(nhits_price) if nhits_price is not None else None,
-                        "prophet": float(prophet_yhat_future),
-                        "ensemble": float(served["ensemble"]),
-                        "residual": 0.0,
-                        "sentiment": 0.0,
-                        "sentiment_score": float(sentiment_score),
-                        "dampened_change_pct": float(served["dampened_change_pct"]),
-                        "raw_change_pct": float(served["raw_change_pct"]),
-                        "feature_failure": bool(feature_failure),
-                        "origin_date": origin_day,
-                        "origin_price": float(current_price),
-                        "target_date": pd.to_datetime(future_date).date().isoformat(),
-                        "snapshot_id": self.last_snapshot["snapshot_id"],
-                        "scored_variant": "no_sentiment",
-                        "model_spot": float(current_price),
-                        "published_spot": float(published_price),
-                        "ensemble_weights": weights,
-                        "garch_annualized_volatility": served["garch_annualized_volatility"],
-                        "high_volatility_regime": bool(served["high_volatility_regime"]),
-                        "xgb_mode": (
-                            "direct_hstep" if horizon in self.direct_horizon_models
-                            else ("frozen" if horizon == 1 or self.multi_step_mode == "frozen"
-                                  else "recursive")
-                        ),
-                    },
-                )
-            )
-
-        return predictions
+        )
 
     def get_model_info(self) -> Dict[str, object]:
         return {

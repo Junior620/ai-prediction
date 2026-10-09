@@ -1,0 +1,59 @@
+{
+  "rules_version": "2026-10-08.1",
+  "windows_days": [7, 14, 30, 60, 90],
+  "cluster_days": 5,
+  "min_history_for_surprise": 8,
+  "important_severity": 1.5,
+  "categories": {
+    "disease": ["swollen shoot", "black pod", "frosty pod", "cssv", "disease", "maladie", "virus"],
+    "harvest": ["harvest", "recolte", "récolte", "yield", "crop failure", "bumper crop", "record crop"],
+    "export": ["export ban", "export halt", "export tax", "embargo", "blocage", "export"],
+    "production": ["production cut", "production", "output", "arrivages", "arrival"],
+    "grindings": ["grinding", "grindings", "broyage"],
+    "demand": ["demand", "demande", "consumption", "stocks", "stock"],
+    "institutional": ["icco", "cocobod", "conseil cafe-cacao", "oncc"],
+    "regulation": ["regulation", "réglementation", "eudr", "policy", "quota", "tax"],
+    "climate": ["drought", "secheresse", "sécheresse", "flood", "el nino", "la nina", "harmattan"]
+  },
+  "price_up_cues": [
+    "shortage",
+    "deficit",
+    "crop failure",
+    "swollen shoot",
+    "black pod",
+    "export ban",
+    "embargo",
+    "production cut",
+    "drought",
+    "supply disruption"
+  ],
+  "price_down_cues": [
+    "surplus",
+    "bumper crop",
+    "record crop",
+    "record harvest",
+    "production rise",
+    "export resume",
+    "oversupply"
+  ],
+  "countries": {
+    "CI": ["cote d'ivoire", "côte d'ivoire", "ivory coast", "abidjan"],
+    "GH": ["ghana", "cocobod", "accra"],
+    "CM": ["cameroon", "cameroun", "oncc"],
+    "NG": ["nigeria"],
+    "EC": ["ecuador", "équateur"],
+    "ID": ["indonesia", "indonésie"],
+    "BR": ["brazil", "brésil"]
+  },
+  "duration_days": {
+    "disease": 90,
+    "climate": 60,
+    "regulation": 60,
+    "harvest": 30,
+    "export": 30,
+    "production": 30,
+    "grindings": 14,
+    "demand": 14,
+    "institutional": 14
+  }
+}

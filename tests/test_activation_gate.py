@@ -135,6 +135,10 @@ def test_width_cap_rejects_a_band_wider_than_the_close():
             "actual": actual,
             "naive_pred": naive,
             "published_pred": published,
+            "published_lower": published - 200.0,
+            "published_upper": published + 200.0,
+            "naive_lower": naive - 5.0,
+            "naive_upper": naive + 5.0,
             "feature_failure": False,
         }
     )
@@ -143,8 +147,6 @@ def test_width_cap_rejects_a_band_wider_than_the_close():
         1,
         rules,
         step=5,
-        frozen_margin={"margin_lower": 200.0, "margin_upper": 200.0},
-        frozen_naive_margin={"margin_lower": 5.0, "margin_upper": 5.0},
     )
     assert decision["model_width"] > decision["naive_width"]
     assert "étroite" in decision["reason"]
@@ -166,22 +168,20 @@ def test_coverage_uses_the_frozen_margin_not_a_refit_on_the_test():
             "actual": actual,
             "naive_pred": naive,
             "published_pred": published,
+            "published_lower": published,
+            "published_upper": published,
+            "naive_lower": naive - 50.0,
+            "naive_upper": naive + 50.0,
             "feature_failure": False,
         }
     )
-    decision = evaluate_horizon(
-        frame,
-        1,
-        rules,
-        step=5,
-        frozen_margin={"margin_lower": 0.0, "margin_upper": 0.0},
-        frozen_naive_margin={"margin_lower": 50.0, "margin_upper": 50.0},
-    )
+    decision = evaluate_horizon(frame, 1, rules, step=5)
     assert decision["coverage"] == 0.0
     assert "hors échantillon" in decision["reason"]
     assert decision["validated"] is False
-    missing = evaluate_horizon(frame, 1, rules, step=5)
-    assert "figée" in missing["reason"]
+    bare = frame.drop(columns=["published_lower", "published_upper", "naive_lower", "naive_upper"])
+    missing = evaluate_horizon(bare, 1, rules, step=5)
+    assert "Bornes finales absentes" in missing["reason"]
     assert missing["validated"] is False
 
 
@@ -278,11 +278,18 @@ def test_an_unvalidated_horizon_publishes_the_close_and_keeps_the_candidate():
             self.components = {}
 
     item = _Item()
-    publish_or_close([item], {"validated": False, "horizons": {"1": {"validated": False}}}, 100.0)
-    assert item.price == 100.0
-    assert item.confidence_interval == [100.0, 100.0]
+    publish_or_close(
+        [item],
+        {"validated": False, "horizons": {"1": {"validated": False}}, "release_mode": "experimental"},
+        100.0,
+        release_mode="experimental",
+    )
+    assert item.price == 110.0
+    assert item.confidence_interval == [100.0, 120.0]
     assert item.components["candidate_price"] == 110.0
-    assert item.components["served_as_close"] is True
+    assert item.components["candidate_lower"] == 100.0
+    assert item.components["status"] == "experimental"
+    assert item.status == "experimental"
 
     kept = _Item()
     publish_or_close(
@@ -293,6 +300,18 @@ def test_an_unvalidated_horizon_publishes_the_close_and_keeps_the_candidate():
     assert kept.price == 110.0
     assert kept.components["candidate_price"] == 110.0
     assert kept.components["served_as_close"] is False
+    assert kept.status == "validated"
+
+    blocked = _Item()
+    publish_or_close(
+        [blocked],
+        {"validated": True, "horizons": {"1": {"validated": True}}},
+        100.0,
+        release_mode="experimental",
+    )
+    assert blocked.status == "experimental"
+    assert blocked.price == 110.0
+    assert blocked.components["status"] == "experimental"
 
 
 def test_metrics_follow_the_report_named_by_the_manifest(tmp_path):
@@ -329,9 +348,11 @@ def test_rsi_is_100_when_every_move_is_a_gain():
 
 
 def test_future_business_date_skips_a_listed_holiday():
-    # Thursday 30 April plus one session would be Friday 1 May. That day is closed.
+    # Thursday 30 April. Friday 1 May is passed in, and Monday 4 May is on the ICE list.
     landed = future_business_date("2026-04-30", 1, holidays=["2026-05-01"])
-    assert landed.date().isoformat() == "2026-05-04"
+    assert landed.date().isoformat() == "2026-05-05"
+    cocoa = future_business_date("2026-04-02", 1)
+    assert cocoa.date().isoformat() == "2026-04-07"
 
 
 def test_a_future_open_interest_does_not_change_a_past_session():
@@ -356,7 +377,8 @@ def test_unvalidated_horizon_card_shows_the_close_label():
     source = Path("frontend/src/components/dashboard/PredictionHorizonCard.tsx").read_text(
         encoding="utf-8"
     )
-    assert "pas de prévision validée à cet horizon" in source
+    assert "Prévision expérimentale — non validée" in source
+    assert "Indisponible" in source
     panel = Path("frontend/src/components/dashboard/AnalysisPanel.tsx").read_text(encoding="utf-8")
     assert "Probabilité" not in panel
     scenarios = Path("frontend/src/lib/marketAnalytics.ts").read_text(encoding="utf-8")

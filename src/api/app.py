@@ -50,6 +50,8 @@ from src.api.models import (
     LondonTermContract,
     ModelComparisonResponse,
     ModelComparisonMetric,
+    CocoaWeatherResponse,
+    CocoaWeatherLocation,
 )
 from src.api.auth import verify_token, verify_admin_token, decode_token
 from src.api.cache import RedisCache
@@ -73,6 +75,7 @@ from src.models.model_manager import ModelManager
 from src.monitoring.performance_monitor import PerformanceMonitor
 from src.monitoring.alert_system import get_alert_system, AlertSeverity, AlertType
 from src.models.data_models import NewsArticle
+from src.data_collection.cocoa_weather import latest_origin_weather
 from src.models.market_registry import (
     MarketConfig,
     get_market_config,
@@ -436,6 +439,66 @@ async def startup_event():
     logger.info("Cocoa Price Prediction API started successfully")
 
 
+def _session_fingerprint(price_table: str) -> str:
+    """Hash recent sessions so a corrected price or open interest misses the cache."""
+    from src.models.release_manifest import data_fingerprint
+
+    rows = []
+    try:
+        response = (
+            supabase_client.table(price_table)
+            .select("date,price,open_interest")
+            .order("date", desc=True)
+            .limit(40)
+            .execute()
+        )
+        rows = list(response.data or [])
+    except Exception:
+        try:
+            response = (
+                supabase_client.table(price_table)
+                .select("date,price")
+                .order("date", desc=True)
+                .limit(40)
+                .execute()
+            )
+            rows = list(response.data or [])
+        except Exception:
+            rows = []
+    return data_fingerprint(rows)
+
+
+def _journal_forecasts(items, *, market: str, model_version: str, release_mode: str) -> None:
+    from src.models.prediction_journal import append_forecast
+
+    for item in items:
+        parts = dict(getattr(item, "components", None) or {})
+        status = str(getattr(item, "status", None) or parts.get("status") or "unavailable")
+        interval = getattr(item, "confidence_interval", None) or []
+        lower = float(interval[0]) if len(interval) == 2 and interval[0] is not None else parts.get("candidate_lower")
+        upper = float(interval[1]) if len(interval) == 2 and interval[1] is not None else parts.get("candidate_upper")
+        if status == "unavailable":
+            lower = None
+            upper = None
+        try:
+            append_forecast(
+                market=market,
+                model_version=model_version,
+                release_mode=release_mode,
+                horizon=int(item.horizon),
+                price=None if item.price is None else float(item.price),
+                lower=None if lower is None else float(lower),
+                upper=None if upper is None else float(upper),
+                origin_date=parts.get("origin_date"),
+                origin_price=parts.get("origin_price"),
+                target_date=parts.get("target_date"),
+                status=status,
+            )
+        except Exception as exc:
+            logger.warning(f"Journal local non écrit: {exc}")
+            _mark_journal_unavailable(exc)
+
+
 def _latest_price_date(price_table: str) -> Optional[str]:
     """Newest session date in the market table, or None if it cannot be read."""
     if supabase_client is None:
@@ -456,26 +519,31 @@ def _latest_price_date(price_table: str) -> Optional[str]:
 
 
 def _journal_schema_ok() -> bool:
-    """True when the prediction journal has the columns the evaluator needs."""
-    if supabase_client is None:
-        return False
+    """True when the local journal can be appended.
+
+    Supabase columns are optional. That migration is not applied here, and
+    evaluate_predictions reads data/prediction_journal.jsonl.
+    """
+    from src.models.prediction_journal import JOURNAL
+
     try:
-        supabase_client.table("predictions").select(
-            "market,origin_date,origin_price,target_date,feature_failure,currency,candidate_price"
-        ).limit(1).execute()
-        return True
+        JOURNAL.parent.mkdir(parents=True, exist_ok=True)
+        with open(JOURNAL, "a", encoding="utf-8"):
+            pass
     except Exception as exc:
-        logger.critical(f"Journal des prévisions incomplet: {exc}")
-        try:
-            alert_system.send_alert(
-                severity=AlertSeverity.CRITICAL,
-                alert_type=AlertType.SYSTEM_ERROR,
-                message="Le journal des prévisions n'est pas enregistré",
-                details={"error": str(exc)},
-            )
-        except Exception:
-            logger.error("Alerte journal non envoyée")
+        logger.critical(f"Journal local des prévisions inaccessible: {exc}")
         return False
+    if supabase_client is not None:
+        try:
+            supabase_client.table("predictions").select(
+                "market,origin_date,origin_price,target_date,feature_failure,currency,candidate_price"
+            ).limit(1).execute()
+        except Exception as exc:
+            logger.warning(
+                "Colonnes Supabase du journal absentes. L'archive locale reste utilisée. "
+                f"{exc}"
+            )
+    return True
 
 
 def _mark_journal_unavailable(exc: Exception) -> None:
@@ -504,10 +572,10 @@ def _load_market_predictor(
     import pickle
     from pathlib import Path
 
-    from src.models.release_manifest import artifact_path, load_active_release
+    from src.models.release_manifest import artifact_path, load_serving_release, release_mode
 
     try:
-        release = load_active_release(market_cfg.market_id)
+        release = load_serving_release(market_cfg.market_id)
     except (FileNotFoundError, ValueError) as exc:
         logger.error(f"[{market_cfg.market_id}] {exc}")
         return None
@@ -539,9 +607,12 @@ def _load_market_predictor(
         xgboost_model = pickle.load(f)
 
     nhits_model = None
-    nhits_path = artifact_path(release, "nhits")
     try:
-        if nhits_path.exists():
+        nhits_path = artifact_path(release, "nhits")
+    except KeyError:
+        nhits_path = None
+    try:
+        if nhits_path is not None and nhits_path.exists():
             from neuralforecast import NeuralForecast
             nhits_model = NeuralForecast.load(path=str(nhits_path))
             logger.info(f"[{market_cfg.market_id}] N-HiTS chargé depuis {nhits_path.name}")
@@ -570,6 +641,7 @@ def _load_market_predictor(
         ensemble_fallback=pred_cfg.get("ensemble_fallback"),
         multi_step_mode=pred_cfg.get("multi_step_mode", "recursive"),
         direct_horizon_models=direct_models,
+        direct_info_path=str(artifact_path(release, "direct_info")),
         conformal_intervals_file=str(artifact_path(release, "conformal_intervals")),
         confidence_level=pred_cfg.get("confidence_level", 0.90),
         price_bounds=market_cfg.price_bounds,
@@ -583,6 +655,7 @@ def _load_market_predictor(
         feature_cols=feature_cols,
         feature_set=feature_set,
     )
+    predictor.release_mode = release_mode()
     predictor.active_release = release
     n_engines = 3 if nhits_model else 2
     logger.info(
@@ -1230,10 +1303,22 @@ async def predict_price(
     
     # Check cache first
     if redis_cache:
+        identity = "|".join(
+            [
+                str(getattr(market_predictor, "model_version", "")),
+                str((getattr(market_predictor, "active_release", None) or {}).get("source_report") or ""),
+                str(getattr(market_predictor, "release_mode", "active")),
+            ]
+        )
+        from src.models.release_manifest import data_fingerprint
+
+        fingerprint = _session_fingerprint(market_cfg.price_table)
         cached_prediction = redis_cache.get_prediction(
             market=request.market,
             horizons=request.horizons,
-            include_sentiment=request.include_sentiment
+            include_sentiment=request.include_sentiment,
+            identity=identity,
+            data_fingerprint=fingerprint,
         )
         
         if cached_prediction:
@@ -1241,6 +1326,8 @@ async def predict_price(
             cached_day = str(cached_prediction.current_date or "")[:10]
             if latest_session and cached_day and cached_day != latest_session:
                 logger.info("Cache ignoré: la dernière séance a changé.")
+            elif str(getattr(cached_prediction, "model_version", "")) != str(market_predictor.model_version):
+                logger.info("Cache ignoré: la version du lot a changé.")
             else:
                 logger.info("Returning cached prediction")
                 from src.models.served_forecast import publish_or_close
@@ -1249,6 +1336,7 @@ async def predict_price(
                     cached_prediction.predictions,
                     getattr(market_predictor, "active_release", None),
                     cached_prediction.current_price,
+                    release_mode=str(getattr(market_predictor, "release_mode", "active")),
                 )
                 return cached_prediction
     
@@ -1358,6 +1446,13 @@ async def predict_price(
             prediction_items,
             getattr(market_predictor, "active_release", None),
             current_price,
+            release_mode=str(getattr(market_predictor, "release_mode", "active")),
+        )
+        _journal_forecasts(
+            prediction_items,
+            market=request.market,
+            model_version=market_predictor.model_version,
+            release_mode=str(getattr(market_predictor, "release_mode", "active")),
         )
 
         # Create response
@@ -1377,7 +1472,9 @@ async def predict_price(
                 market=request.market,
                 horizons=request.horizons,
                 include_sentiment=request.include_sentiment,
-                prediction_response=response
+                prediction_response=response,
+                identity=identity,
+                data_fingerprint=fingerprint,
             )
         
         # Log prediction to database
@@ -1387,6 +1484,8 @@ async def predict_price(
             currency = "GBP" if "GBP" in (market_cfg.unit or "") else "USD"
             for pred in prediction_items:
                 parts = pred.components or {}
+                if pred.price is None or not pred.confidence_interval:
+                    continue
                 journal = snapshot_journal_fields(parts, {"price": current_price, "date": current_date})
                 origin_date = journal.get("origin_date")
                 origin_price = journal.get("origin_price")
@@ -1412,7 +1511,7 @@ async def predict_price(
                     "candidate_price": float(candidate_price) if candidate_price is not None else None,
                 }).execute()
         except Exception as e:
-            _mark_journal_unavailable(e)
+            logger.warning(f"Copie Supabase du journal non écrite: {e}")
         
         logger.info(f"Successfully generated {len(predictions)} predictions")
         return response
@@ -1536,9 +1635,10 @@ async def get_performance_metrics(
 )
 async def get_validation_metrics(
     market: Optional[str] = None,
+    model_version: Optional[str] = None,
     user: str = Depends(verify_token),
 ) -> ValidationMetricsResponse:
-    """Return walk-forward metrics for the report named by the active release."""
+    """Return walk-forward metrics for the release actually loaded."""
     from src.validation.report_loader import load_release_summary
 
     if market:
@@ -1556,16 +1656,25 @@ async def get_validation_metrics(
     else:
         reports_dir = "reports/walk_forward"
 
-    from src.models.release_manifest import horizon_is_validated, load_active_release
+    from src.models.release_manifest import horizon_is_validated, load_serving_release
 
     release = None
     release_version = None
     market_id = market_cfg.market_id if market else "cocoa"
     try:
-        release = load_active_release(market_id)
+        release = load_serving_release(market_id)
         release_version = release.get("version")
     except (FileNotFoundError, ValueError):
         release = None
+    if model_version and release_version and model_version != release_version:
+        return ValidationMetricsResponse(
+            report_timestamp=None,
+            validation_type="walk_forward_multi_horizon",
+            horizons=[],
+            xgb_metrics=[],
+            release_version=release_version,
+            release_matches_report=False,
+        )
 
     summary = load_release_summary(reports_dir, release)
     if summary is None:
@@ -1593,8 +1702,10 @@ async def get_validation_metrics(
         h_data = block.get(str(h), block.get(h, {}))
         decision = decisions.get(str(h)) or {}
         gap = decision.get("gap_ci") or [None, None]
+        experimental = bool(release and release.get("release_mode") == "experimental")
         validated = bool(
             release
+            and not experimental
             and horizon_is_validated(release, int(h))
             and release_matches
             and decision.get("validated")
@@ -1979,6 +2090,40 @@ _MODEL_LABELS = {
     "M3_XGB_OHLCV_OI": "M3 XGB (+ OI)",
     "M4_XGB_Full": "M4 Complet",
 }
+
+
+@app.get("/api/v1/cocoa-weather", response_model=CocoaWeatherResponse)
+async def get_cocoa_weather(
+    token_payload: dict = Depends(verify_token),
+):
+    """Dernier relevé WeatherAPI pour la Côte d'Ivoire et le Ghana.
+
+    Le prix publié ne lit pas cette réponse.
+    """
+    note = "Contexte météo, non utilisé par la prévision."
+    try:
+        response = (
+            supabase_client.table("weather_data")
+            .select(
+                "collected_at, location, name, country, temperature_c, "
+                "condition, humidity, precipitation_mm"
+            )
+            .order("collected_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        rows = response.data or []
+    except Exception as exc:
+        logger.warning("Lecture weather_data impossible: %s", exc)
+        return CocoaWeatherResponse(locations=[], note=note)
+
+    picked = latest_origin_weather(rows)
+    collected = picked[0]["collected_at"] if picked else None
+    return CocoaWeatherResponse(
+        locations=[CocoaWeatherLocation(**row) for row in picked],
+        collected_at=str(collected) if collected else None,
+        note=note,
+    )
 
 
 @app.get("/api/v1/london-market", response_model=LondonMarketResponse)

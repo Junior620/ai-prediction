@@ -106,11 +106,17 @@ trainer = HybridModelTrainer(feature_cols=feature_cols)
 prophet_val, xgb_val, train_features = trainer.fit(train_raw)
 
 val_technical = build_technical_features(df)
+for col in feature_cols:
+    if col not in val_technical.columns and not col.startswith("prophet_"):
+        val_technical[col] = 0.0
 if micro:
     present = [c for c in micro if c in val_technical.columns]
     if present:
         val_technical[present] = val_technical[present].ffill().fillna(0.0)
 val_with_prophet = add_prophet_features(val_technical, prophet_val)
+for col in feature_cols:
+    if col not in val_with_prophet.columns:
+        val_with_prophet[col] = 0.0
 val_df = val_with_prophet.iloc[split_pos + 1 :].dropna(subset=feature_cols)
 
 train_df = next_session_frame(train_features.dropna(subset=feature_cols + ["price"]))

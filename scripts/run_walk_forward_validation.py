@@ -93,6 +93,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=str, default=yaml_cfg.get("output_dir", "reports/walk_forward"))
     parser.add_argument("--skip-nhits", action="store_true", default=not nhits_cfg.get("enabled", True))
     parser.add_argument("--skip-calibration", action="store_true")
+    parser.add_argument(
+        "--measure-only",
+        action="store_true",
+        help="Calcule les bandes et les décisions sans activer un horizon",
+    )
+    parser.add_argument(
+        "--test-origins",
+        type=int,
+        default=0,
+        help="Dernières origines tenues comme test, après une calibration antérieure",
+    )
     parser.add_argument("--direct-hstep", action="store_true", help="Include direct h-step in walk-forward (slow)")
     parser.add_argument(
         "--replay-nhits",
@@ -105,7 +116,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _calibrate_if_better(walk_forward_csv: str, nhits_csv, market):
+def _calibrate_if_better(
+    walk_forward_csv: str,
+    nhits_csv,
+    market,
+    *,
+    step_size: int,
+    price_bounds,
+    measure_only: bool = False,
+    test_origins: int = 0,
+    replayed_nhits: bool = False,
+    candidate: dict | None = None,
+):
     """Calibrate on the early origins. Promote a horizon only when its later slice passes.
 
     Ensemble weights are not refit here. ``nhits_csv`` is ignored on purpose.
@@ -114,15 +136,20 @@ def _calibrate_if_better(walk_forward_csv: str, nhits_csv, market):
     import yaml
 
     from src.validation.served_backtest import (
+        apply_frozen_bands,
         held_out_coverage,
         residual_margins,
         served_prediction_column,
         split_chronological,
+        split_last_origins,
     )
 
     frame = pd.read_csv(walk_forward_csv)
     pred_col = served_prediction_column(frame)
-    cal_df, test_df = split_chronological(frame)
+    if int(test_origins) > 0:
+        cal_df, test_df = split_last_origins(frame, int(test_origins))
+    else:
+        cal_df, test_df = split_chronological(frame)
     coverage = 0.90
     cfg_path = ROOT / "config" / "config.yaml"
     if cfg_path.exists():
@@ -137,36 +164,49 @@ def _calibrate_if_better(walk_forward_csv: str, nhits_csv, market):
     for horizon, row in margins.items():
         row["provenance"] = "calibration_slice_of_this_candidate"
         row["coverage_is_not_a_held_out_proof"] = True
+    bounds = tuple(price_bounds) if price_bounds else (1000.0, 15000.0)
+    test_df = apply_frozen_bands(test_df, pred_col, margins, "published_lower", "published_upper", bounds)
+    test_df = apply_frozen_bands(test_df, "naive_pred", naive_margins, "naive_lower", "naive_upper", bounds)
+    test_df.to_csv(walk_forward_csv.replace(".csv", "") + "_test_bands.csv", index=False)
     test_cov = held_out_coverage(test_df, pred_col, margins)
-    proof_start = pd.Timestamp("2026-10-02")
     decisions = {}
     for horizon in rules.get("horizons", []):
         decision = evaluate_horizon(
             test_df,
             int(horizon),
             rules,
+            step=int(step_size),
             frozen_margin=margins.get(str(horizon)),
             frozen_naive_margin=naive_margins.get(str(horizon)),
         )
-        subset = test_df[test_df["horizon"] == int(horizon)] if not test_df.empty else test_df
-        targets = (
-            pd.to_datetime(subset["target_date"], errors="coerce")
-            if not subset.empty
-            else pd.Series(dtype="datetime64[ns]")
-        )
-        unused_period = (
-            (not subset.empty)
-            and bool(targets.notna().all())
-            and bool((targets > proof_start).all())
-        )
-        if not unused_period:
-            decision["validated"] = False
-            decision["reason"] = (
-                "Mesure de procédure seulement : les cibles ne sont pas toutes postérieures au 2 octobre 2026. "
-                + str(decision.get("reason") or "")
-            ).strip()
         decisions[str(horizon)] = decision
-    accepted = [horizon for horizon, row in decisions.items() if row.get("validated")]
+    from src.models.ensemble_weights import load_ensemble_weights
+
+    weights_payload = load_ensemble_weights(market.ensemble_weights_file)
+    nhits_required = False
+    for row in (weights_payload or {}).values():
+        if isinstance(row, dict) and float(row.get("nhits", 0.0) or 0.0) > 0.0:
+            nhits_required = True
+            break
+    incomplete = bool(nhits_required and not replayed_nhits)
+    if incomplete:
+        for row in decisions.values():
+            row["validated"] = False
+            row["reason"] = (
+                "Mesure incomplète : un poids N-HiTS est positif et le rejeu n'a pas eu lieu. "
+                + str(row.get("reason") or "")
+            ).strip()
+    if measure_only:
+        for row in decisions.values():
+            row["validated"] = False
+            row["measurement"] = "verification"
+            row["reason"] = (
+                "Vérification seulement : cette exécution n'active aucun horizon. "
+                + str(row.get("reason") or "")
+            ).strip()
+    accepted = [] if measure_only or incomplete else [
+        horizon for horizon, row in decisions.items() if row.get("validated")
+    ]
     promoted = bool(accepted)
     print(
         f"\nCalibration sur {cal_df['origin_date'].nunique() if not cal_df.empty else 0} origines, "
@@ -197,22 +237,24 @@ def _calibrate_if_better(walk_forward_csv: str, nhits_csv, market):
         "test_coverage": test_cov,
         "acceptance": decisions,
     }
-    from src.models.release_manifest import latest_candidate, promote_accepted_horizons
+    from src.models.release_manifest import promote_accepted_horizons
 
-    candidate = latest_candidate(market.market_id, ROOT)
     wrote = promote_accepted_horizons(
         market.market_id,
         accepted,
         source_report,
         conformal_payload if accepted else None,
         ROOT,
+        candidate=candidate,
     )
     promotion = {
         "promoted": promoted,
         "accepted_horizons": accepted,
         "candidate_version": (candidate or {}).get("version"),
         "prediction_column": pred_col,
-        "measurement": "held_out" if promoted else "procedure",
+        "nhits_replayed": bool(replayed_nhits),
+        "nhits_required": bool(nhits_required),
+        "measurement": "verification" if measure_only else ("held_out" if promoted else "procedure"),
         "weights_refit": False,
         "decisions": decisions,
         "reason": (
@@ -268,6 +310,7 @@ def main() -> int:
         conformal_margins=margins,
         ensemble_weights_file=market.ensemble_weights_file,
         replay_nhits=bool(args.replay_nhits),
+        defer_bands=not args.skip_calibration,
         price_bounds=market.price_bounds,
         recent_range_days=int(pred_cfg.get("recent_range_days", 252)),
         recent_range_padding_pct=float(pred_cfg.get("recent_range_padding_pct", 15.0)),
@@ -311,13 +354,47 @@ def main() -> int:
     promotion_payload = None
     if not args.skip_calibration and wf_paths.get("walk_forward_csv"):
         try:
+            from src.models.release_manifest import latest_candidate
+
+            named_candidate = latest_candidate(market.market_id, ROOT)
+            if named_candidate is not None:
+                named_candidate["source_report"] = Path(wf_paths["walk_forward_csv"]).stem.replace(
+                    "_walk_forward_predictions", ""
+                )
             ensemble_payload, conformal_payload, promotion_payload = _calibrate_if_better(
                 wf_paths["walk_forward_csv"],
                 nhits_csv,
                 market,
+                step_size=args.step_size,
+                price_bounds=market.price_bounds,
+                measure_only=bool(args.measure_only),
+                test_origins=int(args.test_origins),
+                replayed_nhits=bool(args.replay_nhits),
+                candidate=named_candidate,
             )
         except Exception as exc:
             print(f"  AVERTISSEMENT calibration: {exc}")
+    elif args.skip_calibration:
+        from src.models.ensemble_weights import load_ensemble_weights
+
+        weights_payload = load_ensemble_weights(market.ensemble_weights_file)
+        nhits_required = any(
+            isinstance(row, dict) and float(row.get("nhits", 0.0) or 0.0) > 0.0
+            for row in (weights_payload or {}).values()
+        )
+        if nhits_required and not args.replay_nhits:
+            promotion_payload = {
+                "promoted": False,
+                "accepted_horizons": [],
+                "nhits_replayed": False,
+                "nhits_required": True,
+                "measurement": "incomplete",
+                "reason": (
+                    "Mesure incomplète : le walk-forward quotidien n'a pas rejoué N-HiTS. "
+                    "Aucun horizon n'est activé."
+                ),
+            }
+            print("  " + promotion_payload["reason"])
 
     summary_path = Path(wf_paths["summary_json"])
     if summary_path.exists():
@@ -334,6 +411,40 @@ def main() -> int:
             payload["conformal_intervals"] = conformal_payload
         if promotion_payload is not None:
             payload["promotion"] = promotion_payload
+        from src.models.release_manifest import data_fingerprint, procedure_fingerprint
+
+        tail = df.tail(40)
+        token_rows = []
+        for _, row in tail.iterrows():
+            interest = row["open_interest"] if "open_interest" in row.index else None
+            token_rows.append(
+                {
+                    "date": str(pd.Timestamp(row["date"]).date()),
+                    "price": None if pd.isna(row["price"]) else float(row["price"]),
+                    "open_interest": None if interest is None or pd.isna(interest) else float(interest),
+                }
+            )
+        payload["procedure_fingerprint"] = procedure_fingerprint(
+            root=ROOT,
+            parameters={
+                "market": args.market,
+                "horizons": list(args.horizons),
+                "step_size": int(args.step_size),
+                "max_origins": args.max_origins,
+                "direct_hstep": bool(args.direct_hstep),
+                "replay_nhits": bool(args.replay_nhits),
+                "measure_only": bool(args.measure_only),
+                "test_origins": int(args.test_origins),
+                "skip_calibration": bool(args.skip_calibration),
+            },
+            frame_token=data_fingerprint(token_rows),
+        )
+        payload["data_window"] = {
+            "min_date": str(pd.Timestamp(df["date"].min()).date()),
+            "max_date": str(pd.Timestamp(df["date"].max()).date()),
+            "rows": int(len(df)),
+            "cut": "2020-01-01",
+        }
         if "xgb_pred_recursive" in wf_result.summary:
             payload["walk_forward"]["recursive_vs_frozen"] = _serialize_summary(
                 {

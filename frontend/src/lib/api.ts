@@ -14,6 +14,7 @@ import type {
   LondonMarketResponse,
   ModelComparisonResponse,
   PredictionHistoryResponse,
+  CocoaWeatherResponse,
 } from '@/types/api';
 
 /** Same-origin BFF — JWT stays on the server (API_TOKEN). */
@@ -72,6 +73,15 @@ export const api = {
     return response.data;
   },
 
+  async getCocoaWeather(): Promise<CocoaWeatherResponse | null> {
+    try {
+      const response = await apiClient.get<CocoaWeatherResponse>('/api/v1/cocoa-weather');
+      return response.data;
+    } catch {
+      return null;
+    }
+  },
+
   async getLondonMarket(historyDays = 60): Promise<LondonMarketResponse | null> {
     try {
       const response = await apiClient.get<LondonMarketResponse>('/api/v1/london-market', {
@@ -106,10 +116,13 @@ export const api = {
     }
   },
 
-  async getValidationMetrics(market?: string): Promise<ValidationMetricsResponse | null> {
+  async getValidationMetrics(market?: string, modelVersion?: string): Promise<ValidationMetricsResponse | null> {
     try {
       const response = await apiClient.get<ValidationMetricsResponse>('/api/v1/validation/metrics', {
-        params: market ? { market } : undefined,
+        params: {
+          ...(market ? { market } : {}),
+          ...(modelVersion ? { model_version: modelVersion } : {}),
+        },
       });
       return response.data;
     } catch {

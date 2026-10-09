@@ -41,7 +41,11 @@ def forecast_nhits(history: pd.DataFrame, unique_id: str) -> Dict[int, float]:
         accelerator="cpu",
         enable_progress_bar=False,
     )
-    network = NeuralForecast(models=[model], freq="B")
+    from pandas.tseries.offsets import CustomBusinessDay
+
+    from src.models.hybrid_features import exchange_holidays
+
+    network = NeuralForecast(models=[model], freq=CustomBusinessDay(holidays=exchange_holidays()))
     network.fit(df=frame, val_size=30)
     forecast = network.predict(df=frame)
     levels: Dict[int, float] = {}

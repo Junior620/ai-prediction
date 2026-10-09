@@ -11,7 +11,7 @@ The analyzer automatically selects the best available backend on import.
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -350,6 +350,17 @@ class NLPAnalyzer:
     # ------------------------------------------------------------------
     # Sentiment aggregation
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def classify_event(
+        title: str,
+        excerpt: str = "",
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Event label from the versioned lexicon. Does not load FinBERT."""
+        from src.nlp.event_rules import classify_article
+
+        return classify_article(title, excerpt, **kwargs)
 
     def aggregate_sentiment(
         self,

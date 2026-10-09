@@ -27,23 +27,87 @@ def direct_level(
     return DirectHorizonTrainer.level_from_prediction(raw, origin_price, target)
 
 
-def publish_or_close(items, release: Optional[dict], spot: Optional[float]) -> None:
-    """Unvalidated horizons publish the close. The candidate price stays beside it."""
+def publish_or_close(
+    items,
+    release: Optional[dict],
+    spot: Optional[float],
+    *,
+    release_mode: str = "active",
+) -> None:
+    """Keep the model price. An unvalidated horizon is experimental, never the close.
+
+    Status is one of experimental, validated, unavailable. Experimental mode
+    cannot emit validated. A failed calculation clears the price and the band.
+    """
     from src.models.release_manifest import horizon_is_validated
 
-    if spot is None:
-        return
-    spot_value = float(spot)
+    del spot
+    experimental = release_mode == "experimental" or (
+        isinstance(release, dict) and release.get("release_mode") == "experimental"
+    )
     for item in items:
         components = dict(getattr(item, "components", None) or {})
-        candidate = components.get("candidate_price", item.price)
-        components["candidate_price"] = float(candidate)
-        if release and horizon_is_validated(release, int(item.horizon)):
-            components["served_as_close"] = False
+        raw_price = getattr(item, "price", None)
+        try:
+            finite_price = raw_price is not None and bool(np.isfinite(float(raw_price)))
+        except (TypeError, ValueError):
+            finite_price = False
+        interval = list(getattr(item, "confidence_interval", None) or [])
+        finite_band = False
+        if len(interval) == 2:
+            try:
+                finite_band = all(v is not None and bool(np.isfinite(float(v))) for v in interval)
+            except (TypeError, ValueError):
+                finite_band = False
+        if finite_price:
+            components["candidate_price"] = float(raw_price)
+        if finite_band:
+            components["candidate_lower"] = float(interval[0])
+            components["candidate_upper"] = float(interval[1])
+        weights = components.get("ensemble_weights") or {}
+        try:
+            nhits_required = float(weights.get("nhits", 0.0) or 0.0) > 0.0
+        except (TypeError, ValueError):
+            nhits_required = False
+        nhits_missing = nhits_required and components.get("nhits") is None
+        if bool(components.get("feature_failure")):
+            try:
+                ensemble = float(components.get("ensemble"))
+            except (TypeError, ValueError):
+                ensemble = float("nan")
+            if np.isfinite(ensemble):
+                item.price = ensemble
+                finite_price = True
+                components["candidate_price"] = ensemble
+            finite_band = False
+            item.confidence_interval = None
+        failed = (
+            bool(components.get("calculation_failed"))
+            or not finite_price
+            or nhits_missing
+        )
+        release_ok = bool(release) and horizon_is_validated(release, int(item.horizon))
+        if failed:
+            status = "unavailable"
+        elif experimental or not release_ok:
+            status = "experimental"
         else:
-            item.price = spot_value
-            item.confidence_interval = [spot_value, spot_value]
-            components["served_as_close"] = True
+            status = "validated"
+        if experimental and status == "validated":
+            status = "experimental"
+        components["status"] = status
+        components["served_as_close"] = False
+        if status == "unavailable":
+            item.price = None
+            item.confidence_interval = None
+        elif status == "experimental":
+            components["label"] = "Prévision expérimentale — non validée"
+            if finite_band:
+                components["band_label"] = "Bande expérimentale — couverture non démontrée"
+        try:
+            item.status = status
+        except Exception:
+            pass
         item.components = components
 
 
