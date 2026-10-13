@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -43,26 +44,36 @@ def get_weights_for_horizon(
     return fb.copy()
 
 
+def _finite_number(value: object) -> bool:
+    try:
+        return math.isfinite(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+
+
 def combine_ensemble(
     xgb_price: float,
     prophet_price: float,
     nhits_price: Optional[float],
     weights: Dict[str, float],
 ) -> float:
-    """Weighted combination of engine predictions."""
-    w_xgb = weights.get("xgb", 0.0)
-    w_prophet = weights.get("prophet", 0.0)
-    w_nhits = weights.get("nhits", 0.0)
-
-    if nhits_price is None:
-        total = w_xgb + w_prophet
-        if total <= 0:
-            return xgb_price
-        return (w_xgb * xgb_price + w_prophet * prophet_price) / total
-
-    total = w_xgb + w_prophet + w_nhits
+    """Weighted combination. A required engine that is missing is not renormalized."""
+    terms = []
+    if float(weights.get("xgb", 0.0) or 0.0) > 0.0:
+        if not _finite_number(xgb_price):
+            return float("nan")
+        terms.append((float(weights["xgb"]), float(xgb_price)))
+    if float(weights.get("prophet", 0.0) or 0.0) > 0.0:
+        if not _finite_number(prophet_price):
+            return float("nan")
+        terms.append((float(weights["prophet"]), float(prophet_price)))
+    if float(weights.get("nhits", 0.0) or 0.0) > 0.0:
+        if not _finite_number(nhits_price):
+            return float("nan")
+        terms.append((float(weights["nhits"]), float(nhits_price)))
+    if not terms:
+        return float("nan")
+    total = sum(weight for weight, _ in terms)
     if total <= 0:
-        return xgb_price
-    return (
-        w_xgb * xgb_price + w_nhits * nhits_price + w_prophet * prophet_price
-    ) / total
+        return float("nan")
+    return sum(weight * price for weight, price in terms) / total

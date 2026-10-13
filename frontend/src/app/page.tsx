@@ -17,6 +17,7 @@ export default function Dashboard() {
         priceSource: 'OHLCV + OI · feature set M3',
         activeNav: 'cacao',
         otherMarket: { href: '/coffee', label: 'Café Robusta' },
+        showTracking: true,
       }}
     />
   );

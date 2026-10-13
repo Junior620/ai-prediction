@@ -25,10 +25,13 @@ from src.api.models import (
     PredictionRequest,
     PredictionResponse,
     PredictionItem,
+    ForecastView,
     PerformanceResponse,
     PerformanceMetricsItem,
     ValidationMetricsResponse,
     HorizonValidationMetrics,
+    ForecastTrackingResponse,
+    RevisionValueResponse,
     ModelsResponse,
     ModelInfo,
     RetrainingRequest,
@@ -437,39 +440,113 @@ async def startup_event():
         logger.critical("Le journal des prévisions n'est pas enregistré.")
 
     logger.info("Cocoa Price Prediction API started successfully")
+    _journal_tracked_horizons()
+
+
+def _journal_tracked_horizons() -> None:
+    """Journal horizons 1–30 after startup. New data still needs the explicit command."""
+    import threading
+
+    from src.models.horizon_schedule import TRACKED_HORIZONS
+    from src.models.revision_command import frame_fingerprint, procedure_for
+
+    def _run() -> None:
+        for market_id in ("cocoa", "coffee_robusta"):
+            predictor = predictors.get(market_id)
+            if predictor is None:
+                continue
+            try:
+                release = getattr(predictor, "active_release", None) or {}
+                predictions = predictor.predict(list(TRACKED_HORIZONS))
+                from src.models.served_forecast import publish_or_close
+
+                publish_or_close(
+                    predictions,
+                    release,
+                    None,
+                    release_mode=str(getattr(predictor, "release_mode", "active")),
+                )
+                frame = getattr(predictor, "_historical_data", None)
+                token = frame_fingerprint(frame) if frame is not None else ""
+                procedure = procedure_for(
+                    release, getattr(predictor, "max_abs_change_pct", {}) or {}
+                )
+                from src.models.market_registry import get_market_config
+
+                cfg = get_market_config(market_id)
+                from src.models.revision_command import train_bounds
+
+                _journal_forecasts(
+                    predictions,
+                    market=cfg.api_markets[0],
+                    model_version=predictor.model_version,
+                    release_mode=str(getattr(predictor, "release_mode", "active")),
+                    train_end_date=train_bounds(release).get("train_end_date"),
+                    procedure_fingerprint=procedure,
+                    data_fingerprint=token,
+                )
+                logger.info(f"Journal de suivi écrit pour {cfg.api_markets[0]}")
+            except Exception as exc:
+                logger.error(f"Journal de suivi {market_id} non écrit: {exc}")
+
+    threading.Thread(target=_run, name="forecast-journal", daemon=True).start()
 
 
 def _session_fingerprint(price_table: str) -> str:
-    """Hash recent sessions so a corrected price or open interest misses the cache."""
+    """Hash every consumed column of the prepared snapshot. A correction misses the cache."""
+    import pandas as pd
+
+    from src.models.hybrid_features import consumed_snapshot_rows, prepare_market_frame
     from src.models.release_manifest import data_fingerprint
 
     rows = []
-    try:
-        response = (
-            supabase_client.table(price_table)
-            .select("date,price,open_interest")
-            .order("date", desc=True)
-            .limit(40)
-            .execute()
-        )
-        rows = list(response.data or [])
-    except Exception:
+    offset = 0
+    page = 1000
+    columns = (
+        "date,price,open,high,low,volume,open_interest",
+        "date,price,open,high,low,volume",
+        "date,price",
+    )
+    chosen = None
+    for candidate in columns:
+        rows = []
+        offset = 0
+        chosen = candidate
         try:
-            response = (
-                supabase_client.table(price_table)
-                .select("date,price")
-                .order("date", desc=True)
-                .limit(40)
-                .execute()
-            )
-            rows = list(response.data or [])
+            while True:
+                response = (
+                    supabase_client.table(price_table)
+                    .select(candidate)
+                    .order("date")
+                    .range(offset, offset + page - 1)
+                    .execute()
+                )
+                batch = list(response.data or [])
+                rows.extend(batch)
+                if len(batch) < page:
+                    break
+                offset += page
+            break
         except Exception:
             rows = []
-    return data_fingerprint(rows)
+            continue
+    market_id = "cocoa" if price_table == "cocoa_london_prices" else "other"
+    frame = prepare_market_frame(pd.DataFrame(rows), market_id=market_id)
+    del chosen
+    return data_fingerprint(consumed_snapshot_rows(frame))
 
 
-def _journal_forecasts(items, *, market: str, model_version: str, release_mode: str) -> None:
-    from src.models.prediction_journal import append_forecast
+def _journal_forecasts(
+    items,
+    *,
+    market: str,
+    model_version: str,
+    release_mode: str,
+    procedure_fingerprint: str = "",
+    data_fingerprint: str = "",
+    train_end_date: Optional[str] = None,
+) -> None:
+    from src.models.prediction_journal import JournalLockError, append_forecast
 
     for item in items:
         parts = dict(getattr(item, "components", None) or {})
@@ -480,22 +557,31 @@ def _journal_forecasts(items, *, market: str, model_version: str, release_mode: 
         if status == "unavailable":
             lower = None
             upper = None
+            price = None
+        else:
+            price = None if item.price is None else float(item.price)
         try:
             append_forecast(
                 market=market,
                 model_version=model_version,
                 release_mode=release_mode,
                 horizon=int(item.horizon),
-                price=None if item.price is None else float(item.price),
+                price=price,
                 lower=None if lower is None else float(lower),
                 upper=None if upper is None else float(upper),
                 origin_date=parts.get("origin_date"),
                 origin_price=parts.get("origin_price"),
                 target_date=parts.get("target_date"),
                 status=status,
+                procedure_fingerprint=procedure_fingerprint,
+                data_fingerprint=data_fingerprint,
+                train_end_date=train_end_date,
             )
+        except JournalLockError as exc:
+            logger.error(f"Journal non écrit, la commande peut être relancée: {exc}")
+            _mark_journal_unavailable(exc)
         except Exception as exc:
-            logger.warning(f"Journal local non écrit: {exc}")
+            logger.error(f"Journal local non écrit: {exc}")
             _mark_journal_unavailable(exc)
 
 
@@ -615,6 +701,9 @@ def _load_market_predictor(
         if nhits_path is not None and nhits_path.exists():
             from neuralforecast import NeuralForecast
             nhits_model = NeuralForecast.load(path=str(nhits_path))
+            from src.models.nhits_replay import restore_exchange_calendar
+
+            restore_exchange_calendar(nhits_model, nhits_path)
             logger.info(f"[{market_cfg.market_id}] N-HiTS chargé depuis {nhits_path.name}")
     except Exception as e:
         logger.warning(f"[{market_cfg.market_id}] N-HiTS du manifeste illisible: {e}")
@@ -1301,18 +1390,17 @@ async def predict_price(
             detail=f"Prediction service is not available for market '{request.market}'"
         )
     
+    fingerprint = _session_fingerprint(market_cfg.price_table)
+    market_predictor._remote_fingerprint = fingerprint
+    identity = "|".join(
+        [
+            str(getattr(market_predictor, "model_version", "")),
+            str((getattr(market_predictor, "active_release", None) or {}).get("source_report") or ""),
+            str(getattr(market_predictor, "release_mode", "active")),
+        ]
+    )
     # Check cache first
     if redis_cache:
-        identity = "|".join(
-            [
-                str(getattr(market_predictor, "model_version", "")),
-                str((getattr(market_predictor, "active_release", None) or {}).get("source_report") or ""),
-                str(getattr(market_predictor, "release_mode", "active")),
-            ]
-        )
-        from src.models.release_manifest import data_fingerprint
-
-        fingerprint = _session_fingerprint(market_cfg.price_table)
         cached_prediction = redis_cache.get_prediction(
             market=request.market,
             horizons=request.horizons,
@@ -1390,16 +1478,16 @@ async def predict_price(
         # Convert to response format
         prediction_items = []
         for pred in predictions:
+            parts = pred.components if hasattr(pred, "components") and pred.components else {}
+            interval = pred.confidence_interval
             item = PredictionItem(
                 horizon=pred.horizon,
                 price=pred.price,
-                confidence_interval=[
-                    pred.confidence_interval[0],
-                    pred.confidence_interval[1]
-                ],
+                confidence_interval=None if not interval else [interval[0], interval[1]],
                 confidence_level=pred.confidence_level,
                 timestamp=pred.timestamp,
-                components=pred.components if hasattr(pred, 'components') and pred.components else None
+                components=parts or None,
+                target_date=None if not parts.get("target_date") else str(parts["target_date"])[:10],
             )
             prediction_items.append(item)
         
@@ -1448,12 +1536,87 @@ async def predict_price(
             current_price,
             release_mode=str(getattr(market_predictor, "release_mode", "active")),
         )
+        from src.models.revision_command import frame_fingerprint, procedure_for, train_bounds
+
+        _stored = getattr(market_predictor, "_historical_data", None)
+        loaded_fingerprint = (
+            getattr(market_predictor, "_data_fingerprint", None)
+            or (frame_fingerprint(_stored) if _stored is not None else fingerprint)
+        )
         _journal_forecasts(
             prediction_items,
             market=request.market,
             model_version=market_predictor.model_version,
             release_mode=str(getattr(market_predictor, "release_mode", "active")),
+            procedure_fingerprint=procedure_for(
+                getattr(market_predictor, "active_release", None) or {},
+                getattr(market_predictor, "max_abs_change_pct", {}) or {},
+            ),
+            data_fingerprint=loaded_fingerprint,
+            train_end_date=train_bounds(getattr(market_predictor, "active_release", None)).get(
+                "train_end_date"
+            ),
         )
+        fresh_items = [
+            {
+                "horizon": item.horizon,
+                "price": item.price,
+                "confidence_interval": list(item.confidence_interval) if item.confidence_interval else None,
+                "confidence_level": item.confidence_level,
+                "status": item.status,
+                "target_date": item.target_date,
+                "model_version": market_predictor.model_version,
+                "components": dict(item.components or {}),
+                "timestamp": item.timestamp,
+            }
+            for item in prediction_items
+        ]
+        from src.models.prediction_journal import load_forecasts, overlay_commitments
+
+        session_day = str(current_date or "")[:10]
+        overlaid = overlay_commitments(
+            fresh_items,
+            load_forecasts(),
+            market=request.market,
+            as_of=session_day,
+        )
+        by_horizon = {int(item["horizon"]): item for item in overlaid}
+        for item in prediction_items:
+            held = by_horizon.get(int(item.horizon))
+            if not held or not held.get("held_commitment"):
+                continue
+            item.price = held.get("price")
+            item.target_date = held.get("target_date")
+            item.reference_price = held.get("reference_price")
+            item.initial_horizon = held.get("initial_horizon")
+            item.sessions_remaining = held.get("sessions_remaining")
+            item.latest_price = held.get("latest_price")
+            item.latest_date = held.get("latest_date")
+            item.latest_gap = held.get("latest_gap")
+            item.latest_gap_pct = held.get("latest_gap_pct")
+            item.revision_notice = held.get("revision_notice")
+            item.has_revision = held.get("has_revision")
+            item.latest_unavailable = held.get("latest_unavailable")
+            item.confidence_interval = held.get("confidence_interval")
+            item.components = held.get("components")
+            if held.get("initial"):
+                item.initial = ForecastView(**held["initial"])
+            if held.get("latest"):
+                item.latest = ForecastView(**held["latest"])
+            if held.get("fresh"):
+                item.fresh = ForecastView(**held["fresh"])
+            if held.get("status") in {"experimental", "validated", "unavailable"}:
+                item.status = held["status"]
+        for item, held in (
+            (item, by_horizon.get(int(item.horizon)))
+            for item in prediction_items
+        ):
+            if held and held.get("held_commitment"):
+                continue
+            if held and held.get("fresh"):
+                item.fresh = ForecastView(**held["fresh"])
+            if held and held.get("target_date") and not item.target_date:
+                item.target_date = held["target_date"]
 
         # Create response
         response = PredictionResponse(
@@ -1474,7 +1637,7 @@ async def predict_price(
                 include_sentiment=request.include_sentiment,
                 prediction_response=response,
                 identity=identity,
-                data_fingerprint=fingerprint,
+                data_fingerprint=loaded_fingerprint,
             )
         
         # Log prediction to database
@@ -1482,26 +1645,26 @@ async def predict_price(
             from src.models.served_forecast import snapshot_journal_fields
 
             currency = "GBP" if "GBP" in (market_cfg.unit or "") else "USD"
-            for pred in prediction_items:
-                parts = pred.components or {}
-                if pred.price is None or not pred.confidence_interval:
+            for pred in fresh_items:
+                parts = pred["components"] or {}
+                if pred["price"] is None or not pred["confidence_interval"]:
                     continue
                 journal = snapshot_journal_fields(parts, {"price": current_price, "date": current_date})
                 origin_date = journal.get("origin_date")
                 origin_price = journal.get("origin_price")
                 target_date = journal.get("target_date")
-                candidate_price = parts.get("candidate_price", pred.price)
+                candidate_price = parts.get("candidate_price", pred["price"])
                 supabase_client.table("predictions").insert({
-                    "horizon": pred.horizon,
-                    "predicted_price": pred.price,
-                    "lower_bound": pred.confidence_interval[0],
-                    "upper_bound": pred.confidence_interval[1],
-                    "confidence_level": pred.confidence_level,
+                    "horizon": pred["horizon"],
+                    "predicted_price": pred["price"],
+                    "lower_bound": pred["confidence_interval"][0],
+                    "upper_bound": pred["confidence_interval"][1],
+                    "confidence_level": pred["confidence_level"],
                     "model_version": market_predictor.model_version,
                     "baseline_component": parts.get("baseline"),
                     "residual_component": parts.get("residual"),
                     "sentiment_component": parts.get("sentiment"),
-                    "created_at": pred.timestamp.isoformat(),
+                    "created_at": pred["timestamp"].isoformat(),
                     "market": request.market,
                     "origin_date": origin_date,
                     "origin_price": float(origin_price) if origin_price else None,
@@ -1522,6 +1685,102 @@ async def predict_price(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate predictions: {str(e)}"
         )
+
+
+def _price_on_date(price_table: str, day: str) -> Optional[float]:
+    """Exact session only. A missing day stays missing."""
+    if supabase_client is None or not day:
+        return None
+    try:
+        response = (
+            supabase_client.table(price_table)
+            .select("date,price")
+            .gte("date", day)
+            .lte("date", day + "T23:59:59")
+            .limit(5)
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning(f"Cours réalisé illisible: {exc}")
+        return None
+    for row in response.data or []:
+        if str(row.get("date") or "")[:10] == day:
+            try:
+                return float(row["price"])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+@app.get(
+    "/api/v1/revision-value",
+    response_model=RevisionValueResponse,
+)
+async def revision_value(
+    market: str = Query(..., description="ICE_NY ou COFFEE_ROBUSTA"),
+    user: str = Depends(verify_token),
+) -> RevisionValueResponse:
+    """Historical gain of the latest same-target estimate over the opening forecast."""
+    del user
+    from src.validation.revision_value import revision_value_for_market
+
+    market_cfg = resolve_api_market(market)
+    if market_cfg is None:
+        raise HTTPException(status_code=422, detail=f"Marché inconnu: {market}")
+    payload = revision_value_for_market(market_cfg.market_id)
+    payload = dict(payload)
+    payload["market"] = market
+    return RevisionValueResponse(**payload)
+
+
+@app.get(
+    "/api/v1/forecast-tracking",
+    response_model=ForecastTrackingResponse,
+)
+async def forecast_tracking(
+    market: str = Query(..., description="ICE_NY ou COFFEE_ROBUSTA"),
+    initial_id: Optional[str] = Query(None),
+    target_date: Optional[str] = Query(None),
+    horizon: Optional[int] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(12, ge=1, le=100),
+    user: str = Depends(verify_token),
+) -> ForecastTrackingResponse:
+    """Read one tracked expiry. Diagnostics are not returned as revisions."""
+    del user
+    from src.models.prediction_journal import load_forecasts, tracking_view
+
+    market_cfg = resolve_api_market(market)
+    if market_cfg is None:
+        raise HTTPException(status_code=422, detail=f"Marché inconnu: {market}")
+    rows = load_forecasts()
+    realized = None
+    if initial_id:
+        initial = next(
+            (
+                row
+                for row in rows
+                if row.get("forecast_id") == initial_id and row.get("market") == market
+            ),
+            None,
+        )
+        target = str((initial or {}).get("target_date") or "")[:10]
+        latest = _latest_price_date(market_cfg.price_table)
+        reached = bool(target and latest and target <= latest)
+        if reached:
+            realized = _price_on_date(market_cfg.price_table, target)
+    payload = tracking_view(
+        rows,
+        market=market,
+        initial_id=initial_id,
+        realized_price=realized,
+        target_reached=reached if initial_id else False,
+        limit=limit,
+        offset=offset,
+        target_date=target_date,
+        horizon=horizon,
+    )
+    return ForecastTrackingResponse(**payload)
 
 
 @app.get(
@@ -1628,6 +1887,39 @@ async def get_performance_metrics(
         )
 
 
+@app.get("/api/v1/validation/history")
+async def get_validation_history(
+    market: Optional[str] = None,
+    user: str = Depends(verify_token),
+):
+    """Historical reports stay listed. None of them validates the current lot."""
+    del user
+    from pathlib import Path
+
+    from src.api.models import HistoricalEvaluationItem, HistoricalEvaluationsResponse
+    from src.models.release_manifest import load_serving_release
+
+    market_cfg = resolve_api_market(market or "ICE_NY")
+    if market_cfg is None:
+        raise HTTPException(status_code=400, detail=f"Unknown market '{market}'")
+    from src.validation.report_index import list_market_reports
+
+    release_version = None
+    try:
+        release_version = load_serving_release(market_cfg.market_id).get("version")
+    except (FileNotFoundError, ValueError):
+        release_version = None
+    items = [
+        HistoricalEvaluationItem(**row)
+        for row in list_market_reports(market_cfg.market_id, Path("."))
+    ]
+    return HistoricalEvaluationsResponse(
+        market=market_cfg.api_markets[0],
+        release_version=release_version,
+        reports=items,
+    )
+
+
 @app.get(
     "/api/v1/validation/metrics",
     response_model=ValidationMetricsResponse,
@@ -1640,6 +1932,7 @@ async def get_validation_metrics(
 ) -> ValidationMetricsResponse:
     """Return walk-forward metrics for the release actually loaded."""
     from src.validation.report_loader import load_release_summary
+    from src.models.release_manifest import evaluation_report_id
 
     if market:
         market_cfg = resolve_api_market(market)
@@ -1676,11 +1969,15 @@ async def get_validation_metrics(
             release_matches_report=False,
         )
 
-    summary = load_release_summary(reports_dir, release)
+    diagnostic_id = evaluation_report_id(release)
+    summary_release = dict(release or {})
+    if diagnostic_id:
+        summary_release["source_report"] = diagnostic_id
+    summary = load_release_summary(reports_dir, summary_release if diagnostic_id else release)
     if summary is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Le manifeste ne nomme aucun rapport de validation présent.",
+            detail="Le manifeste ne nomme aucun rapport d'évaluation présent.",
         )
 
     wf = summary.get("walk_forward", {})
@@ -1710,26 +2007,33 @@ async def get_validation_metrics(
             and release_matches
             and decision.get("validated")
         )
+        test_mape = decision.get("available_mape")
+        if test_mape is None:
+            test_mape = decision.get("model_mape")
         metrics.append(
             HorizonValidationMetrics(
                 horizon=int(h),
-                mape=h_data.get("mape"),
-                rmse=h_data.get("rmse"),
-                mae=h_data.get("mae"),
-                directional_accuracy=h_data.get("directional_accuracy"),
-                n_predictions=h_data.get("n_predictions"),
+                mape=test_mape if decision else h_data.get("mape"),
+                rmse=h_data.get("rmse") if not decision else None,
+                mae=h_data.get("mae") if not decision else None,
+                directional_accuracy=h_data.get("directional_accuracy") if not decision else None,
+                n_predictions=decision.get("available_n") if decision else h_data.get("n_predictions"),
                 validated=validated,
                 relative_gain=decision.get("relative_gain"),
                 gap_ci_low=gap[0] if gap else None,
                 gap_ci_high=gap[1] if len(gap) > 1 else None,
                 n_effective=decision.get("n_effective"),
                 fallback_rate=decision.get("fallback_rate"),
-                measurement="procedure" if decision else None,
-                reason=(
-                    decision.get("reason")
-                    if release_matches
-                    else "Le rapport ne correspond pas au manifeste chargé."
-                ),
+                measurement=(summary.get("promotion") or {}).get("measurement") or ("procedure" if decision else None),
+                reason=decision.get("reason"),
+                gap_reading=decision.get("gap_reading"),
+                available_mape=decision.get("available_mape"),
+                naive_mape=decision.get("naive_mape"),
+                abstention_count=decision.get("abstention_count"),
+                abstention_rate=decision.get("abstention_rate"),
+                coverage=decision.get("coverage"),
+                coverage_note=decision.get("coverage_note"),
+                warning_count=decision.get("warning_count"),
             )
         )
 
@@ -1740,10 +2044,10 @@ async def get_validation_metrics(
         report_path=summary.get("_report_path"),
         validation_type=summary.get("validation_type", "walk_forward_multi_horizon"),
         n_origins=wf.get("n_origins"),
-        origin_start=period.get("origin_start"),
-        origin_end=period.get("origin_end"),
-        target_start=period.get("target_start"),
-        target_end=period.get("target_end"),
+        origin_start=(summary.get("promotion") or {}).get("origin_start") or period.get("origin_start"),
+        origin_end=(summary.get("promotion") or {}).get("origin_end") or period.get("origin_end"),
+        target_start=(summary.get("promotion") or {}).get("target_start") or period.get("target_start"),
+        target_end=(summary.get("promotion") or {}).get("target_end") or period.get("target_end"),
         evaluated_component=component_name,
         horizons=wf.get("horizons", []),
         xgb_metrics=metrics,
@@ -1752,6 +2056,9 @@ async def get_validation_metrics(
         conformal_intervals=summary.get("conformal_intervals"),
         release_version=release_version,
         release_matches_report=release_matches,
+        report_id=diagnostic_id or (summary.get("promotion") or {}).get("source_report"),
+        measurement_status=(summary.get("promotion") or {}).get("measurement") or "diagnostic",
+        partition="test",
     )
 
 

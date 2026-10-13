@@ -83,11 +83,11 @@ def test_asof_feature_row_keeps_training_lag():
     assert float(row["open_interest"].iloc[0]) == 0.0
 
 
-def test_cap_breach_keeps_spot_as_central_scenario():
-    central, change, failed = resolve_capped_forecast(3350.0, 4149.0, 14.0)
-    assert failed is True
-    assert central == 4149.0
-    assert change == 0.0
+def test_cap_breach_keeps_the_calculated_price():
+    central, change, warning = resolve_capped_forecast(3350.0, 4149.0, 14.0)
+    assert warning is True
+    assert central == 3350.0
+    assert change < 0
 
     central, change, failed = resolve_capped_forecast(4100.0, 4149.0, 6.0)
     assert failed is False
@@ -111,11 +111,11 @@ def test_j30_inside_the_cap_is_not_zeroed_by_the_band():
     assert change < 0
 
 
-def test_cap_breach_still_keeps_the_close():
-    central, change, failed = guard_forecast(3458.0, 4390.0, 14.0, (196.0, 196.0))
-    assert failed is True
-    assert central == 4390.0
-    assert change == 0.0
+def test_cap_breach_keeps_the_price_and_warns():
+    central, change, warning = guard_forecast(3458.0, 4390.0, 14.0, (196.0, 196.0))
+    assert warning is True
+    assert central == 3458.0
+    assert change < 0
 
 
 def test_direct_dataset_zeros_prophet_level():

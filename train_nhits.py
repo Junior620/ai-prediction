@@ -25,6 +25,7 @@ load_dotenv()
 
 parser = argparse.ArgumentParser(description="Entrainement N-HiTS")
 parser.add_argument("--market", default="cocoa", help="Marche (cocoa, coffee_robusta)")
+parser.add_argument("--snapshot", default="", help="CSV figé, le même que XGBoost et le journal")
 args = parser.parse_args()
 
 from src.models.market_registry import get_market_config
@@ -43,53 +44,52 @@ print("=" * 80)
 # 1. RECUPERER LES DONNEES
 # ============================================================================
 print("")
-print("[1/5] Recuperation des donnees depuis Supabase...")
-
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
-)
-
-all_data = []
-page_size = 1000
-offset = 0
-max_retries = 4
-
-while True:
-    response = None
-    last_err = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = (
-                supabase.table(market.price_table)
-                .select("date, price")
-                .order("date")
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-            break
-        except Exception as e:
-            last_err = e
-            wait_s = attempt * 2
-            print("   [WARN] Supabase page offset=%s attempt %s/%s: %s — retry in %ss" % (
-                offset, attempt, max_retries, e, wait_s
-            ))
-            import time
-            time.sleep(wait_s)
-    if response is None:
-        raise RuntimeError("Supabase fetch failed after retries: %s" % last_err)
-    if not response.data:
-        break
-    all_data.extend(response.data)
-    offset += page_size
-
-df = pd.DataFrame(all_data)
-df['date'] = pd.to_datetime(df['date'])
-df = df.sort_values('date').drop_duplicates(subset=['date'], keep='last')
-
 from src.models.hybrid_features import clean_price_dataframe
 
-df = clean_price_dataframe(df, min_date="2020-01-01")
+if args.snapshot:
+    print("[1/5] Instantane figé %s" % args.snapshot)
+    df = clean_price_dataframe(pd.read_csv(args.snapshot), min_date="2020-01-01")
+else:
+    print("[1/5] Recuperation des donnees depuis Supabase...")
+    supabase = create_client(
+        os.getenv("SUPABASE_URL"),
+        os.getenv("SUPABASE_KEY")
+    )
+    all_data = []
+    page_size = 1000
+    offset = 0
+    max_retries = 4
+    while True:
+        response = None
+        last_err = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = (
+                    supabase.table(market.price_table)
+                    .select("date, price")
+                    .order("date")
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                )
+                break
+            except Exception as e:
+                last_err = e
+                wait_s = attempt * 2
+                print("   [WARN] Supabase page offset=%s attempt %s/%s: %s — retry in %ss" % (
+                    offset, attempt, max_retries, e, wait_s
+                ))
+                import time
+                time.sleep(wait_s)
+        if response is None:
+            raise RuntimeError("Supabase fetch failed after retries: %s" % last_err)
+        if not response.data:
+            break
+        all_data.extend(response.data)
+        offset += page_size
+    df = pd.DataFrame(all_data)
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values('date').drop_duplicates(subset=['date'], keep='last')
+    df = clean_price_dataframe(df, min_date="2020-01-01")
 
 print("[OK] %d points de donnees (2020-2026)" % len(df))
 print("   Prix min: $%.2f" % df['price'].min())
@@ -229,12 +229,33 @@ print("")
 print("[5/5] Sauvegarde du modele...")
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+import json
 
 save_dir = str(models_dir / ("nhits_%s" % timestamp))
-nf.save(path=save_dir, overwrite=True)
+from src.models.nhits_replay import strip_custom_business_day
+
+strip_custom_business_day(nf)
+try:
+    from neuralforecast._serialization import SerializationError
+except ImportError:
+    SerializationError = TypeError
+try:
+    nf.save(path=save_dir, overwrite=True, save_dataset=False)
+except TypeError:
+    nf.save(path=save_dir, overwrite=True)
+except SerializationError as exc:
+    print("[ERREUR] Sauvegarde N-HiTS refusée: %s" % exc)
+    raise SystemExit(1)
+holiday_path = Path(save_dir) / "freq_holidays.json"
+holiday_path.write_text(
+    json.dumps(
+        {"holidays": [pd.Timestamp(day).strftime("%Y-%m-%d") for day in exchange_holidays()]},
+        indent=2,
+    ),
+    encoding="utf-8",
+)
 print("[OK] Modele N-HiTS sauvegarde: %s/" % save_dir)
 
-import json
 model_info = {
     "timestamp": timestamp,
     "model_type": "nhits",
@@ -242,6 +263,8 @@ model_info = {
     "description": "N-HiTS (NeuralForecast) - 3eme moteur de prediction",
     "framework": "neuralforecast",
     "data_period": "2020-2026",
+    "train_start_date": str(pd.to_datetime(df["date"]).min().date()),
+    "train_end_date": str(pd.to_datetime(df["date"]).max().date()),
     "training_points": int(len(nf_df) - val_size),
     "validation_points": int(val_size),
     "horizon": HORIZON,
@@ -255,6 +278,12 @@ info_path = str(models_dir / ("model_info_nhits_%s.json" % timestamp))
 with open(info_path, 'w') as f:
     json.dump(model_info, f, indent=2)
 print("[OK] Infos sauvegardees: %s" % info_path)
+nhits_pointer = models_dir / "NHITS_LOT.json"
+nhits_pointer.write_text(
+    json.dumps({"stamp": timestamp, "relative": save_dir.replace("\\", "/")}, indent=2),
+    encoding="utf-8",
+)
+print("[OK] N-HiTS nommé: %s" % nhits_pointer)
 
 # ============================================================================
 # RESUME

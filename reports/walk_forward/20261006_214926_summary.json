@@ -1,0 +1,354 @@
+{
+  "timestamp": "2026-10-06T21:49:26.250102",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "published_pred is the served direct forecast after the guard.",
+    "The hybrid column at one session uses the origin row to forecast the next close.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 48,
+    "horizons": [
+      1,
+      7,
+      14,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "origin_window": "recent",
+    "evaluated_period": {
+      "origin_start": "2025-09-22",
+      "origin_end": "2026-08-21",
+      "target_start": "2025-09-23",
+      "target_end": "2026-10-02",
+      "n_origins": 48
+    },
+    "baseline_comparison": {
+      "model_column": "published_pred",
+      "by_horizon": {
+        "1": {
+          "model_mape": 2.4094878371977435,
+          "model_mae": 87.60803200762409,
+          "naive_mape": 2.4258299073189353,
+          "naive_mae": 86.77083333333333,
+          "drift_mape": 2.5430158966995093,
+          "drift_mae": 90.03758018366057,
+          "mape_minus_naive": -0.01634207012119182
+        },
+        "7": {
+          "model_mape": 8.823041385506183,
+          "model_mae": 303.9007218721639,
+          "naive_mape": 8.218921679045943,
+          "naive_mae": 287.34869565217394,
+          "drift_mape": 8.937725880274927,
+          "drift_mae": 318.16822036074876,
+          "mape_minus_naive": 0.6041197064602404
+        },
+        "14": {
+          "model_mape": 11.235548959717935,
+          "model_mae": 383.00474555889764,
+          "naive_mape": 11.260586840104558,
+          "naive_mae": 386.82395833333334,
+          "drift_mape": 14.314227026492121,
+          "drift_mae": 508.4888432370429,
+          "mape_minus_naive": -0.025037880386623357
+        },
+        "30": {
+          "model_mape": 18.004123414030182,
+          "model_mae": 568.325245141983,
+          "naive_mape": 17.84810662382519,
+          "naive_mae": 570.5,
+          "drift_mape": 24.902464186151438,
+          "drift_mae": 833.8589375217589,
+          "mape_minus_naive": 0.15601679020499404
+        }
+      }
+    },
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 487.33178869743153,
+          "mae": 356.29811604817706,
+          "mape": 11.168674143658631,
+          "directional_accuracy": 0.4375,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 531.1737626247142,
+          "mae": 429.87357145889945,
+          "mape": 13.136800363506632,
+          "directional_accuracy": 0.391304347826087,
+          "n_predictions": 46
+        },
+        "14": {
+          "rmse": 680.9141596692023,
+          "mae": 529.6663146972656,
+          "mape": 16.276381769885496,
+          "directional_accuracy": 0.375,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 915.3734802847998,
+          "mae": 742.2547810872396,
+          "mape": 23.199151960213356,
+          "directional_accuracy": 0.3125,
+          "n_predictions": 48
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 1225.978142857756,
+          "mae": 1067.1492704893556,
+          "mape": 29.428303534337967,
+          "directional_accuracy": 0.4583333333333333,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 1476.3827273815905,
+          "mae": 1312.0816036365118,
+          "mape": 35.98116043628714,
+          "directional_accuracy": 0.391304347826087,
+          "n_predictions": 46
+        },
+        "14": {
+          "rmse": 1619.5673637920627,
+          "mae": 1447.769436356709,
+          "mape": 39.95012142851578,
+          "directional_accuracy": 0.3541666666666667,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 1981.4829352194083,
+          "mae": 1810.6623236534824,
+          "mape": 50.78902102106891,
+          "directional_accuracy": 0.1875,
+          "n_predictions": 48
+        }
+      },
+      "naive_pred": {
+        "1": {
+          "rmse": 124.2166286506494,
+          "mae": 86.77083333333333,
+          "mape": 2.4258299073189353,
+          "directional_accuracy": 0.0,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 356.90632316203573,
+          "mae": 287.34869565217394,
+          "mape": 8.218921679045943,
+          "directional_accuracy": 0.0,
+          "n_predictions": 46
+        },
+        "14": {
+          "rmse": 511.2883339846021,
+          "mae": 386.82395833333334,
+          "mape": 11.260586840104558,
+          "directional_accuracy": 0.0,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 728.4043634319241,
+          "mae": 570.5,
+          "mape": 17.84810662382519,
+          "directional_accuracy": 0.0,
+          "n_predictions": 48
+        }
+      },
+      "drift_pred": {
+        "1": {
+          "rmse": 124.68818355728155,
+          "mae": 90.03758018366057,
+          "mape": 2.5430158966995093,
+          "directional_accuracy": 0.5416666666666666,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 408.642990227941,
+          "mae": 318.16822036074876,
+          "mape": 8.937725880274927,
+          "directional_accuracy": 0.5,
+          "n_predictions": 46
+        },
+        "14": {
+          "rmse": 666.6913774228946,
+          "mae": 508.4888432370429,
+          "mape": 14.314227026492121,
+          "directional_accuracy": 0.5208333333333334,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 1148.3306493427924,
+          "mae": 833.8589375217589,
+          "mape": 24.902464186151438,
+          "directional_accuracy": 0.6458333333333334,
+          "n_predictions": 48
+        }
+      },
+      "xgb_pred_direct": {
+        "1": {
+          "rmse": 180.98046282691632,
+          "mae": 105.75562137326536,
+          "mape": 2.9671139923921883,
+          "directional_accuracy": 0.5,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 380.655244472201,
+          "mae": 300.8093369844686,
+          "mape": 8.756972035480636,
+          "directional_accuracy": 0.41304347826086957,
+          "n_predictions": 46
+        },
+        "14": {
+          "rmse": 714.9998130512088,
+          "mae": 558.2280097444852,
+          "mape": 16.253862184564383,
+          "directional_accuracy": 0.5625,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 1574.048138058292,
+          "mae": 1335.0137757460277,
+          "mape": 41.21046242239662,
+          "directional_accuracy": 0.3333333333333333,
+          "n_predictions": 48
+        }
+      },
+      "published_pred": {
+        "1": {
+          "rmse": 127.28770337373508,
+          "mae": 87.60803200762409,
+          "mape": 2.4094878371977435,
+          "directional_accuracy": 0.4583333333333333,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 382.30756001984247,
+          "mae": 303.9007218721639,
+          "mape": 8.823041385506183,
+          "directional_accuracy": 0.391304347826087,
+          "n_predictions": 46
+        },
+        "14": {
+          "rmse": 488.91341557906554,
+          "mae": 383.00474555889764,
+          "mape": 11.235548959717935,
+          "directional_accuracy": 0.3125,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 719.2675706578729,
+          "mae": 568.325245141983,
+          "mape": 18.004123414030182,
+          "directional_accuracy": 0.14583333333333334,
+          "n_predictions": 48
+        }
+      }
+    }
+  },
+  "ensemble_calibration": {
+    "source_report": "20261006_214926_calibration",
+    "calibrated_at": "2026-10-06T21:49:26.359938",
+    "by_horizon": {
+      "1": {
+        "xgb": 1.0,
+        "prophet": 0.0,
+        "nhits": 0.0
+      },
+      "7": {
+        "xgb": 1.0,
+        "prophet": 0.0,
+        "nhits": 0.0
+      },
+      "14": {
+        "xgb": 1.0,
+        "prophet": 0.0,
+        "nhits": 0.0
+      },
+      "30": {
+        "xgb": 1.0,
+        "prophet": 0.0,
+        "nhits": 0.0
+      }
+    },
+    "fixed_baseline_mape": {
+      "1": 18.796826521816765,
+      "7": 20.107550070722876,
+      "14": 23.68193539328146,
+      "30": 34.05315376372261
+    },
+    "calibrated_mape": {
+      "1": 14.151752586615615,
+      "7": 15.246805141578864,
+      "14": 19.214930740086054,
+      "30": 28.603983418265656
+    }
+  },
+  "conformal_intervals": {
+    "source_report": "20261006_214926",
+    "calibrated_at": "2026-10-06T21:49:26.344925",
+    "coverage_level": 0.9,
+    "asymmetric": false,
+    "coverage_is_held_out": false,
+    "by_horizon": {
+      "1": {
+        "margin_lower": 251.58496475219727,
+        "margin_upper": 251.58496475219727,
+        "calibration_coverage": 1.0,
+        "mean_interval_width": 503.16992950439453,
+        "n": 24
+      },
+      "7": {
+        "margin_lower": 744.299072265625,
+        "margin_upper": 744.299072265625,
+        "calibration_coverage": 1.0,
+        "mean_interval_width": 1488.59814453125,
+        "n": 24
+      },
+      "14": {
+        "margin_lower": 1187.0,
+        "margin_upper": 1187.0,
+        "calibration_coverage": 1.0,
+        "mean_interval_width": 2374.0,
+        "n": 24
+      },
+      "30": {
+        "margin_lower": 1951.0,
+        "margin_upper": 1951.0,
+        "calibration_coverage": 1.0,
+        "mean_interval_width": 3902.0,
+        "n": 24
+      }
+    },
+    "test_coverage": {
+      "1": {
+        "test_coverage": 0.875,
+        "mean_interval_width": 503.16992950439453,
+        "n": 24
+      },
+      "7": {
+        "test_coverage": 0.9545454545454546,
+        "mean_interval_width": 1488.59814453125,
+        "n": 22
+      },
+      "14": {
+        "test_coverage": 0.9583333333333334,
+        "mean_interval_width": 2374.0,
+        "n": 24
+      },
+      "30": {
+        "test_coverage": 1.0,
+        "mean_interval_width": 3902.0,
+        "n": 24
+      }
+    }
+  },
+  "promotion": {
+    "promoted": false,
+    "prediction_column": "published_pred",
+    "reason": "Le test reserve ne bat pas le cours inchange sur chaque horizon. Fichiers inchanges."
+  }
+}

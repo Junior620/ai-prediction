@@ -72,8 +72,10 @@ services:
       - ./models:/app/models
       - ./data:/app/data
       - ./reports:/app/reports
+      - ./scripts:/app/scripts:ro
       - ./train_nhits.py:/app/train_nhits.py:ro
       - mlruns:/app/mlruns
+      - huggingface_cache:/root/.cache/huggingface
     depends_on:
       redis:
         condition: service_healthy
@@ -86,3 +88,4 @@ volumes:
   redis_data:
   mlruns:
   mlartifacts:
+  huggingface_cache:

@@ -113,7 +113,48 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--nhits-n-windows", type=int, default=nhits_cfg.get("n_windows", 12))
     parser.add_argument("--nhits-val-size", type=int, default=nhits_cfg.get("val_size", 30))
     parser.add_argument("--nhits-step-size", type=int, default=nhits_cfg.get("step_size", 5))
+    parser.add_argument("--origin-dates-file", type=str, default=None)
+    parser.add_argument("--as-of", type=str, default=None, help="Dernière séance incluse, AAAA-MM-JJ")
+    parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--previous-csv", type=str, default=None)
+    parser.add_argument("--score-variants", action="store_true")
+    parser.add_argument(
+        "--attach-experimental",
+        action="store_true",
+        help="Écrit evaluation_report si l'empreinte de procédure est inchangée",
+    )
     return parser.parse_args()
+
+
+def _session_rows(frame: pd.DataFrame) -> list:
+    rows = []
+    for _, row in frame.iterrows():
+        interest = row["open_interest"] if "open_interest" in row.index else None
+        rows.append(
+            {
+                "date": str(pd.Timestamp(row["date"]).date()),
+                "price": None if pd.isna(row["price"]) else float(row["price"]),
+                "open_interest": None if interest is None or pd.isna(interest) else float(interest),
+            }
+        )
+    return rows
+
+
+def _procedure_parameters(args) -> dict:
+    return {
+        "market": args.market,
+        "horizons": list(args.horizons),
+        "step_size": int(args.step_size),
+        "max_origins": args.max_origins,
+        "direct_hstep": bool(args.direct_hstep),
+        "replay_nhits": bool(args.replay_nhits),
+        "measure_only": bool(args.measure_only),
+        "test_origins": int(args.test_origins),
+        "skip_calibration": bool(args.skip_calibration),
+        "as_of": args.as_of,
+        "origin_dates_file": args.origin_dates_file,
+        "score_variants": bool(args.score_variants),
+    }
 
 
 def _calibrate_if_better(
@@ -247,9 +288,20 @@ def _calibrate_if_better(
         ROOT,
         candidate=candidate,
     )
+    test_period = {}
+    if not test_df.empty:
+        test_period = {
+            "origin_start": str(pd.to_datetime(test_df["origin_date"]).min().date()),
+            "origin_end": str(pd.to_datetime(test_df["origin_date"]).max().date()),
+            "target_start": str(pd.to_datetime(test_df["target_date"]).min().date()),
+            "target_end": str(pd.to_datetime(test_df["target_date"]).max().date()),
+            "n_origins": int(pd.to_datetime(test_df["origin_date"]).nunique()),
+        }
     promotion = {
         "promoted": promoted,
         "accepted_horizons": accepted,
+        "partition": "test",
+        **test_period,
         "candidate_version": (candidate or {}).get("version"),
         "prediction_column": pred_col,
         "nhits_replayed": bool(replayed_nhits),
@@ -287,6 +339,58 @@ def main() -> int:
     supabase = create_client(supabase_url, supabase_key)
     df = load_price_data_from_supabase(supabase, table_name=market.price_table)
     print(f"  {len(df)} points charges ({df['date'].min().date()} -> {df['date'].max().date()})")
+    if args.as_of:
+        cutoff = pd.Timestamp(args.as_of).normalize()
+        df = df[pd.to_datetime(df["date"]).dt.normalize() <= cutoff].copy()
+        print(f"  Instantané arrêté au {cutoff.date()} : {len(df)} séances")
+
+    origin_dates = None
+    if args.origin_dates_file:
+        listed = pd.read_csv(args.origin_dates_file)
+        origin_dates = sorted({
+            pd.Timestamp(value).strftime("%Y-%m-%d")
+            for value in listed["origin_date"].dropna()
+        })
+        print(f"  {len(origin_dates)} origines gelées")
+
+    from src.models.release_manifest import data_fingerprint, procedure_fingerprint
+
+    session_rows = _session_rows(df)
+    data_fp = data_fingerprint(session_rows)
+    procedure_fp = procedure_fingerprint(
+        root=ROOT,
+        parameters=_procedure_parameters(args),
+        frame_token="",
+    )
+    output_dir = str(ROOT / args.output_dir)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    snapshot_path = Path(output_dir) / "snapshot_prices.csv"
+    df.to_csv(snapshot_path, index=False)
+    freeze = {
+        "procedure_fingerprint": procedure_fp,
+        "data_fingerprint": data_fp,
+        "as_of": args.as_of,
+        "origin_dates": origin_dates,
+        "rows": int(len(df)),
+        "snapshot": str(snapshot_path),
+    }
+    freeze_path = Path(output_dir) / "freeze.json"
+    if freeze_path.exists():
+        previous_freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+        same_freeze = (
+            previous_freeze.get("procedure_fingerprint") == procedure_fp
+            and previous_freeze.get("data_fingerprint") == data_fp
+            and previous_freeze.get("origin_dates") == origin_dates
+        )
+        if args.checkpoint and not same_freeze:
+            print("ERREUR: le gel existant ne correspond plus aux entrées. Reprise interdite.")
+            return 2
+        if not same_freeze:
+            print("[INFO] Gel précédent différent. Nouvelle mesure, l'ancien gel est remplacé.")
+            freeze_path.write_text(json.dumps(freeze, indent=2), encoding="utf-8")
+    else:
+        freeze_path.write_text(json.dumps(freeze, indent=2), encoding="utf-8")
+    checkpoint_identity = f"{procedure_fp}:{data_fp}:{data_fingerprint(origin_dates or [])}"
 
     feature_cols = _feature_cols_for_market(args.market)
     caps, margins = _guard_config(market.conformal_intervals_file)
@@ -302,6 +406,9 @@ def main() -> int:
         min_train_days=args.min_train_days,
         step_size=args.step_size,
         max_origins=args.max_origins,
+        origin_dates=origin_dates,
+        checkpoint_path=args.checkpoint,
+        checkpoint_identity=checkpoint_identity if args.checkpoint else None,
         origin_window=args.origin_window,
         include_recursive=not args.direct_hstep,
         include_direct_hstep=args.direct_hstep,
@@ -323,7 +430,6 @@ def main() -> int:
     wf_result = WalkForwardValidator(wf_config).run(df)
     print(f"  Termine: {len(wf_result.predictions)} predictions sur {wf_result.n_origins} origines")
 
-    output_dir = str(ROOT / args.output_dir)
     holdout = compute_holdout_baseline(df)
     wf_paths = save_report(output_dir, wf_result, None, holdout)
     print_console_report(wf_result, None, holdout)
@@ -411,34 +517,61 @@ def main() -> int:
             payload["conformal_intervals"] = conformal_payload
         if promotion_payload is not None:
             payload["promotion"] = promotion_payload
-        from src.models.release_manifest import data_fingerprint, procedure_fingerprint
-
-        tail = df.tail(40)
-        token_rows = []
-        for _, row in tail.iterrows():
-            interest = row["open_interest"] if "open_interest" in row.index else None
-            token_rows.append(
-                {
-                    "date": str(pd.Timestamp(row["date"]).date()),
-                    "price": None if pd.isna(row["price"]) else float(row["price"]),
-                    "open_interest": None if interest is None or pd.isna(interest) else float(interest),
-                }
-            )
-        payload["procedure_fingerprint"] = procedure_fingerprint(
+        finished_procedure = procedure_fingerprint(
             root=ROOT,
-            parameters={
-                "market": args.market,
-                "horizons": list(args.horizons),
-                "step_size": int(args.step_size),
-                "max_origins": args.max_origins,
-                "direct_hstep": bool(args.direct_hstep),
-                "replay_nhits": bool(args.replay_nhits),
-                "measure_only": bool(args.measure_only),
-                "test_origins": int(args.test_origins),
-                "skip_calibration": bool(args.skip_calibration),
-            },
-            frame_token=data_fingerprint(token_rows),
+            parameters=_procedure_parameters(args),
+            frame_token="",
         )
+        payload["procedure_fingerprint"] = finished_procedure
+        payload["data_fingerprint"] = data_fp
+        payload["snapshot"] = str(snapshot_path)
+        if args.previous_csv and Path(args.previous_csv).exists():
+            from src.validation.variant_scores import compare_previous_snapshot
+
+            payload["previous_snapshot"] = compare_previous_snapshot(
+                args.previous_csv, wf_result.predictions
+            )
+        if args.score_variants and wf_paths.get("walk_forward_csv"):
+            from src.models.ensemble_weights import load_ensemble_weights
+            from src.validation.acceptance import load_acceptance
+            from src.validation.variant_scores import render_variant_summary, score_variants
+
+            variant_payload = score_variants(
+                pd.read_csv(wf_paths["walk_forward_csv"]),
+                load_ensemble_weights(market.ensemble_weights_file),
+                caps=caps,
+                acceptance=load_acceptance(str(ROOT / "config" / "acceptance.json")),
+                test_origins=int(args.test_origins),
+                step_size=int(args.step_size),
+                price_bounds=tuple(market.price_bounds),
+            )
+            variant_payload["previous_snapshot"] = payload.get("previous_snapshot")
+            variant_payload["promoted"] = False
+            payload["variants"] = variant_payload
+            variant_path = summary_path.with_name(summary_path.name.replace("_summary.json", "_variants.json"))
+            variant_path.write_text(json.dumps(variant_payload, indent=2, default=str), encoding="utf-8")
+            summary_path.with_name(variant_path.name.replace(".json", ".md")).write_text(
+                render_variant_summary(variant_payload), encoding="utf-8"
+            )
+            print(f"  Variantes: {variant_path}")
+        if args.attach_experimental:
+            from src.models.release_manifest import attach_evaluation_report
+
+            report_name = summary_path.name.replace("_summary.json", "")
+            attached = attach_evaluation_report(
+                market.market_id,
+                report_name,
+                finished_procedure,
+                data_fp,
+                procedure_fp,
+                ROOT,
+            )
+            payload["evaluation_report_attached"] = bool(attached)
+            print(
+                "  Rapport d'évaluation rattaché."
+                if attached
+                else "  Rapport non rattaché : l'empreinte de procédure a changé."
+            )
         payload["data_window"] = {
             "min_date": str(pd.Timestamp(df["date"].min()).date()),
             "max_date": str(pd.Timestamp(df["date"].max()).date()),

@@ -88,6 +88,14 @@ def horizon_is_validated(release: Dict[str, Any], horizon: int) -> bool:
     return bool(row.get("validated"))
 
 
+def evaluation_report_id(release: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Diagnostic report. It does not validate the lot."""
+    if not release:
+        return None
+    named = release.get("evaluation_report")
+    return str(named) if named else None
+
+
 def report_id(release: Optional[Dict[str, Any]]) -> Optional[str]:
     """Report named by the release. Absent when the manifest names none."""
     if not release:
@@ -98,6 +106,42 @@ def report_id(release: Optional[Dict[str, Any]]) -> Optional[str]:
     provenance = release.get("margins_provenance") or {}
     named = provenance.get("source_report")
     return str(named) if named else None
+
+
+def attach_evaluation_report(
+    market_id: str,
+    report_id: str,
+    procedure_fingerprint_value: str,
+    data_fingerprint_value: str,
+    frozen_procedure_fingerprint: str,
+    root: Optional[Path] = None,
+) -> bool:
+    """Name a diagnostic report. A fingerprint mismatch leaves the manifest untouched.
+
+    This does not validate any horizon and does not set source_report.
+    """
+    if not report_id or procedure_fingerprint_value != frozen_procedure_fingerprint:
+        return False
+    path = experimental_release_path(market_id, root)
+    if not path.exists():
+        return False
+    with open(path, encoding="utf-8") as handle:
+        release = json.load(handle)
+    release["evaluation_report"] = str(report_id)
+    release["evaluation_procedure_fingerprint"] = procedure_fingerprint_value
+    release["evaluation_data_fingerprint"] = data_fingerprint_value
+    release["validated"] = False
+    release["release_mode"] = "experimental"
+    horizons = dict(release.get("horizons") or {})
+    for key in ("1", "7", "14", "30"):
+        row = dict(horizons.get(key) or {})
+        row["validated"] = False
+        horizons[key] = row
+    release["horizons"] = horizons
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(release, handle, indent=2)
+        handle.write("\n")
+    return True
 
 
 def latest_candidate(market_id: str, root: Optional[Path] = None) -> Optional[Dict[str, Any]]:
@@ -195,6 +239,42 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _digest_referenced_models(base: Path, path: Path, digest) -> None:
+    """Hash model files named inside a direct-horizon metadata JSON."""
+    if path.suffix.lower() != ".json" or not path.is_file():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    horizons = payload.get("horizons")
+    if not isinstance(horizons, dict):
+        return
+    for key in sorted(horizons):
+        item = horizons.get(key) or {}
+        raw = item.get("model_path") if isinstance(item, dict) else None
+        if not raw:
+            continue
+        model = Path(str(raw).replace("\\", "/"))
+        if not model.is_absolute():
+            model = base / model
+        digest.update(str(raw).replace("\\", "/").encode("utf-8"))
+        digest.update(_file_digest(model).encode("utf-8"))
+
+
+def _library_versions() -> str:
+    import importlib.metadata as metadata
+
+    names = ("numpy", "pandas", "xgboost", "scikit-learn")
+    parts = []
+    for name in names:
+        try:
+            parts.append(f"{name}={metadata.version(name)}")
+        except metadata.PackageNotFoundError:
+            parts.append(f"{name}=absent")
+    return ",".join(parts)
+
+
 def procedure_fingerprint(
     *,
     root: Optional[Path] = None,
@@ -207,11 +287,18 @@ def procedure_fingerprint(
     digest = hashlib.sha256()
     code_paths = [
         "src/models/hybrid_features.py",
+        "src/models/hybrid_trainer.py",
+        "src/models/horizon_schedule.py",
+        "src/models/ensemble_weights.py",
+        "src/models/improved_price_predictor.py",
         "src/models/weather_features.py",
         "src/models/served_forecast.py",
         "src/validation/walk_forward_validator.py",
         "src/validation/acceptance.py",
         "src/models/nhits_replay.py",
+        "src/models/direct_horizon_trainer.py",
+        "src/validation/revision_stability.py",
+        "scripts/run_revision_stability.py",
         "config/acceptance.json",
         "config/exchange_holidays.json",
     ]
@@ -231,6 +318,8 @@ def procedure_fingerprint(
                     digest.update(_file_digest(child).encode("utf-8"))
         else:
             digest.update(_file_digest(path).encode("utf-8"))
+            _digest_referenced_models(base, path, digest)
+    digest.update(_library_versions().encode("utf-8"))
     digest.update(json.dumps(parameters or {}, sort_keys=True, default=str).encode("utf-8"))
     digest.update(str(frame_token).encode("utf-8"))
     return digest.hexdigest()

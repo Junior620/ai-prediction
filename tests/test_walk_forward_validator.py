@@ -41,7 +41,7 @@ class TestWalkForwardValidator:
         expected = len(
             list(range(config.min_train_days - 1, n_rows - max_horizon, config.step_size))
         )
-        indices = validator._origin_indices(n_rows, max_horizon)
+        indices = validator._origin_indices(df["date"], max_horizon)
         assert len(indices) == expected
 
     def test_no_data_leakage_prophet_fit_on_train_only(self):

@@ -72,6 +72,17 @@ def moving_block_ci(
     return float(lo), float(hi)
 
 
+def gap_reading(low: float, high: float) -> str:
+    """Name the interval of model error minus the unchanged-close error."""
+    if not np.isfinite(low) or not np.isfinite(high):
+        return "résultat incertain"
+    if high < 0:
+        return "amélioration étayée"
+    if low > 0:
+        return "dégradation étayée"
+    return "résultat incertain"
+
+
 def failure_mask(frame: pd.DataFrame) -> np.ndarray:
     """A row is a fallback when the model did not produce a usable price.
 
@@ -191,26 +202,33 @@ def evaluate_horizon(
     del frozen_margin, frozen_naive_margin
     model_lower, model_upper = _served_band(subset, "published_lower", "published_upper")
     naive_lower, naive_upper = _served_band(subset, "naive_lower", "naive_upper")
-    model_bounds_ok = (
-        model_lower is not None
-        and bool(np.isfinite(model_lower).all())
-        and bool(np.isfinite(model_upper).all())
-    )
-    naive_bounds_ok = (
-        naive_lower is not None
-        and bool(np.isfinite(naive_lower).all())
-        and bool(np.isfinite(naive_upper).all())
-    )
-    if model_bounds_ok:
-        covered = (actual >= model_lower) & (actual <= model_upper)
-        model_width = float(np.mean(model_upper - model_lower))
+    if model_lower is None:
+        model_band_rows = np.zeros(n, dtype=bool)
     else:
-        covered = np.zeros(n, dtype=bool)
+        model_band_rows = np.isfinite(model_lower) & np.isfinite(model_upper)
+    if naive_lower is None:
+        naive_band_rows = np.zeros(n, dtype=bool)
+    else:
+        naive_band_rows = np.isfinite(naive_lower) & np.isfinite(naive_upper)
+    model_bounds_ok = bool(np.any(model_band_rows))
+    naive_bounds_ok = bool(np.any(naive_band_rows))
+    if model_bounds_ok:
+        covered_rows = model_band_rows & (actual >= model_lower) & (actual <= model_upper)
+        covered = covered_rows[model_band_rows]
+        model_width = float(np.mean((model_upper - model_lower)[model_band_rows]))
+        coverage = float(np.mean(covered_rows[model_band_rows]))
+    else:
+        covered = np.zeros(0, dtype=bool)
         model_width = float("nan")
+        coverage = float("nan")
     naive_width = (
-        float(np.mean(naive_upper - naive_lower)) if naive_bounds_ok else float("nan")
+        float(np.mean((naive_upper - naive_lower)[naive_band_rows]))
+        if naive_bounds_ok
+        else float("nan")
     )
-    cov_lo, cov_hi = moving_block_ci(covered.astype(float), length, replicates, alpha, seed=1000 + int(horizon))
+    cov_lo, cov_hi = moving_block_ci(
+        covered.astype(float), length, replicates, alpha, seed=1000 + int(horizon)
+    )
 
     spoken = ~failed
     secondary = None
@@ -253,10 +271,23 @@ def evaluate_horizon(
         "naive_mape": naive_mape,
         "relative_gain": relative_gain,
         "gap_ci": [gap_lo, gap_hi],
-        "coverage": float(np.mean(covered)),
+        "gap_reading": gap_reading(gap_lo, gap_hi),
+        "coverage": coverage,
         "coverage_ci": [cov_lo, cov_hi],
+        "coverage_n": int(len(covered)),
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
         "model_width": model_width,
         "naive_width": naive_width,
+        "abstention_count": int(np.sum(failed)),
+        "abstention_rate": fallback_rate,
+        "available_n": int(np.sum(spoken)),
+        "available_mape": secondary,
+        "operational_mape": model_mape,
+        "warning_count": (
+            int(subset["large_move_warning"].fillna(False).astype(bool).sum())
+            if "large_move_warning" in subset.columns
+            else 0
+        ),
         "secondary_mape_when_model_spoke": secondary,
         "measurement": "procedure",
     }

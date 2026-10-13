@@ -318,6 +318,8 @@ $modelCodeFiles = @(
     @{ Local = "src\models\multi_step_predictor.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\served_forecast.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\release_manifest.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\revision_command.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\horizon_schedule.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\prediction_journal.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\nhits_replay.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\weather_features.py"; Remote = "$RemotePath/src/models/" },
@@ -325,6 +327,7 @@ $modelCodeFiles = @(
     @{ Local = "src\models\conformal_intervals.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\validation\acceptance.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "src\validation\served_backtest.py"; Remote = "$RemotePath/src/validation/" },
+    @{ Local = "src\data_collection\cocoa_weather.py"; Remote = "$RemotePath/src/data_collection/" },
     @{ Local = "src\monitoring\performance_monitor.py"; Remote = "$RemotePath/src/monitoring/" },
     @{ Local = "src\validation\report_loader.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "docker-compose.yml"; Remote = "$RemotePath/" }
@@ -362,7 +365,8 @@ foreach ($item in $configFiles) {
 # --- Upload API modules (nouveaux endpoints dashboard) ---
 $apiFiles = @(
     @{ Local = "src\api\app.py"; Remote = "$RemotePath/src/api/" },
-    @{ Local = "src\api\models.py"; Remote = "$RemotePath/src/api/" }
+    @{ Local = "src\api\models.py"; Remote = "$RemotePath/src/api/" },
+    @{ Local = "src\api\cache.py"; Remote = "$RemotePath/src/api/" }
 )
 foreach ($item in $apiFiles) {
     $localPath = Join-Path $Root $item.Local

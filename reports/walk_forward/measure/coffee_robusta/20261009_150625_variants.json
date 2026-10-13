@@ -1,0 +1,903 @@
+{
+  "note": "\u00ab Sans Prophet dans le m\u00e9lange \u00bb retire Prophet du m\u00e9lange final. XGBoost continue d'utiliser les variables produites par Prophet. Cette variante ne mesure pas une suppression compl\u00e8te de Prophet.",
+  "measurement": "verification",
+  "promoted": false,
+  "variants": {
+    "cours_inchange": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 48,
+          "n_effective": 48.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 1.9240051017415667,
+          "naive_mape": 1.9240051017415667,
+          "relative_gain": 0.0,
+          "gap_ci": [
+            0.0,
+            0.0
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9583333333333334,
+          "coverage_ci": [
+            0.8958333333333334,
+            1.0
+          ],
+          "coverage_n": 48,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 496.0,
+          "naive_width": 496.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 48,
+          "available_mape": 1.9240051017415667,
+          "operational_mape": 1.9240051017415667,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 1.9240051017415667,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 47,
+          "n_effective": 15.666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 5.163832412750135,
+          "naive_mape": 5.163832412750135,
+          "relative_gain": 0.0,
+          "gap_ci": [
+            0.0,
+            0.0
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9574468085106383,
+          "coverage_ci": [
+            0.8723404255319149,
+            1.0
+          ],
+          "coverage_n": 47,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1059.213636662643,
+          "naive_width": 1059.213636662643,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 47,
+          "available_mape": 5.163832412750135,
+          "operational_mape": 5.163832412750135,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 5.163832412750135,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 46,
+          "n_effective": 11.5,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 6.264694677125444,
+          "naive_mape": 6.264694677125444,
+          "relative_gain": 0.0,
+          "gap_ci": [
+            0.0,
+            0.0
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9565217391304348,
+          "coverage_ci": [
+            0.8695652173913043,
+            1.0
+          ],
+          "coverage_n": 46,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1397.7751503836214,
+          "naive_width": 1397.7751503836214,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 46,
+          "available_mape": 6.264694677125444,
+          "operational_mape": 6.264694677125444,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 6.264694677125444,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 43,
+          "n_effective": 6.142857142857143,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 8.018214448436641,
+          "naive_mape": 8.018214448436641,
+          "relative_gain": 0.0,
+          "gap_ci": [
+            0.0,
+            0.0
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9767441860465116,
+          "coverage_ci": [
+            0.9767441860465116,
+            1.0
+          ],
+          "coverage_n": 43,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 2208.170437370809,
+          "naive_width": 2208.170437370809,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 43,
+          "available_mape": 8.018214448436641,
+          "operational_mape": 8.018214448436641,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 8.018214448436641,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 248.0,
+          "margin_upper": 248.0,
+          "calibration_coverage": 0.9583333333333334,
+          "mean_interval_width": 496.0,
+          "n": 48
+        },
+        "7": {
+          "margin_lower": 519.0,
+          "margin_upper": 519.0,
+          "calibration_coverage": 0.9574468085106383,
+          "mean_interval_width": 1038.0,
+          "n": 47
+        },
+        "14": {
+          "margin_lower": 687.0,
+          "margin_upper": 687.0,
+          "calibration_coverage": 0.9565217391304348,
+          "mean_interval_width": 1374.0,
+          "n": 46
+        },
+        "30": {
+          "margin_lower": 1209.0,
+          "margin_upper": 1209.0,
+          "calibration_coverage": 0.9523809523809523,
+          "mean_interval_width": 2418.0,
+          "n": 42
+        }
+      }
+    },
+    "ensemble_actuel": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 48,
+          "n_effective": 48.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 1.9673255036916124,
+          "naive_mape": 1.9240051017415667,
+          "relative_gain": -0.022515741725857717,
+          "gap_ci": [
+            -0.2100672710193945,
+            0.30699320295248844
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9791666666666666,
+          "coverage_ci": [
+            0.9375,
+            1.0
+          ],
+          "coverage_n": 48,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 651.5499505779856,
+          "naive_width": 496.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 48,
+          "available_mape": 1.9673255036916124,
+          "operational_mape": 1.9673255036916124,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 1.9673255036916124,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 47,
+          "n_effective": 15.666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 5.6678362934014785,
+          "naive_mape": 5.163832412750135,
+          "relative_gain": -0.0976026796312941,
+          "gap_ci": [
+            -0.43781894981903796,
+            1.2828312828766386
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9787234042553191,
+          "coverage_ci": [
+            0.9361702127659575,
+            1.0
+          ],
+          "coverage_n": 47,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1276.8375340863959,
+          "naive_width": 1059.213636662643,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 47,
+          "available_mape": 5.6678362934014785,
+          "operational_mape": 5.6678362934014785,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 5.6678362934014785,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 46,
+          "n_effective": 11.5,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 8.178735641650347,
+          "naive_mape": 6.264694677125444,
+          "relative_gain": -0.3055282121750841,
+          "gap_ci": [
+            0.7155900061036324,
+            3.616013594749606
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 0.9782608695652174,
+          "coverage_ci": [
+            0.9559782608695653,
+            1.0
+          ],
+          "coverage_n": 46,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1922.410104981053,
+          "naive_width": 1397.7751503836214,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 46,
+          "available_mape": 8.178735641650347,
+          "operational_mape": 8.178735641650347,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 8.178735641650347,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 43,
+          "n_effective": 6.142857142857143,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 10.537727993604914,
+          "naive_mape": 8.018214448436641,
+          "relative_gain": -0.31422376657181045,
+          "gap_ci": [
+            0.2891618671734062,
+            6.006830011570635
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 43,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 2777.147469386577,
+          "naive_width": 2208.170437370809,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 43,
+          "available_mape": 10.537727993604914,
+          "operational_mape": 10.537727993604914,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 10.537727993604914,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 325.78322389471396,
+          "margin_upper": 325.78322389471396,
+          "calibration_coverage": 0.9583333333333334,
+          "mean_interval_width": 651.5664477894279,
+          "n": 48
+        },
+        "7": {
+          "margin_lower": 655.9750471879725,
+          "margin_upper": 655.9750471879725,
+          "calibration_coverage": 0.9574468085106383,
+          "mean_interval_width": 1311.950094375945,
+          "n": 47
+        },
+        "14": {
+          "margin_lower": 1030.724112650587,
+          "margin_upper": 1030.724112650587,
+          "calibration_coverage": 0.9565217391304348,
+          "mean_interval_width": 2061.448225301174,
+          "n": 46
+        },
+        "30": {
+          "margin_lower": 1648.0817795234325,
+          "margin_upper": 1648.0817795234325,
+          "calibration_coverage": 0.9523809523809523,
+          "mean_interval_width": 3296.163559046865,
+          "n": 42
+        }
+      }
+    },
+    "xgboost_direct": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro.",
+          "n": 48,
+          "n_effective": 48.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 2.2624007503060692,
+          "naive_mape": 1.9240051017415667,
+          "relative_gain": -0.17588084785128394,
+          "gap_ci": [
+            0.10888749141954235,
+            0.5766810609254276
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 0.9583333333333334,
+          "coverage_ci": [
+            0.8958333333333334,
+            1.0
+          ],
+          "coverage_n": 48,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 489.3634954687912,
+          "naive_width": 496.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 48,
+          "available_mape": 2.2624007503060692,
+          "operational_mape": 2.2624007503060692,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 2.2624007503060692,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 47,
+          "n_effective": 15.666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 6.74170840867277,
+          "naive_mape": 5.163832412750135,
+          "relative_gain": -0.30556297528685605,
+          "gap_ci": [
+            0.3957701217390193,
+            2.7331256285172336
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 47,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1419.1038924034606,
+          "naive_width": 1059.213636662643,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 47,
+          "available_mape": 6.74170840867277,
+          "operational_mape": 6.74170840867277,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 6.74170840867277,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 46,
+          "n_effective": 11.5,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 9.25324901497514,
+          "naive_mape": 6.264694677125444,
+          "relative_gain": -0.4770470855925247,
+          "gap_ci": [
+            1.1092040818347273,
+            5.20903796241376
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 46,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1836.9525790847856,
+          "naive_width": 1397.7751503836214,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 46,
+          "available_mape": 9.25324901497514,
+          "operational_mape": 9.25324901497514,
+          "warning_count": 1,
+          "secondary_mape_when_model_spoke": 9.25324901497514,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 43,
+          "n_effective": 6.142857142857143,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 12.444737674936766,
+          "naive_mape": 8.018214448436641,
+          "relative_gain": -0.5520584732381647,
+          "gap_ci": [
+            2.5001902307531405,
+            8.431580212895302
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 43,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 2765.8772821448574,
+          "naive_width": 2208.170437370809,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 43,
+          "available_mape": 12.444737674936766,
+          "operational_mape": 12.444737674936766,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 12.444737674936766,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 244.64878845214844,
+          "margin_upper": 244.64878845214844,
+          "calibration_coverage": 0.9583333333333334,
+          "mean_interval_width": 489.2975769042969,
+          "n": 48
+        },
+        "7": {
+          "margin_lower": 729.3277053833008,
+          "margin_upper": 729.3277053833008,
+          "calibration_coverage": 0.9574468085106383,
+          "mean_interval_width": 1458.6554107666016,
+          "n": 47
+        },
+        "14": {
+          "margin_lower": 951.7031555175781,
+          "margin_upper": 951.7031555175781,
+          "calibration_coverage": 0.9565217391304348,
+          "mean_interval_width": 1903.4063110351562,
+          "n": 46
+        },
+        "30": {
+          "margin_lower": 1585.4677734375,
+          "margin_upper": 1585.4677734375,
+          "calibration_coverage": 0.9523809523809523,
+          "mean_interval_width": 3170.935546875,
+          "n": 42
+        }
+      }
+    },
+    "nhits_seul": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 48,
+          "n_effective": 48.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 2.0327602789650143,
+          "naive_mape": 1.9240051017415667,
+          "relative_gain": -0.05652541000281385,
+          "gap_ci": [
+            -0.14074153647026563,
+            0.385835787771451
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9375,
+          "coverage_ci": [
+            0.8541666666666666,
+            1.0
+          ],
+          "coverage_n": 48,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 542.9521484375,
+          "naive_width": 496.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 48,
+          "available_mape": 2.0327602789650143,
+          "operational_mape": 2.0327602789650143,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 2.0327602789650143,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 47,
+          "n_effective": 15.666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 6.441373810694208,
+          "naive_mape": 5.163832412750135,
+          "relative_gain": -0.2474017930538697,
+          "gap_ci": [
+            0.10847169291197145,
+            2.687992486329975
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 0.851063829787234,
+          "coverage_ci": [
+            0.7021276595744681,
+            0.9574468085106383
+          ],
+          "coverage_n": 47,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1199.4638544299553,
+          "naive_width": 1059.213636662643,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 47,
+          "available_mape": 6.441373810694208,
+          "operational_mape": 6.441373810694208,
+          "warning_count": 1,
+          "secondary_mape_when_model_spoke": 6.441373810694208,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 46,
+          "n_effective": 11.5,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 10.701311859625745,
+          "naive_mape": 6.264694677125444,
+          "relative_gain": -0.7081936808029794,
+          "gap_ci": [
+            2.5213926263566893,
+            6.931791242093839
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 0.8695652173913043,
+          "coverage_ci": [
+            0.7391304347826086,
+            0.9782608695652174
+          ],
+          "coverage_n": 46,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1607.7529927888495,
+          "naive_width": 1397.7751503836214,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 46,
+          "available_mape": 10.701311859625745,
+          "operational_mape": 10.701311859625745,
+          "warning_count": 1,
+          "secondary_mape_when_model_spoke": 10.701311859625745,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 43,
+          "n_effective": 6.142857142857143,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 13.228084438919042,
+          "naive_mape": 8.018214448436641,
+          "relative_gain": -0.6497543840946036,
+          "gap_ci": [
+            2.681406338471698,
+            9.06528402656536
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 0.9767441860465116,
+          "coverage_ci": [
+            0.9302325581395349,
+            1.0
+          ],
+          "coverage_n": 43,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 2481.253626907704,
+          "naive_width": 2208.170437370809,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 43,
+          "available_mape": 13.228084438919042,
+          "operational_mape": 13.228084438919042,
+          "warning_count": 2,
+          "secondary_mape_when_model_spoke": 13.228084438919042,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 271.47607421875,
+          "margin_upper": 271.47607421875,
+          "calibration_coverage": 0.9583333333333334,
+          "mean_interval_width": 542.9521484375,
+          "n": 48
+        },
+        "7": {
+          "margin_lower": 609.99267578125,
+          "margin_upper": 609.99267578125,
+          "calibration_coverage": 0.9574468085106383,
+          "mean_interval_width": 1219.9853515625,
+          "n": 47
+        },
+        "14": {
+          "margin_lower": 857.611328125,
+          "margin_upper": 857.611328125,
+          "calibration_coverage": 0.9565217391304348,
+          "mean_interval_width": 1715.22265625,
+          "n": 46
+        },
+        "30": {
+          "margin_lower": 1504.5068359375,
+          "margin_upper": 1504.5068359375,
+          "calibration_coverage": 0.9523809523809523,
+          "mean_interval_width": 3009.013671875,
+          "n": 42
+        }
+      }
+    },
+    "sans_prophet_dans_le_melange": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 48,
+          "n_effective": 48.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 2.016818754317859,
+          "naive_mape": 1.9240051017415667,
+          "relative_gain": -0.04823981625219159,
+          "gap_ci": [
+            -0.06770011820837048,
+            0.2676622651945891
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9375,
+          "coverage_ci": [
+            0.8541666666666666,
+            1.0
+          ],
+          "coverage_n": 48,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 497.01267433166504,
+          "naive_width": 496.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 48,
+          "available_mape": 2.016818754317859,
+          "operational_mape": 2.016818754317859,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 2.016818754317859,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 47,
+          "n_effective": 15.666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 5.812370650370994,
+          "naive_mape": 5.163832412750135,
+          "relative_gain": -0.12559242550543254,
+          "gap_ci": [
+            -0.1708717620152132,
+            1.5540299376365616
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.9574468085106383,
+          "coverage_ci": [
+            0.8936170212765957,
+            1.0
+          ],
+          "coverage_n": 47,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1206.8510656298286,
+          "naive_width": 1059.213636662643,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 47,
+          "available_mape": 5.812370650370994,
+          "operational_mape": 5.812370650370994,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 5.812370650370994,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 46,
+          "n_effective": 11.5,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 8.87879663252312,
+          "naive_mape": 6.264694677125444,
+          "relative_gain": -0.41727523688307766,
+          "gap_ci": [
+            1.5012810634464957,
+            4.377932392865761
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 0.9565217391304348,
+          "coverage_ci": [
+            0.8913043478260869,
+            1.0
+          ],
+          "coverage_n": 46,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 1681.7913125440311,
+          "naive_width": 1397.7751503836214,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 46,
+          "available_mape": 8.87879663252312,
+          "operational_mape": 8.87879663252312,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 8.87879663252312,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 43,
+          "n_effective": 6.142857142857143,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 11.483596395406657,
+          "naive_mape": 8.018214448436641,
+          "relative_gain": -0.43218873344622033,
+          "gap_ci": [
+            1.201916106723504,
+            7.188427561172345
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 43,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 2666.117229564083,
+          "naive_width": 2208.170437370809,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 43,
+          "available_mape": 11.483596395406657,
+          "operational_mape": 11.483596395406657,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 11.483596395406657,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 248.50633716583252,
+          "margin_upper": 248.50633716583252,
+          "calibration_coverage": 0.9583333333333334,
+          "mean_interval_width": 497.01267433166504,
+          "n": 48
+        },
+        "7": {
+          "margin_lower": 612.0652120253617,
+          "margin_upper": 612.0652120253617,
+          "calibration_coverage": 0.9574468085106383,
+          "mean_interval_width": 1224.1304240507234,
+          "n": 47
+        },
+        "14": {
+          "margin_lower": 876.1649442784928,
+          "margin_upper": 876.1649442784928,
+          "calibration_coverage": 0.9565217391304348,
+          "mean_interval_width": 1752.3298885569857,
+          "n": 46
+        },
+        "30": {
+          "margin_lower": 1558.2480989343985,
+          "margin_upper": 1558.2480989343985,
+          "calibration_coverage": 0.9523809523809523,
+          "mean_interval_width": 3116.496197868797,
+          "n": 42
+        }
+      }
+    }
+  },
+  "ranking": {
+    "1": {
+      "meilleure": "ind\u00e9cidable",
+      "moins_bonne": "xgboost_direct",
+      "lecture": "d\u00e9cid\u00e9e"
+    },
+    "7": {
+      "meilleure": "ind\u00e9cidable",
+      "moins_bonne": "ind\u00e9cidable",
+      "lecture": "ind\u00e9cidable"
+    },
+    "14": {
+      "meilleure": "ind\u00e9cidable",
+      "moins_bonne": "ind\u00e9cidable",
+      "lecture": "ind\u00e9cidable"
+    },
+    "30": {
+      "meilleure": "ind\u00e9cidable",
+      "moins_bonne": "ind\u00e9cidable",
+      "lecture": "ind\u00e9cidable"
+    }
+  },
+  "partition": {
+    "partition": "test",
+    "origin_start": "2025-07-29",
+    "origin_end": "2026-07-03",
+    "target_start": "2025-07-30",
+    "target_end": "2026-08-14",
+    "n_origins": 48
+  },
+  "previous_snapshot": {
+    "note": "L'instantan\u00e9 complet du premier calcul n'a pas \u00e9t\u00e9 conserv\u00e9. Les s\u00e9ances d'entra\u00eenement ne sont pas garanties identiques. Seules les colonnes encore lisibles sont compar\u00e9es. Aucun trou n'est combl\u00e9.",
+    "previous_rows": 376,
+    "current_rows": 376,
+    "common_rows": 376,
+    "differences": {
+      "origin_price": {
+        "rows": 376,
+        "different": 0
+      },
+      "actual": {
+        "rows": 376,
+        "different": 0
+      }
+    }
+  }
+}

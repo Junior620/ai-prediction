@@ -1,0 +1,670 @@
+{
+  "timestamp": "2026-10-09T13:43:48.926935",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "published_pred is the served direct forecast after the guard.",
+    "The hybrid column at one session uses the origin row to forecast the next close.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 96,
+    "horizons": [
+      1,
+      7,
+      14,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "origin_window": "recent",
+    "evaluated_period": {
+      "origin_start": "2024-10-17",
+      "origin_end": "2026-08-28",
+      "target_start": "2024-10-18",
+      "target_end": "2026-10-05",
+      "n_origins": 96
+    },
+    "baseline_comparison": {
+      "model_column": "published_pred",
+      "by_horizon": {
+        "1": {
+          "model_mape": 3.007034483972137,
+          "model_mae": 152.69020135983826,
+          "naive_mape": 2.410525423214713,
+          "naive_mae": 122.93135416666667,
+          "drift_mape": 2.4817778250970304,
+          "drift_mae": 124.18669925456662,
+          "mape_minus_naive": 0.5965090607574242
+        },
+        "7": {
+          "model_mape": 8.199746529472115,
+          "model_mae": 395.1685081140201,
+          "naive_mape": 7.220810686854172,
+          "naive_mae": 350.37927083333335,
+          "drift_mape": 7.8275511395258155,
+          "drift_mae": 380.4785121152242,
+          "mape_minus_naive": 0.9789358426179433
+        },
+        "14": {
+          "model_mape": 14.375575365649542,
+          "model_mae": 695.3319183653593,
+          "naive_mape": 10.959467267267726,
+          "naive_mae": 530.3792708333334,
+          "drift_mape": 13.72305287700694,
+          "drift_mae": 670.9718551107552,
+          "mape_minus_naive": 3.416108098381816
+        },
+        "30": {
+          "model_mape": 30.855733998557948,
+          "model_mae": 1315.7571979488573,
+          "naive_mape": 17.8308712513326,
+          "naive_mae": 855.5937894736843,
+          "drift_mape": 25.99713586343999,
+          "drift_mae": 1315.3479080675834,
+          "mape_minus_naive": 13.024862747225349
+        }
+      }
+    },
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 911.2500916323055,
+          "mae": 612.1419881184896,
+          "mape": 11.341209190558947,
+          "directional_accuracy": 0.4895833333333333,
+          "n_predictions": 96
+        },
+        "7": {
+          "rmse": 996.564367364372,
+          "mae": 708.6087112426758,
+          "mape": 13.488354879851668,
+          "directional_accuracy": 0.46875,
+          "n_predictions": 96
+        },
+        "14": {
+          "rmse": 1138.2239554977396,
+          "mae": 837.1393381754557,
+          "mape": 16.30377117299074,
+          "directional_accuracy": 0.4583333333333333,
+          "n_predictions": 96
+        },
+        "30": {
+          "rmse": 1377.631531046592,
+          "mae": 1033.6458598889803,
+          "mape": 21.313347510543952,
+          "directional_accuracy": 0.43157894736842106,
+          "n_predictions": 95
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 1176.8445669750224,
+          "mae": 1018.9330946274705,
+          "mape": 22.153008966940693,
+          "directional_accuracy": 0.5,
+          "n_predictions": 96
+        },
+        "7": {
+          "rmse": 1410.1368101485384,
+          "mae": 1242.734708444792,
+          "mape": 27.166173527781034,
+          "directional_accuracy": 0.3854166666666667,
+          "n_predictions": 96
+        },
+        "14": {
+          "rmse": 1612.5837784513512,
+          "mae": 1432.4825834080086,
+          "mape": 31.39294662342889,
+          "directional_accuracy": 0.3645833333333333,
+          "n_predictions": 96
+        },
+        "30": {
+          "rmse": 1979.7040705466188,
+          "mae": 1802.6708481771902,
+          "mape": 40.29562845477043,
+          "directional_accuracy": 0.2736842105263158,
+          "n_predictions": 95
+        }
+      },
+      "naive_pred": {
+        "1": {
+          "rmse": 174.02128486014288,
+          "mae": 122.93135416666667,
+          "mape": 2.410525423214713,
+          "directional_accuracy": 0.0,
+          "n_predictions": 96
+        },
+        "7": {
+          "rmse": 464.19380816929083,
+          "mae": 350.37927083333335,
+          "mape": 7.220810686854172,
+          "directional_accuracy": 0.0,
+          "n_predictions": 96
+        },
+        "14": {
+          "rmse": 716.8596016080892,
+          "mae": 530.3792708333334,
+          "mape": 10.959467267267726,
+          "directional_accuracy": 0.0,
+          "n_predictions": 96
+        },
+        "30": {
+          "rmse": 1150.8675905735774,
+          "mae": 855.5937894736843,
+          "mape": 17.8308712513326,
+          "directional_accuracy": 0.0,
+          "n_predictions": 95
+        }
+      },
+      "drift_pred": {
+        "1": {
+          "rmse": 177.2259845678439,
+          "mae": 124.18669925456662,
+          "mape": 2.4817778250970304,
+          "directional_accuracy": 0.4895833333333333,
+          "n_predictions": 96
+        },
+        "7": {
+          "rmse": 493.90106548850963,
+          "mae": 380.4785121152242,
+          "mape": 7.8275511395258155,
+          "directional_accuracy": 0.5625,
+          "n_predictions": 96
+        },
+        "14": {
+          "rmse": 836.8120656332921,
+          "mae": 670.9718551107552,
+          "mape": 13.72305287700694,
+          "directional_accuracy": 0.53125,
+          "n_predictions": 96
+        },
+        "30": {
+          "rmse": 1746.241224906877,
+          "mae": 1315.3479080675834,
+          "mape": 25.99713586343999,
+          "directional_accuracy": 0.5789473684210527,
+          "n_predictions": 95
+        }
+      },
+      "xgb_pred_direct": {
+        "1": {
+          "rmse": 208.7316852606725,
+          "mae": 152.69020135983826,
+          "mape": 3.007034483972137,
+          "directional_accuracy": 0.4791666666666667,
+          "n_predictions": 96
+        },
+        "7": {
+          "rmse": 513.0385086693544,
+          "mae": 395.1685081140201,
+          "mape": 8.199746529472115,
+          "directional_accuracy": 0.5208333333333334,
+          "n_predictions": 96
+        },
+        "14": {
+          "rmse": 881.6108759891672,
+          "mae": 695.3319183653593,
+          "mape": 14.375575365649542,
+          "directional_accuracy": 0.5520833333333334,
+          "n_predictions": 96
+        },
+        "30": {
+          "rmse": 1589.30999349763,
+          "mae": 1315.7571979488573,
+          "mape": 30.855733998557948,
+          "directional_accuracy": 0.4105263157894737,
+          "n_predictions": 95
+        }
+      },
+      "published_pred": {
+        "1": {
+          "rmse": 208.7316852606725,
+          "mae": 152.69020135983826,
+          "mape": 3.007034483972137,
+          "directional_accuracy": 0.4791666666666667,
+          "n_predictions": 96
+        },
+        "7": {
+          "rmse": 513.0385086693544,
+          "mae": 395.1685081140201,
+          "mape": 8.199746529472115,
+          "directional_accuracy": 0.5208333333333334,
+          "n_predictions": 96
+        },
+        "14": {
+          "rmse": 881.6108759891672,
+          "mae": 695.3319183653593,
+          "mape": 14.375575365649542,
+          "directional_accuracy": 0.5520833333333334,
+          "n_predictions": 96
+        },
+        "30": {
+          "rmse": 1589.30999349763,
+          "mae": 1315.7571979488573,
+          "mape": 30.855733998557948,
+          "directional_accuracy": 0.4105263157894737,
+          "n_predictions": 95
+        }
+      }
+    }
+  },
+  "conformal_intervals": {
+    "source_report": "20261009_134348",
+    "calibrated_at": "2026-10-09T13:43:49.681866",
+    "coverage_level": 0.9,
+    "asymmetric": false,
+    "coverage_is_held_out": false,
+    "applies_to_candidate": "20261009_134348",
+    "provenance": "calibration_margins_frozen_before_the_test",
+    "by_horizon": {
+      "1": {
+        "margin_lower": 473.8774290084839,
+        "margin_upper": 473.8774290084839,
+        "calibration_coverage": 0.9583333333333334,
+        "mean_interval_width": 947.7548580169678,
+        "n": 48,
+        "provenance": "calibration_slice_of_this_candidate",
+        "coverage_is_not_a_held_out_proof": true
+      },
+      "7": {
+        "margin_lower": 1338.16162109375,
+        "margin_upper": 1338.16162109375,
+        "calibration_coverage": 0.9574468085106383,
+        "mean_interval_width": 2676.3232421875,
+        "n": 47,
+        "provenance": "calibration_slice_of_this_candidate",
+        "coverage_is_not_a_held_out_proof": true
+      },
+      "14": {
+        "margin_lower": 2033.1441650390625,
+        "margin_upper": 2033.1441650390625,
+        "calibration_coverage": 0.9565217391304348,
+        "mean_interval_width": 4066.288330078125,
+        "n": 46,
+        "provenance": "calibration_slice_of_this_candidate",
+        "coverage_is_not_a_held_out_proof": true
+      },
+      "30": {
+        "margin_lower": 3182.84578704834,
+        "margin_upper": 3182.84578704834,
+        "calibration_coverage": 0.9523809523809523,
+        "mean_interval_width": 6365.69157409668,
+        "n": 42,
+        "provenance": "calibration_slice_of_this_candidate",
+        "coverage_is_not_a_held_out_proof": true
+      }
+    },
+    "naive_by_horizon": {
+      "1": {
+        "margin_lower": 483.0,
+        "margin_upper": 483.0,
+        "calibration_coverage": 0.9583333333333334,
+        "mean_interval_width": 966.0,
+        "n": 48
+      },
+      "7": {
+        "margin_lower": 1045.0,
+        "margin_upper": 1045.0,
+        "calibration_coverage": 0.9574468085106383,
+        "mean_interval_width": 2090.0,
+        "n": 47
+      },
+      "14": {
+        "margin_lower": 1751.0,
+        "margin_upper": 1751.0,
+        "calibration_coverage": 0.9565217391304348,
+        "mean_interval_width": 3502.0,
+        "n": 46
+      },
+      "30": {
+        "margin_lower": 3109.0,
+        "margin_upper": 3109.0,
+        "calibration_coverage": 0.9523809523809523,
+        "mean_interval_width": 6218.0,
+        "n": 42
+      }
+    },
+    "test_coverage": {
+      "1": {
+        "test_coverage": 0.9791666666666666,
+        "mean_interval_width": 947.7548580169678,
+        "n": 48
+      },
+      "7": {
+        "test_coverage": 1.0,
+        "mean_interval_width": 2676.3232421875,
+        "n": 48
+      },
+      "14": {
+        "test_coverage": 1.0,
+        "mean_interval_width": 4066.288330078125,
+        "n": 48
+      },
+      "30": {
+        "test_coverage": 0.9787234042553191,
+        "mean_interval_width": 6365.69157409668,
+        "n": 47
+      }
+    },
+    "acceptance": {
+      "1": {
+        "horizon": 1,
+        "validated": false,
+        "reason": "V\u00e9rification seulement : cette ex\u00e9cution n'active aucun horizon. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro.",
+        "n": 48,
+        "n_effective": 48.0,
+        "overlap": 0,
+        "fallback_rate": 0.0,
+        "model_mape": 3.0858900682297006,
+        "naive_mape": 2.428740733252145,
+        "relative_gain": -0.2705720400619361,
+        "gap_ci": [
+          -0.1180066163269131,
+          1.7405239282214107
+        ],
+        "gap_reading": "r\u00e9sultat incertain",
+        "coverage": 0.9791666666666666,
+        "coverage_ci": [
+          0.9375,
+          1.0
+        ],
+        "coverage_n": 48,
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+        "model_width": 947.7548580169678,
+        "naive_width": 966.0,
+        "abstention_count": 0,
+        "abstention_rate": 0.0,
+        "available_n": 48,
+        "available_mape": 3.0858900682297006,
+        "operational_mape": 3.0858900682297006,
+        "warning_count": 1,
+        "secondary_mape_when_model_spoke": 3.0858900682297006,
+        "measurement": "verification"
+      },
+      "7": {
+        "horizon": 7,
+        "validated": false,
+        "reason": "V\u00e9rification seulement : cette ex\u00e9cution n'active aucun horizon. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 48,
+        "n_effective": 16.0,
+        "overlap": 2,
+        "fallback_rate": 0.0,
+        "model_mape": 9.20631583895734,
+        "naive_mape": 8.258626836901973,
+        "relative_gain": -0.11475140126453141,
+        "gap_ci": [
+          -0.23025550938592815,
+          2.36108622438068
+        ],
+        "gap_reading": "r\u00e9sultat incertain",
+        "coverage": 1.0,
+        "coverage_ci": [
+          1.0,
+          1.0
+        ],
+        "coverage_n": 48,
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+        "model_width": 2532.437626466155,
+        "naive_width": 2036.6072916666665,
+        "abstention_count": 0,
+        "abstention_rate": 0.0,
+        "available_n": 48,
+        "available_mape": 9.20631583895734,
+        "operational_mape": 9.20631583895734,
+        "warning_count": 1,
+        "secondary_mape_when_model_spoke": 9.20631583895734,
+        "measurement": "verification"
+      },
+      "14": {
+        "horizon": 14,
+        "validated": false,
+        "reason": "V\u00e9rification seulement : cette ex\u00e9cution n'active aucun horizon. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 48,
+        "n_effective": 12.0,
+        "overlap": 3,
+        "fallback_rate": 0.0,
+        "model_mape": 16.498094430128212,
+        "naive_mape": 11.86362397624645,
+        "relative_gain": -0.3906454269927114,
+        "gap_ci": [
+          1.686746348976445,
+          8.187328294156831
+        ],
+        "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+        "coverage": 1.0,
+        "coverage_ci": [
+          1.0,
+          1.0
+        ],
+        "coverage_n": 48,
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+        "model_width": 3474.965255013307,
+        "naive_width": 3043.1552083333336,
+        "abstention_count": 0,
+        "abstention_rate": 0.0,
+        "available_n": 48,
+        "available_mape": 16.498094430128212,
+        "operational_mape": 16.498094430128212,
+        "warning_count": 6,
+        "secondary_mape_when_model_spoke": 16.498094430128212,
+        "measurement": "verification"
+      },
+      "30": {
+        "horizon": 30,
+        "validated": false,
+        "reason": "V\u00e9rification seulement : cette ex\u00e9cution n'active aucun horizon. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 47,
+        "n_effective": 6.714285714285714,
+        "overlap": 6,
+        "fallback_rate": 0.0,
+        "model_mape": 42.15798624507058,
+        "naive_mape": 18.596109519160418,
+        "relative_gain": -1.2670325855864255,
+        "gap_ci": [
+          13.040466477992233,
+          34.051034981349076
+        ],
+        "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+        "coverage": 0.9148936170212766,
+        "coverage_ci": [
+          0.7446808510638298,
+          1.0
+        ],
+        "coverage_n": 47,
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+        "model_width": 4752.889246467185,
+        "naive_width": 4441.7984148936175,
+        "abstention_count": 0,
+        "abstention_rate": 0.0,
+        "available_n": 47,
+        "available_mape": 42.15798624507058,
+        "operational_mape": 42.15798624507058,
+        "warning_count": 26,
+        "secondary_mape_when_model_spoke": 42.15798624507058,
+        "measurement": "verification"
+      }
+    }
+  },
+  "promotion": {
+    "promoted": false,
+    "accepted_horizons": [],
+    "partition": "test",
+    "origin_start": "2025-09-29",
+    "origin_end": "2026-08-28",
+    "target_start": "2025-09-30",
+    "target_end": "2026-10-05",
+    "n_origins": 48,
+    "candidate_version": "improved_20261009_001100",
+    "prediction_column": "published_pred",
+    "nhits_replayed": false,
+    "nhits_required": false,
+    "measurement": "verification",
+    "weights_refit": false,
+    "decisions": {
+      "1": {
+        "horizon": 1,
+        "validated": false,
+        "reason": "V\u00e9rification seulement : cette ex\u00e9cution n'active aucun horizon. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro.",
+        "n": 48,
+        "n_effective": 48.0,
+        "overlap": 0,
+        "fallback_rate": 0.0,
+        "model_mape": 3.0858900682297006,
+        "naive_mape": 2.428740733252145,
+        "relative_gain": -0.2705720400619361,
+        "gap_ci": [
+          -0.1180066163269131,
+          1.7405239282214107
+        ],
+        "gap_reading": "r\u00e9sultat incertain",
+        "coverage": 0.9791666666666666,
+        "coverage_ci": [
+          0.9375,
+          1.0
+        ],
+        "coverage_n": 48,
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+        "model_width": 947.7548580169678,
+        "naive_width": 966.0,
+        "abstention_count": 0,
+        "abstention_rate": 0.0,
+        "available_n": 48,
+        "available_mape": 3.0858900682297006,
+        "operational_mape": 3.0858900682297006,
+        "warning_count": 1,
+        "secondary_mape_when_model_spoke": 3.0858900682297006,
+        "measurement": "verification"
+      },
+      "7": {
+        "horizon": 7,
+        "validated": false,
+        "reason": "V\u00e9rification seulement : cette ex\u00e9cution n'active aucun horizon. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 48,
+        "n_effective": 16.0,
+        "overlap": 2,
+        "fallback_rate": 0.0,
+        "model_mape": 9.20631583895734,
+        "naive_mape": 8.258626836901973,
+        "relative_gain": -0.11475140126453141,
+        "gap_ci": [
+          -0.23025550938592815,
+          2.36108622438068
+        ],
+        "gap_reading": "r\u00e9sultat incertain",
+        "coverage": 1.0,
+        "coverage_ci": [
+          1.0,
+          1.0
+        ],
+        "coverage_n": 48,
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+        "model_width": 2532.437626466155,
+        "naive_width": 2036.6072916666665,
+        "abstention_count": 0,
+        "abstention_rate": 0.0,
+        "available_n": 48,
+        "available_mape": 9.20631583895734,
+        "operational_mape": 9.20631583895734,
+        "warning_count": 1,
+        "secondary_mape_when_model_spoke": 9.20631583895734,
+        "measurement": "verification"
+      },
+      "14": {
+        "horizon": 14,
+        "validated": false,
+        "reason": "V\u00e9rification seulement : cette ex\u00e9cution n'active aucun horizon. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 48,
+        "n_effective": 12.0,
+        "overlap": 3,
+        "fallback_rate": 0.0,
+        "model_mape": 16.498094430128212,
+        "naive_mape": 11.86362397624645,
+        "relative_gain": -0.3906454269927114,
+        "gap_ci": [
+          1.686746348976445,
+          8.187328294156831
+        ],
+        "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+        "coverage": 1.0,
+        "coverage_ci": [
+          1.0,
+          1.0
+        ],
+        "coverage_n": 48,
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+        "model_width": 3474.965255013307,
+        "naive_width": 3043.1552083333336,
+        "abstention_count": 0,
+        "abstention_rate": 0.0,
+        "available_n": 48,
+        "available_mape": 16.498094430128212,
+        "operational_mape": 16.498094430128212,
+        "warning_count": 6,
+        "secondary_mape_when_model_spoke": 16.498094430128212,
+        "measurement": "verification"
+      },
+      "30": {
+        "horizon": 30,
+        "validated": false,
+        "reason": "V\u00e9rification seulement : cette ex\u00e9cution n'active aucun horizon. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 47,
+        "n_effective": 6.714285714285714,
+        "overlap": 6,
+        "fallback_rate": 0.0,
+        "model_mape": 42.15798624507058,
+        "naive_mape": 18.596109519160418,
+        "relative_gain": -1.2670325855864255,
+        "gap_ci": [
+          13.040466477992233,
+          34.051034981349076
+        ],
+        "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+        "coverage": 0.9148936170212766,
+        "coverage_ci": [
+          0.7446808510638298,
+          1.0
+        ],
+        "coverage_n": 47,
+        "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+        "model_width": 4752.889246467185,
+        "naive_width": 4441.7984148936175,
+        "abstention_count": 0,
+        "abstention_rate": 0.0,
+        "available_n": 47,
+        "available_mape": 42.15798624507058,
+        "operational_mape": 42.15798624507058,
+        "warning_count": 26,
+        "secondary_mape_when_model_spoke": 42.15798624507058,
+        "measurement": "verification"
+      }
+    },
+    "reason": "Aucun horizon n'est accept\u00e9. Le manifeste actif et ses marges restent."
+  },
+  "procedure_fingerprint": "94aa1170eb6624344afcabf8c53573fbab37aa78f2a9420aa3ef72283d2db0c8",
+  "data_fingerprint": "972e5564847a88e922caad2bd56e0624f6e7ee5e35045a4e323979a206a6d55a",
+  "snapshot": "E:\\prediction\\reports\\walk_forward\\measure\\cocoa\\snapshot_prices.csv",
+  "previous_snapshot": {
+    "note": "L'instantan\u00e9 complet du premier calcul n'a pas \u00e9t\u00e9 conserv\u00e9. Les s\u00e9ances d'entra\u00eenement ne sont pas garanties identiques. Seules les colonnes encore lisibles sont compar\u00e9es. Aucun trou n'est combl\u00e9.",
+    "previous_rows": 383,
+    "current_rows": 383,
+    "common_rows": 383,
+    "differences": {
+      "origin_price": {
+        "rows": 383,
+        "different": 0
+      },
+      "actual": {
+        "rows": 383,
+        "different": 0
+      }
+    }
+  },
+  "evaluation_report_attached": true,
+  "data_window": {
+    "min_date": "2020-01-02",
+    "max_date": "2026-10-06",
+    "rows": 1735,
+    "cut": "2020-01-01"
+  }
+}

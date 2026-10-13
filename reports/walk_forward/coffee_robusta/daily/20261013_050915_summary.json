@@ -1,0 +1,273 @@
+{
+  "timestamp": "2026-10-13T05:09:15.782851",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "published_pred is the served direct forecast after the guard.",
+    "The hybrid column at one session uses the origin row to forecast the next close.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 24,
+    "horizons": [
+      1,
+      7,
+      14,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "origin_window": "recent",
+    "evaluated_period": {
+      "origin_start": "2026-01-26",
+      "origin_end": "2026-07-28",
+      "target_start": "2026-01-27",
+      "target_end": "2026-08-17",
+      "n_origins": 24
+    },
+    "baseline_comparison": {
+      "model_column": "published_pred",
+      "by_horizon": {
+        "1": {
+          "model_mape": NaN,
+          "model_mae": NaN,
+          "naive_mape": 2.26132060417568,
+          "naive_mae": 82.16666666666667,
+          "drift_mape": 2.3562541255600005,
+          "drift_mae": 85.56164741264405,
+          "mape_minus_naive": NaN
+        },
+        "7": {
+          "model_mape": NaN,
+          "model_mae": NaN,
+          "naive_mape": 4.168692564397077,
+          "naive_mae": 148.47826086956522,
+          "drift_mape": 4.880553251060516,
+          "drift_mae": 174.09002816546734,
+          "mape_minus_naive": NaN
+        },
+        "14": {
+          "model_mape": NaN,
+          "model_mae": NaN,
+          "naive_mape": 5.162352904726413,
+          "naive_mae": 182.4090909090909,
+          "drift_mape": 7.334806042001089,
+          "drift_mae": 259.0214186623192,
+          "mape_minus_naive": NaN
+        },
+        "30": {
+          "model_mape": NaN,
+          "model_mae": NaN,
+          "naive_mape": 6.166191018808245,
+          "naive_mae": 213.88888888888889,
+          "drift_mape": 10.93292212466865,
+          "drift_mae": 383.67632274276383,
+          "mape_minus_naive": NaN
+        }
+      }
+    },
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 154.12484360932137,
+          "mae": 110.58589680989583,
+          "mape": 3.052219543624443,
+          "directional_accuracy": 0.4583333333333333,
+          "n_predictions": 24
+        },
+        "7": {
+          "rmse": 218.88038838712282,
+          "mae": 172.77579398777175,
+          "mape": 4.827638723963308,
+          "directional_accuracy": 0.5652173913043478,
+          "n_predictions": 23
+        },
+        "14": {
+          "rmse": 251.41590001307895,
+          "mae": 214.23743785511363,
+          "mape": 6.034173627606909,
+          "directional_accuracy": 0.45454545454545453,
+          "n_predictions": 22
+        },
+        "30": {
+          "rmse": 317.6676618267015,
+          "mae": 257.4576416015625,
+          "mape": 7.415114498924662,
+          "directional_accuracy": 0.3333333333333333,
+          "n_predictions": 18
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 364.73684470242097,
+          "mae": 260.7491437733006,
+          "mape": 7.198601056842213,
+          "directional_accuracy": 0.625,
+          "n_predictions": 24
+        },
+        "7": {
+          "rmse": 402.75522681847065,
+          "mae": 306.93554141230294,
+          "mape": 8.533542412263046,
+          "directional_accuracy": 0.5217391304347826,
+          "n_predictions": 23
+        },
+        "14": {
+          "rmse": 417.4668285094806,
+          "mae": 332.09935431537275,
+          "mape": 9.32370711485972,
+          "directional_accuracy": 0.45454545454545453,
+          "n_predictions": 22
+        },
+        "30": {
+          "rmse": 420.4829326165294,
+          "mae": 339.2832849421138,
+          "mape": 9.629234735672693,
+          "directional_accuracy": 0.5,
+          "n_predictions": 18
+        }
+      },
+      "naive_pred": {
+        "1": {
+          "rmse": 109.54793471353076,
+          "mae": 82.16666666666667,
+          "mape": 2.26132060417568,
+          "directional_accuracy": 0.0,
+          "n_predictions": 24
+        },
+        "7": {
+          "rmse": 179.08038030084606,
+          "mae": 148.47826086956522,
+          "mape": 4.168692564397077,
+          "directional_accuracy": 0.0,
+          "n_predictions": 23
+        },
+        "14": {
+          "rmse": 213.64084134572465,
+          "mae": 182.4090909090909,
+          "mape": 5.162352904726413,
+          "directional_accuracy": 0.0,
+          "n_predictions": 22
+        },
+        "30": {
+          "rmse": 258.0430627283404,
+          "mae": 213.88888888888889,
+          "mape": 6.166191018808245,
+          "directional_accuracy": 0.0,
+          "n_predictions": 18
+        }
+      },
+      "drift_pred": {
+        "1": {
+          "rmse": 110.15056796594381,
+          "mae": 85.56164741264405,
+          "mape": 2.3562541255600005,
+          "directional_accuracy": 0.4166666666666667,
+          "n_predictions": 24
+        },
+        "7": {
+          "rmse": 217.78651652736588,
+          "mae": 174.09002816546734,
+          "mape": 4.880553251060516,
+          "directional_accuracy": 0.391304347826087,
+          "n_predictions": 23
+        },
+        "14": {
+          "rmse": 316.7618464637414,
+          "mae": 259.0214186623192,
+          "mape": 7.334806042001089,
+          "directional_accuracy": 0.3181818181818182,
+          "n_predictions": 22
+        },
+        "30": {
+          "rmse": 482.20521096881095,
+          "mae": 383.67632274276383,
+          "mape": 10.93292212466865,
+          "directional_accuracy": 0.6111111111111112,
+          "n_predictions": 18
+        }
+      },
+      "xgb_pred_direct": {
+        "1": {
+          "rmse": 116.5243971026466,
+          "mae": 88.32371230547626,
+          "mape": 2.42573976134583,
+          "directional_accuracy": 0.4166666666666667,
+          "n_predictions": 24
+        },
+        "7": {
+          "rmse": 246.19461511914022,
+          "mae": 206.06883231453273,
+          "mape": 5.8136396925241405,
+          "directional_accuracy": 0.43478260869565216,
+          "n_predictions": 23
+        },
+        "14": {
+          "rmse": 382.2483945034745,
+          "mae": 358.5918148214167,
+          "mape": 10.217831574533545,
+          "directional_accuracy": 0.18181818181818182,
+          "n_predictions": 22
+        },
+        "30": {
+          "rmse": 430.74450601417584,
+          "mae": 349.58733979860943,
+          "mape": 10.054361087458762,
+          "directional_accuracy": 0.2222222222222222,
+          "n_predictions": 18
+        }
+      },
+      "published_pred": {
+        "1": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        },
+        "7": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        },
+        "14": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        },
+        "30": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        }
+      }
+    }
+  },
+  "legacy_holdout_baseline": {
+    "mape_1step_holdout": 4.742684929375289,
+    "n_val": 335
+  },
+  "promotion": {
+    "promoted": false,
+    "accepted_horizons": [],
+    "nhits_replayed": false,
+    "nhits_required": true,
+    "measurement": "incomplete",
+    "reason": "Mesure incompl\u00e8te : le walk-forward quotidien n'a pas rejou\u00e9 N-HiTS. Aucun horizon n'est activ\u00e9."
+  },
+  "procedure_fingerprint": "79b15cfaf79d524f19c1e334dec8dad6f848cd0af2146864488ab2f97139a1b7",
+  "data_fingerprint": "d66e49e6fcec632ec7ab2edc94a6671b62da223b159d6a73b3f2935986feabc7",
+  "snapshot": "E:\\prediction\\reports\\walk_forward\\coffee_robusta\\daily\\snapshot_prices.csv",
+  "data_window": {
+    "min_date": "2020-01-02",
+    "max_date": "2026-10-13",
+    "rows": 1677,
+    "cut": "2020-01-01"
+  }
+}

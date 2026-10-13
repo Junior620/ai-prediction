@@ -15,6 +15,9 @@ import type {
   ModelComparisonResponse,
   PredictionHistoryResponse,
   CocoaWeatherResponse,
+  ForecastTrackingResponse,
+  RevisionValueResponse,
+  ValidationHistoryResponse,
 } from '@/types/api';
 
 /** Same-origin BFF — JWT stays on the server (API_TOKEN). */
@@ -109,6 +112,50 @@ export const api = {
     try {
       const response = await apiClient.get<PerformanceMetricsResponse>('/api/v1/performance', {
         params,
+      });
+      return response.data;
+    } catch {
+      return null;
+    }
+  },
+
+  async getRevisionValue(market: string): Promise<RevisionValueResponse | null> {
+    try {
+      const response = await apiClient.get<RevisionValueResponse>('/api/v1/revision-value', {
+        params: { market },
+      });
+      return response.data;
+    } catch {
+      return null;
+    }
+  },
+
+  async getForecastTracking(
+    market: string,
+    initialId?: string,
+    query?: { targetDate?: string; horizon?: number; offset?: number; limit?: number },
+  ): Promise<ForecastTrackingResponse | null> {
+    try {
+      const response = await apiClient.get<ForecastTrackingResponse>('/api/v1/forecast-tracking', {
+        params: {
+          market,
+          ...(initialId ? { initial_id: initialId } : {}),
+          ...(query?.targetDate ? { target_date: query.targetDate } : {}),
+          ...(query?.horizon ? { horizon: query.horizon } : {}),
+          ...(query?.offset ? { offset: query.offset } : {}),
+          ...(query?.limit ? { limit: query.limit } : {}),
+        },
+      });
+      return response.data;
+    } catch {
+      return null;
+    }
+  },
+
+  async getValidationHistory(market?: string): Promise<ValidationHistoryResponse | null> {
+    try {
+      const response = await apiClient.get('/api/v1/validation/history', {
+        params: market ? { market } : {},
       });
       return response.data;
     } catch {

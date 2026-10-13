@@ -472,9 +472,8 @@ def guard_forecast(
 ) -> tuple[float, float, bool]:
     """Central scenario after the percentage cap.
 
-    A move past ``max_pct`` is replaced by the spot. The conformal band is
-    not a reason to discard the price: an unvalidated horizon is hidden by
-    the release state, not by shrinking the forecast to the close.
+    A move past ``max_pct`` stays visible and is flagged. The conformal band
+    is not a reason to discard the price.
     ``margin`` is accepted so older callers keep working and is ignored.
     """
     del margin
@@ -486,17 +485,18 @@ def resolve_capped_forecast(
     spot: float,
     max_pct: float,
 ) -> tuple[float, float, bool]:
-    """Return ``(central_price, change_pct, feature_failure)``.
+    """Return ``(central_price, change_pct, large_move_warning)``.
 
-    A move past ``max_pct`` is a feature failure. The central scenario stays
-    at the spot; the clipped cap is not published as the forecast.
+    A finite positive price past ``max_pct`` stays visible. The third value
+    is a warning, not a reason to replace the forecast with the spot.
     """
     if spot <= 0 or not np.isfinite(price) or not np.isfinite(spot):
         return float(price), 0.0, False
+    if not (np.isfinite(price) and float(price) > 0):
+        return float(price), 0.0, False
     raw_pct = (float(price) / float(spot) - 1.0) * 100.0
-    if abs(raw_pct) > float(max_pct) + 1e-9:
-        return float(spot), 0.0, True
-    return float(price), float(raw_pct), False
+    warning = abs(raw_pct) > float(max_pct) + 1e-9
+    return float(price), float(raw_pct), bool(warning)
 
 
 def build_prediction_row(
@@ -556,6 +556,106 @@ def build_prediction_row(
         row.setdefault(col, last_row.get(col, 0.0))
 
     return pd.DataFrame({k: [row.get(k)] for k in cols})
+
+
+CONSUMED_COLUMNS = ("open", "high", "low", "volume", "open_interest")
+# The October 2026 cocoa snapshot keeps closed dates the study drops.
+# Removing them changes price_lag_1 and the served J+7. Lots already trained
+# keep those rows. The calendar name is part of the procedure fingerprint.
+SERVICE_CALENDAR = "keep_closed_rows"
+OHLCV_FILL = "last_observation_before_features"
+_OHLCV_COLUMNS = ("open", "high", "low", "volume")
+
+
+def is_closed_collection_date(day, holidays: Optional[Sequence] = None) -> bool:
+    """A weekend or a date the project calendar lists as closed."""
+    stamp = pd.Timestamp(day).normalize()
+    if stamp.weekday() >= 5:
+        return True
+    closed = {pd.Timestamp(item).normalize() for item in exchange_holidays(holidays)}
+    return stamp in closed
+
+
+def session_anomalies(frame: pd.DataFrame) -> list[str]:
+    """Dates present in a snapshot that are not trading sessions. Rows are kept."""
+    if frame is None or len(frame) == 0 or "date" not in frame.columns:
+        return []
+    dates = pd.to_datetime(frame["date"], errors="coerce").dropna().dt.normalize()
+    return sorted(
+        {stamp.strftime("%Y-%m-%d") for stamp in dates if is_closed_collection_date(stamp)}
+    )
+
+
+def trading_sessions(frame: pd.DataFrame) -> pd.DataFrame:
+    """Cotation sessions only. Closed collection rows stay in the source file."""
+    if frame is None or len(frame) == 0 or "date" not in frame.columns:
+        return pd.DataFrame(columns=["date", "price"]) if frame is None else frame.iloc[0:0].copy()
+    out = frame.copy()
+    out["date"] = pd.to_datetime(out["date"]).dt.normalize()
+    out = out.sort_values("date").drop_duplicates(subset=["date"], keep="last")
+    closed = out["date"].map(is_closed_collection_date)
+    return out.loc[~closed].reset_index(drop=True)
+
+
+def fill_missing_ohlcv(frame: pd.DataFrame) -> pd.DataFrame:
+    """Fill missing open, high, low and volume from the previous observation.
+
+    This runs before features. Open interest stays as collected. The raw
+    snapshot identity is taken before this fill.
+    """
+    filled = frame.copy()
+    for column in _OHLCV_COLUMNS:
+        if column in filled.columns:
+            filled[column] = pd.to_numeric(filled[column], errors="coerce").ffill()
+    return filled
+
+
+def prepare_market_frame(
+    frame: pd.DataFrame,
+    *,
+    market_id: str,
+    ledger_path: Optional[Path] = None,
+) -> pd.DataFrame:
+    """One cleaning path for training, the journal command and the API.
+
+    Closed dates stay. ``trading_sessions`` is the separate study calendar.
+    """
+    cleaned = clean_price_dataframe(frame)
+    if market_id == "cocoa":
+        cleaned = apply_oi_receipts(cleaned, ledger_path)
+    return cleaned
+
+
+def model_inputs(
+    frame: pd.DataFrame,
+    *,
+    market_id: str,
+    ledger_path: Optional[Path] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Raw prepared snapshot, then the filled frame the model actually reads."""
+    raw = prepare_market_frame(frame, market_id=market_id, ledger_path=ledger_path)
+    return raw, fill_missing_ohlcv(raw)
+
+
+def consumed_snapshot_rows(frame: pd.DataFrame) -> list[dict]:
+    """Normalized columns the models actually read. A value change alters the identity."""
+    if frame is None or len(frame) == 0 or "date" not in frame.columns:
+        return []
+    ordered = frame.sort_values("date")
+    rows = []
+    for _, row in ordered.iterrows():
+        price = row.get("price")
+        item = {
+            "date": str(pd.to_datetime(row["date"]).date()),
+            "price": None if price is None or pd.isna(price) else float(price),
+        }
+        for column in CONSUMED_COLUMNS:
+            if column not in ordered.columns or pd.isna(row.get(column)):
+                item[column] = None
+            else:
+                item[column] = float(row[column])
+        rows.append(item)
+    return rows
 
 
 def exchange_holidays(extra: Optional[Sequence] = None) -> list:

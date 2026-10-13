@@ -104,28 +104,44 @@ def apply_frozen_bands(
     A horizon without a frozen margin stays unbounded. The acceptance gate
     then fails instead of inventing a band from an older file.
     """
+    from src.models.served_forecast import build_served_interval
+
     out = frame.copy()
-    floor = float(price_bounds[0])
-    ceiling = float(price_bounds[1])
     lowers = []
     uppers = []
     for _, row in out.iterrows():
-        entry = (margins or {}).get(str(int(row["horizon"])))
+        horizon = int(row["horizon"])
+        entry = (margins or {}).get(str(horizon))
         predicted = pd.to_numeric(row.get(pred_col), errors="coerce")
-        if (
-            not entry
-            or predicted is None
-            or not np.isfinite(float(predicted))
-            or entry.get("margin_lower") is None
-            or entry.get("margin_upper") is None
-        ):
+        recent = None
+        if "recent_lower" in out.columns and "recent_upper" in out.columns:
+            rlo = pd.to_numeric(row.get("recent_lower"), errors="coerce")
+            rhi = pd.to_numeric(row.get("recent_upper"), errors="coerce")
+            if np.isfinite(rlo) and np.isfinite(rhi):
+                recent = (float(rlo), float(rhi))
+        garch_half = None
+        if "garch_log_half" in out.columns:
+            half = pd.to_numeric(row.get("garch_log_half"), errors="coerce")
+            if np.isfinite(half):
+                garch_half = float(half)
+        garch_required = False
+        if "garch_required" in out.columns:
+            garch_required = bool(row.get("garch_required"))
+        if predicted is None or not np.isfinite(float(predicted)) or not entry:
             lowers.append(np.nan)
             uppers.append(np.nan)
             continue
-        lower = max(floor, float(predicted) - float(entry["margin_lower"]))
-        upper = min(ceiling, float(predicted) + float(entry["margin_upper"]))
-        lowers.append(lower)
-        uppers.append(upper)
+        lower, upper = build_served_interval(
+            float(predicted),
+            horizon,
+            margins={str(horizon): entry},
+            price_bounds=price_bounds,
+            recent_bounds=recent,
+            garch_log_half=garch_half,
+            garch_required=garch_required,
+        )
+        lowers.append(np.nan if lower is None else lower)
+        uppers.append(np.nan if upper is None else upper)
     out[lower_name] = lowers
     out[upper_name] = uppers
     return out

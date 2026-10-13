@@ -1,0 +1,175 @@
+{
+  "snapshot": "data\\freeze\\cocoa_prices.csv",
+  "note": "Liste seule. Aucun prix et aucune date ne sont corriges.",
+  "count": 28,
+  "rows": [
+    {
+      "date": "2020-04-13",
+      "price": 1830.75,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2020-05-08",
+      "price": 1937.52,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2020-08-31",
+      "price": 1991.72,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2020-12-28",
+      "price": 1894.14,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2021-04-05",
+      "price": 1714.63,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2021-05-03",
+      "price": 1708.07,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2021-08-30",
+      "price": 1901.56,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2021-12-27",
+      "price": 1857.76,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2021-12-28",
+      "price": 1712.0,
+      "source": "databento",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2022-01-03",
+      "price": 1879.79,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2022-04-18",
+      "price": 1964.85,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2022-05-02",
+      "price": 2073.75,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2022-06-02",
+      "price": 1999.99,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2022-06-03",
+      "price": 1965.55,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2022-08-29",
+      "price": 2077.77,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2022-12-27",
+      "price": 2189.21,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2023-04-10",
+      "price": 2293.38,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2023-05-01",
+      "price": 2350.99,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2023-05-08",
+      "price": 2512.43,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2023-08-28",
+      "price": 2759.15,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2023-12-26",
+      "price": 3367.17,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2025-08-25",
+      "price": 5890.41,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2025-12-26",
+      "price": 4408.55,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2026-04-06",
+      "price": 2501.39,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2026-05-04",
+      "price": 2866.04,
+      "source": "ice_london_bootstrap_fx",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2026-08-29",
+      "price": 4753.0,
+      "source": "ice_london",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2026-09-12",
+      "price": 4109.0,
+      "source": "ice_london",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2026-10-10",
+      "price": 4241.0,
+      "source": "ice_london",
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    }
+  ]
+}

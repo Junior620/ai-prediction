@@ -1,0 +1,573 @@
+{
+  "timestamp": "2026-10-07T00:06:45.509063",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "published_pred is the served direct forecast after the guard.",
+    "The hybrid column at one session uses the origin row to forecast the next close.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 96,
+    "horizons": [
+      1,
+      7,
+      14,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "origin_window": "recent",
+    "evaluated_period": {
+      "origin_start": "2024-08-15",
+      "origin_end": "2026-07-03",
+      "target_start": "2024-08-16",
+      "target_end": "2026-08-14",
+      "n_origins": 96
+    },
+    "baseline_comparison": {
+      "model_column": "published_pred",
+      "by_horizon": {
+        "1": {
+          "model_mape": 2.2695311782090966,
+          "model_mae": 95.42608445973418,
+          "naive_mape": 1.9688299332982244,
+          "naive_mae": 84.31182795698925,
+          "drift_mape": 1.9969733130686445,
+          "drift_mae": 85.6962816493789,
+          "mape_minus_naive": 0.30070124491087213
+        },
+        "7": {
+          "model_mape": 5.962526948104963,
+          "model_mae": 249.967879299838,
+          "naive_mape": 4.752402898688029,
+          "naive_mae": 203.4945054945055,
+          "drift_mape": 5.659659362815779,
+          "drift_mae": 246.16298013436665,
+          "mape_minus_naive": 1.210124049416934
+        },
+        "14": {
+          "model_mape": 8.912435023365097,
+          "model_mae": 372.90469232899676,
+          "naive_mape": 6.920852609684011,
+          "naive_mae": 296.6373626373626,
+          "drift_mape": 9.511085308601272,
+          "drift_mae": 418.25022714936495,
+          "mape_minus_naive": 1.991582413681086
+        },
+        "30": {
+          "model_mape": 13.157732881273333,
+          "model_mae": 537.4429257049,
+          "naive_mape": 10.639949428765567,
+          "naive_mae": 448.80898876404495,
+          "drift_mape": 19.770458268552776,
+          "drift_mae": 876.6310062482804,
+          "mape_minus_naive": 2.517783452507766
+        }
+      }
+    },
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 840.0230305938716,
+          "mae": 590.0565828713038,
+          "mape": 12.16361202090099,
+          "directional_accuracy": 0.45161290322580644,
+          "n_predictions": 93
+        },
+        "7": {
+          "rmse": 866.7966719927232,
+          "mae": 636.675056876717,
+          "mape": 13.350321567142517,
+          "directional_accuracy": 0.5494505494505495,
+          "n_predictions": 91
+        },
+        "14": {
+          "rmse": 899.172914531501,
+          "mae": 666.1853483430632,
+          "mape": 14.041212742724127,
+          "directional_accuracy": 0.5604395604395604,
+          "n_predictions": 91
+        },
+        "30": {
+          "rmse": 963.490057278329,
+          "mae": 768.5007214492626,
+          "mape": 16.661905028462346,
+          "directional_accuracy": 0.5168539325842697,
+          "n_predictions": 89
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 511.73422989358755,
+          "mae": 363.0279532174838,
+          "mape": 9.031310279871658,
+          "directional_accuracy": 0.4946236559139785,
+          "n_predictions": 93
+        },
+        "7": {
+          "rmse": 605.4299435109181,
+          "mae": 435.4287768280719,
+          "mape": 10.830668227882457,
+          "directional_accuracy": 0.5164835164835165,
+          "n_predictions": 91
+        },
+        "14": {
+          "rmse": 691.3576094535276,
+          "mae": 495.7993789922212,
+          "mape": 12.387759066499838,
+          "directional_accuracy": 0.5274725274725275,
+          "n_predictions": 91
+        },
+        "30": {
+          "rmse": 818.1335210806569,
+          "mae": 568.619527623585,
+          "mape": 14.352124940711017,
+          "directional_accuracy": 0.5056179775280899,
+          "n_predictions": 89
+        }
+      },
+      "naive_pred": {
+        "1": {
+          "rmse": 119.43914633577785,
+          "mae": 84.31182795698925,
+          "mape": 1.9688299332982244,
+          "directional_accuracy": 0.0,
+          "n_predictions": 93
+        },
+        "7": {
+          "rmse": 269.46299874436875,
+          "mae": 203.4945054945055,
+          "mape": 4.752402898688029,
+          "directional_accuracy": 0.0,
+          "n_predictions": 91
+        },
+        "14": {
+          "rmse": 370.27880793315137,
+          "mae": 296.6373626373626,
+          "mape": 6.920852609684011,
+          "directional_accuracy": 0.0,
+          "n_predictions": 91
+        },
+        "30": {
+          "rmse": 586.1252694268301,
+          "mae": 448.80898876404495,
+          "mape": 10.639949428765567,
+          "directional_accuracy": 0.0,
+          "n_predictions": 89
+        }
+      },
+      "drift_pred": {
+        "1": {
+          "rmse": 122.78184229594059,
+          "mae": 85.6962816493789,
+          "mape": 1.9969733130686445,
+          "directional_accuracy": 0.5053763440860215,
+          "n_predictions": 93
+        },
+        "7": {
+          "rmse": 327.8695066629381,
+          "mae": 246.16298013436665,
+          "mape": 5.659659362815779,
+          "directional_accuracy": 0.4725274725274725,
+          "n_predictions": 91
+        },
+        "14": {
+          "rmse": 547.9590020295755,
+          "mae": 418.25022714936495,
+          "mape": 9.511085308601272,
+          "directional_accuracy": 0.4175824175824176,
+          "n_predictions": 91
+        },
+        "30": {
+          "rmse": 1160.4682608812852,
+          "mae": 876.6310062482804,
+          "mape": 19.770458268552776,
+          "directional_accuracy": 0.4606741573033708,
+          "n_predictions": 89
+        }
+      },
+      "xgb_pred_direct": {
+        "1": {
+          "rmse": 129.5122623742124,
+          "mae": 89.62077760311865,
+          "mape": 2.0662241127594054,
+          "directional_accuracy": 0.4946236559139785,
+          "n_predictions": 93
+        },
+        "7": {
+          "rmse": 326.3745098191155,
+          "mae": 264.8191886655577,
+          "mape": 6.180972890747219,
+          "directional_accuracy": 0.4065934065934066,
+          "n_predictions": 91
+        },
+        "14": {
+          "rmse": 495.59828766976733,
+          "mae": 409.16688458998124,
+          "mape": 9.777144846771595,
+          "directional_accuracy": 0.38461538461538464,
+          "n_predictions": 91
+        },
+        "30": {
+          "rmse": 703.7802671896925,
+          "mae": 566.4837473429991,
+          "mape": 13.813479110951638,
+          "directional_accuracy": 0.4606741573033708,
+          "n_predictions": 89
+        }
+      },
+      "published_pred": {
+        "1": {
+          "rmse": 135.7972643679411,
+          "mae": 95.42608445973418,
+          "mape": 2.2695311782090966,
+          "directional_accuracy": 0.4946236559139785,
+          "n_predictions": 93
+        },
+        "7": {
+          "rmse": 318.78642378465867,
+          "mae": 249.967879299838,
+          "mape": 5.962526948104963,
+          "directional_accuracy": 0.43956043956043955,
+          "n_predictions": 91
+        },
+        "14": {
+          "rmse": 465.2616130245661,
+          "mae": 372.90469232899676,
+          "mape": 8.912435023365097,
+          "directional_accuracy": 0.4065934065934066,
+          "n_predictions": 91
+        },
+        "30": {
+          "rmse": 688.0378436772097,
+          "mae": 537.4429257049,
+          "mape": 13.157732881273333,
+          "directional_accuracy": 0.43820224719101125,
+          "n_predictions": 89
+        }
+      }
+    }
+  },
+  "legacy_holdout_baseline": {
+    "mape_1step_holdout": 5.062452599199459,
+    "n_val": 335
+  },
+  "ensemble_calibration": {
+    "source_report": "20261007_000645_calibration",
+    "calibrated_at": "2026-10-07T00:06:45.820785",
+    "by_horizon": {
+      "1": {
+        "xgb": 0.15000000000000002,
+        "prophet": 0.85,
+        "nhits": 0.0
+      },
+      "7": {
+        "xgb": 0.25,
+        "prophet": 0.75,
+        "nhits": 0.0
+      },
+      "14": {
+        "xgb": 0.2,
+        "prophet": 0.8,
+        "nhits": 0.0
+      },
+      "30": {
+        "xgb": 0.2,
+        "prophet": 0.8,
+        "nhits": 0.0
+      }
+    },
+    "fixed_baseline_mape": {
+      "1": 15.62011706547671,
+      "7": 15.705179707176034,
+      "14": 16.84877018009792,
+      "30": 18.09957325856379
+    },
+    "calibrated_mape": {
+      "1": 9.86542348502922,
+      "7": 11.428584600322424,
+      "14": 13.46889966796849,
+      "30": 14.048164992500539
+    }
+  },
+  "conformal_intervals": {
+    "source_report": "20261007_000645",
+    "calibrated_at": "2026-10-07T00:06:45.807777",
+    "coverage_level": 0.9,
+    "asymmetric": false,
+    "coverage_is_held_out": false,
+    "applies_to_candidate": "20261007_000645",
+    "provenance": "residuals_of_this_candidate_not_the_active_release",
+    "by_horizon": {
+      "1": {
+        "margin_lower": 303.47617503750234,
+        "margin_upper": 303.47617503750234,
+        "calibration_coverage": 0.9565217391304348,
+        "mean_interval_width": 606.9523500750047,
+        "n": 46,
+        "provenance": "calibration_slice_of_this_candidate",
+        "coverage_is_not_a_held_out_proof": true
+      },
+      "7": {
+        "margin_lower": 637.315390110758,
+        "margin_upper": 637.315390110758,
+        "calibration_coverage": 0.9555555555555556,
+        "mean_interval_width": 1274.630780221516,
+        "n": 45,
+        "provenance": "calibration_slice_of_this_candidate",
+        "coverage_is_not_a_held_out_proof": true
+      },
+      "14": {
+        "margin_lower": 1012.7531421916028,
+        "margin_upper": 1012.7531421916028,
+        "calibration_coverage": 0.9555555555555556,
+        "mean_interval_width": 2025.5062843832056,
+        "n": 45,
+        "provenance": "calibration_slice_of_this_candidate",
+        "coverage_is_not_a_held_out_proof": true
+      },
+      "30": {
+        "margin_lower": 1683.93343231784,
+        "margin_upper": 1683.93343231784,
+        "calibration_coverage": 0.9523809523809523,
+        "mean_interval_width": 3367.86686463568,
+        "n": 42,
+        "provenance": "calibration_slice_of_this_candidate",
+        "coverage_is_not_a_held_out_proof": true
+      }
+    },
+    "test_coverage": {
+      "1": {
+        "test_coverage": 0.9574468085106383,
+        "mean_interval_width": 606.9523500750046,
+        "n": 47
+      },
+      "7": {
+        "test_coverage": 0.9777777777777777,
+        "mean_interval_width": 1274.630780221516,
+        "n": 45
+      },
+      "14": {
+        "test_coverage": 1.0,
+        "mean_interval_width": 2025.5062843832059,
+        "n": 44
+      },
+      "30": {
+        "test_coverage": 1.0,
+        "mean_interval_width": 3367.86686463568,
+        "n": 41
+      }
+    },
+    "acceptance": {
+      "1": {
+        "horizon": 1,
+        "validated": false,
+        "reason": "Mesure de proc\u00e9dure seulement : les cibles ne sont pas toutes post\u00e9rieures au 2 octobre 2026. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 47,
+        "n_effective": 47.0,
+        "overlap": 0,
+        "fallback_rate": 0.0,
+        "model_mape": 2.0059224975010244,
+        "naive_mape": 1.9543365715002166,
+        "relative_gain": -0.026395620259620202,
+        "gap_ci": [
+          -0.22187727767409487,
+          0.3297553285537216
+        ],
+        "coverage": 0.9574468085106383,
+        "coverage_ci": [
+          0.8936170212765957,
+          1.0
+        ],
+        "model_width": 525.2779499338403,
+        "naive_width": 466.0,
+        "secondary_mape_when_model_spoke": 2.0059224975010244,
+        "measurement": "procedure"
+      },
+      "7": {
+        "horizon": 7,
+        "validated": false,
+        "reason": "Mesure de proc\u00e9dure seulement : les cibles ne sont pas toutes post\u00e9rieures au 2 octobre 2026. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 45,
+        "n_effective": 15.0,
+        "overlap": 2,
+        "fallback_rate": 0.0,
+        "model_mape": 5.837933102293184,
+        "naive_mape": 5.161568539079813,
+        "relative_gain": -0.13103857056094648,
+        "gap_ci": [
+          -0.27911277885939073,
+          1.4328121168998593
+        ],
+        "coverage": 0.9555555555555556,
+        "coverage_ci": [
+          0.8666666666666667,
+          1.0
+        ],
+        "model_width": 1139.9507767030082,
+        "naive_width": 1138.0,
+        "secondary_mape_when_model_spoke": 5.837933102293184,
+        "measurement": "procedure"
+      },
+      "14": {
+        "horizon": 14,
+        "validated": false,
+        "reason": "Mesure de proc\u00e9dure seulement : les cibles ne sont pas toutes post\u00e9rieures au 2 octobre 2026. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 44,
+        "n_effective": 11.0,
+        "overlap": 3,
+        "fallback_rate": 0.0,
+        "model_mape": 8.095613536076048,
+        "naive_mape": 6.0257190523339315,
+        "relative_gain": -0.3435099555364082,
+        "gap_ci": [
+          1.0253013615774556,
+          3.7984572613605927
+        ],
+        "coverage": 0.9545454545454546,
+        "coverage_ci": [
+          0.8863636363636364,
+          1.0
+        ],
+        "model_width": 1638.7603454914042,
+        "naive_width": 1228.0,
+        "secondary_mape_when_model_spoke": 8.095613536076048,
+        "measurement": "procedure"
+      },
+      "30": {
+        "horizon": 30,
+        "validated": false,
+        "reason": "Mesure de proc\u00e9dure seulement : les cibles ne sont pas toutes post\u00e9rieures au 2 octobre 2026. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 41,
+        "n_effective": 5.857142857142857,
+        "overlap": 6,
+        "fallback_rate": 0.0,
+        "model_mape": 10.570644050004468,
+        "naive_mape": 8.284697989606522,
+        "relative_gain": -0.2759238856100432,
+        "gap_ci": [
+          0.24468737981326028,
+          5.837526384388651
+        ],
+        "coverage": 0.9512195121951219,
+        "coverage_ci": [
+          0.8536585365853658,
+          1.0
+        ],
+        "model_width": 2206.015368346174,
+        "naive_width": 2060.0,
+        "secondary_mape_when_model_spoke": 10.570644050004468,
+        "measurement": "procedure"
+      }
+    }
+  },
+  "promotion": {
+    "promoted": false,
+    "prediction_column": "published_pred",
+    "measurement": "procedure",
+    "decisions": {
+      "1": {
+        "horizon": 1,
+        "validated": false,
+        "reason": "Mesure de proc\u00e9dure seulement : les cibles ne sont pas toutes post\u00e9rieures au 2 octobre 2026. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 47,
+        "n_effective": 47.0,
+        "overlap": 0,
+        "fallback_rate": 0.0,
+        "model_mape": 2.0059224975010244,
+        "naive_mape": 1.9543365715002166,
+        "relative_gain": -0.026395620259620202,
+        "gap_ci": [
+          -0.22187727767409487,
+          0.3297553285537216
+        ],
+        "coverage": 0.9574468085106383,
+        "coverage_ci": [
+          0.8936170212765957,
+          1.0
+        ],
+        "model_width": 525.2779499338403,
+        "naive_width": 466.0,
+        "secondary_mape_when_model_spoke": 2.0059224975010244,
+        "measurement": "procedure"
+      },
+      "7": {
+        "horizon": 7,
+        "validated": false,
+        "reason": "Mesure de proc\u00e9dure seulement : les cibles ne sont pas toutes post\u00e9rieures au 2 octobre 2026. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 45,
+        "n_effective": 15.0,
+        "overlap": 2,
+        "fallback_rate": 0.0,
+        "model_mape": 5.837933102293184,
+        "naive_mape": 5.161568539079813,
+        "relative_gain": -0.13103857056094648,
+        "gap_ci": [
+          -0.27911277885939073,
+          1.4328121168998593
+        ],
+        "coverage": 0.9555555555555556,
+        "coverage_ci": [
+          0.8666666666666667,
+          1.0
+        ],
+        "model_width": 1139.9507767030082,
+        "naive_width": 1138.0,
+        "secondary_mape_when_model_spoke": 5.837933102293184,
+        "measurement": "procedure"
+      },
+      "14": {
+        "horizon": 14,
+        "validated": false,
+        "reason": "Mesure de proc\u00e9dure seulement : les cibles ne sont pas toutes post\u00e9rieures au 2 octobre 2026. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 44,
+        "n_effective": 11.0,
+        "overlap": 3,
+        "fallback_rate": 0.0,
+        "model_mape": 8.095613536076048,
+        "naive_mape": 6.0257190523339315,
+        "relative_gain": -0.3435099555364082,
+        "gap_ci": [
+          1.0253013615774556,
+          3.7984572613605927
+        ],
+        "coverage": 0.9545454545454546,
+        "coverage_ci": [
+          0.8863636363636364,
+          1.0
+        ],
+        "model_width": 1638.7603454914042,
+        "naive_width": 1228.0,
+        "secondary_mape_when_model_spoke": 8.095613536076048,
+        "measurement": "procedure"
+      },
+      "30": {
+        "horizon": 30,
+        "validated": false,
+        "reason": "Mesure de proc\u00e9dure seulement : les cibles ne sont pas toutes post\u00e9rieures au 2 octobre 2026. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+        "n": 41,
+        "n_effective": 5.857142857142857,
+        "overlap": 6,
+        "fallback_rate": 0.0,
+        "model_mape": 10.570644050004468,
+        "naive_mape": 8.284697989606522,
+        "relative_gain": -0.2759238856100432,
+        "gap_ci": [
+          0.24468737981326028,
+          5.837526384388651
+        ],
+        "coverage": 0.9512195121951219,
+        "coverage_ci": [
+          0.8536585365853658,
+          1.0
+        ],
+        "model_width": 2206.015368346174,
+        "naive_width": 2060.0,
+        "secondary_mape_when_model_spoke": 10.570644050004468,
+        "measurement": "procedure"
+      }
+    },
+    "reason": "Au moins un horizon est refuse. Le manifeste actif et ses marges restent."
+  }
+}

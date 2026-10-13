@@ -31,6 +31,8 @@ def _protected_paths() -> set[Path]:
         "active_release_coffee_robusta.json",
         "experimental_release_cocoa.json",
         "experimental_release_coffee_robusta.json",
+        "previous_experimental_release_cocoa.json",
+        "previous_experimental_release_coffee_robusta.json",
     )
     for name in names:
         path = ROOT / "config" / name

@@ -19,23 +19,30 @@ from dotenv import load_dotenv
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from supabase import create_client
 
+from src.models.horizon_schedule import TRACKED_HORIZONS
 from src.models.hybrid_features import (
     FEATURE_COLS,
     add_prophet_features,
     build_prediction_row,
     build_technical_features,
+    clean_price_dataframe,
+    consumed_snapshot_rows,
     future_business_date,
+    fill_missing_ohlcv,
+    prepare_market_frame,
     load_price_data_from_supabase,
     resolve_feature_cols,
 )
 from src.models.hybrid_trainer import HybridModelTrainer, next_session_frame
 from src.models.market_registry import get_market_config
+from src.models.release_manifest import data_fingerprint
 from src.validation.report_loader import extract_walk_forward_reference, load_latest_summary
 
 load_dotenv()
 
 parser = argparse.ArgumentParser(description="Entraînement du modèle hybride")
 parser.add_argument("--market", default="cocoa", help="Marché (cocoa, coffee_robusta)")
+parser.add_argument("--snapshot", default="", help="CSV figé partagé avec le journal")
 args = parser.parse_args()
 
 market = get_market_config(args.market)
@@ -57,13 +64,17 @@ print(f"   Feature set: {feature_set} ({len(feature_cols)} cols)")
 print("   XGBoost = Patron | Prophet = Conseiller")
 print("=" * 80)
 
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
-)
-
 print("\n[1/6] Recuperation des donnees...")
-df = load_price_data_from_supabase(supabase, table_name=market.price_table)
+if args.snapshot:
+    raw = pd.read_csv(args.snapshot)
+    df = prepare_market_frame(raw, market_id=args.market)
+    print(f"[OK] Instantané figé {args.snapshot}")
+else:
+    supabase = create_client(
+        os.getenv("SUPABASE_URL"),
+        os.getenv("SUPABASE_KEY")
+    )
+    df = load_price_data_from_supabase(supabase, table_name=market.price_table)
 
 print(f"[OK] {len(df)} points")
 if len(df) < 100:
@@ -74,10 +85,8 @@ print(f"   Prix min: {df['price'].min():.2f}")
 print(f"   Prix max: {df['price'].max():.2f}")
 print(f"   Prix moyen: {df['price'].mean():.2f}")
 
-# Imputation microstructure avant split
-for col in ("open", "high", "low", "volume", "open_interest"):
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce").ffill()
+# Open, high, low and volume are filled before features. Open interest is not.
+df = fill_missing_ohlcv(df)
 
 print("\n[2/6] Preparation features (validation honnete sans fuite Prophet)...")
 
@@ -210,6 +219,14 @@ model_info = {
     "market": args.market,
     "description": f"XGBoost {feature_set} avec Prophet features",
     "data_period": "2020-2026",
+    "train_start_date": str(pd.to_datetime(df["date"]).min().date()),
+    "train_end_date": str(pd.to_datetime(df["date"]).max().date()),
+    "training_data_fingerprint": data_fingerprint(consumed_snapshot_rows(df)),
+    "engines": {
+        "prophet": {"train_end_date": str(pd.to_datetime(df["date"]).max().date())},
+        "xgboost": {"train_end_date": str(pd.to_datetime(df["date"]).max().date())},
+        "direct": {"train_end_date": str(pd.to_datetime(df["date"]).max().date())},
+    },
     "training_points": len(X_train),
     "validation_points": len(X_val),
     "train_mape": float(train_mape),
@@ -240,15 +257,24 @@ print(f"[OK] Infos: {info_path}")
 try:
     from src.models.direct_horizon_trainer import DirectHorizonTrainer
 
-    print("\n[6/6] Direct horizons h=1,7,14,30...")
-    dht = DirectHorizonTrainer(horizons=[1, 7, 14, 30], feature_cols=feature_cols)
+    print("\n[6/6] Direct horizons h=1..30...")
+    dht = DirectHorizonTrainer(horizons=list(TRACKED_HORIZONS), feature_cols=feature_cols)
     direct_models, direct_meta = dht.fit(df, prophet_model=prophet_model)
     direct_meta["feature_set"] = feature_set
     direct_meta["feature_cols"] = feature_cols
     paths = dht.save(direct_models, direct_meta, models_dir=str(models_dir), timestamp=timestamp)
     print(f"[OK] Direct horizons: {paths}")
 except Exception as exc:
-    print(f"[WARN] Direct horizons: {exc}")
+    print(f"[ERREUR] Direct horizons: {exc}")
+    raise SystemExit(1)
+
+lot_pointer = Path("models") / "candidates" / args.market / "TRAINED_LOT.json"
+lot_pointer.parent.mkdir(parents=True, exist_ok=True)
+lot_pointer.write_text(
+    json.dumps({"stamp": timestamp, "version": f"improved_{timestamp}", "market": args.market}, indent=2),
+    encoding="utf-8",
+)
+print(f"[OK] Lot nommé: {lot_pointer}")
 
 print("\n" + "=" * 80)
 print("[OK] ENTRAINEMENT TERMINE")

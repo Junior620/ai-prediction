@@ -1,5 +1,15 @@
 export type ForecastStatus = 'experimental' | 'validated' | 'unavailable';
 
+export interface ForecastView {
+  price?: number | null;
+  lower?: number | null;
+  upper?: number | null;
+  target_date?: string | null;
+  issued_date?: string | null;
+  model_version?: string | null;
+  status?: ForecastStatus | null;
+}
+
 export interface PredictionItem {
   horizon: number;
   price: number | null;
@@ -7,6 +17,20 @@ export interface PredictionItem {
   confidence_level: number | null;
   timestamp: string;
   status?: ForecastStatus;
+  target_date?: string | null;
+  reference_price?: number | null;
+  initial_horizon?: number | null;
+  sessions_remaining?: number | null;
+  latest_price?: number | null;
+  latest_date?: string | null;
+  latest_gap?: number | null;
+  latest_gap_pct?: number | null;
+  revision_notice?: 'inversion' | 'revision' | null;
+  has_revision?: boolean | null;
+  latest_unavailable?: boolean | null;
+  initial?: ForecastView | null;
+  latest?: ForecastView | null;
+  fresh?: ForecastView | null;
   components?: {
     baseline?: number;
     nhits?: number | null;
@@ -20,6 +44,7 @@ export interface PredictionItem {
     band_label?: string;
     garch_annualized_volatility?: number | null;
     high_volatility_regime?: boolean;
+    warning?: string;
   };
 }
 
@@ -37,6 +62,119 @@ export interface PredictionRequest {
   market: string;
   horizons: number[];
   include_sentiment: boolean;
+}
+
+export interface RevisionDelayStep {
+  remaining: number;
+  comparison: 'initial_vs_remaining' | 'successive';
+  expected: number;
+  available: number;
+  abstentions: number;
+  availability_rate?: number | null;
+  mean_initial_error?: number | null;
+  mean_revised_error?: number | null;
+  mean_spot_error?: number | null;
+  mean_gain?: number | null;
+  improved_share?: number | null;
+  gain_low?: number | null;
+  gain_high?: number | null;
+  verdict: 'etabli' | 'defavorable' | 'incertain';
+  interval_level?: number | null;
+  usable_blocks?: number | null;
+  block?: number | null;
+}
+
+export interface RevisionValueHorizon {
+  horizon: number;
+  comparison?: string | null;
+  verdict: 'etabli' | 'defavorable' | 'incertain';
+  expiries: number;
+  mean_initial_error?: number | null;
+  mean_latest_error?: number | null;
+  mean_gain?: number | null;
+  improved_share?: number | null;
+  worsened_share?: number | null;
+  improvement_sum?: number | null;
+  degradation_sum?: number | null;
+  gain_low?: number | null;
+  gain_high?: number | null;
+  block?: number | null;
+  interval_level?: number | null;
+  usable_blocks?: number | null;
+  steps?: RevisionDelayStep[];
+}
+
+export interface RevisionValueResponse {
+  market: string;
+  as_of?: string | null;
+  note?: string | null;
+  horizons: RevisionValueHorizon[];
+}
+
+export interface ValidationHistoryItem {
+  report_id: string;
+  timestamp?: string | null;
+  kind?: string | null;
+  period?: string | null;
+  protocol?: string | null;
+  counts?: string | null;
+  compatible_with_current_lot: boolean;
+  note: string;
+}
+
+export interface ValidationHistoryResponse {
+  market: string;
+  release_version?: string | null;
+  reports: ValidationHistoryItem[];
+}
+
+export interface ForecastTrackingPoint {
+  forecast_id?: string | null;
+  origin_date?: string | null;
+  origin_price?: number | null;
+  target_date?: string | null;
+  horizon?: number | null;
+  price?: number | null;
+  lower?: number | null;
+  upper?: number | null;
+  status?: ForecastStatus | string | null;
+  model_version?: string | null;
+  reference_price?: number | null;
+  trace?: string | null;
+  revises?: string[];
+  error?: number | null;
+}
+
+export interface ForecastTrackingResponse {
+  market: string;
+  found?: boolean | null;
+  initial_id?: string | null;
+  initials?: ForecastTrackingPoint[];
+  total_initials?: number | null;
+  offset?: number | null;
+  initial?: ForecastTrackingPoint | null;
+  reference_price?: number | null;
+  revisions?: ForecastTrackingPoint[];
+  latest?: ForecastTrackingPoint | null;
+  gap?: number | null;
+  gap_pct?: number | null;
+  direction?: string | null;
+  direction_vs_emission_spot?: string | null;
+  inversions?: number | null;
+  points?: { date: string; price?: number | null; model_version?: string | null; gap?: boolean }[];
+  remaining_horizon?: number | null;
+  mature?: boolean | null;
+  realized_price?: number | null;
+  initial_error?: number | null;
+  latest_error?: number | null;
+  model_comparison?: {
+    available?: boolean;
+    comparison?: string;
+    previous_model_version?: string | null;
+    previous_price?: number | null;
+    new_price?: number | null;
+    note?: string | null;
+  } | null;
 }
 
 export interface ApiError {
@@ -60,6 +198,13 @@ export interface HorizonValidationMetrics {
   fallback_rate?: number | null;
   measurement?: string | null;
   reason?: string | null;
+  gap_reading?: string | null;
+  available_mape?: number | null;
+  naive_mape?: number | null;
+  abstention_count?: number | null;
+  abstention_rate?: number | null;
+  coverage?: number | null;
+  coverage_note?: string | null;
 }
 
 export interface ValidationMetricsResponse {
@@ -73,6 +218,9 @@ export interface ValidationMetricsResponse {
   horizons: number[];
   xgb_metrics: HorizonValidationMetrics[];
   legacy_holdout_mape_1step?: number | null;
+  report_id?: string | null;
+  measurement_status?: string | null;
+  partition?: string | null;
 }
 
 export interface MarketBriefContent {

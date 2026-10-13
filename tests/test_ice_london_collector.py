@@ -1,5 +1,7 @@
 """Unit tests for ICE London collector (HTML parsing, no network)."""
 
+from datetime import date
+
 from src.data_collection.ice_london_collector import (
     extract_price_regex,
     parse_table_rows_from_html,
@@ -35,6 +37,16 @@ class TestIceLondonCollector:
         assert len(rows) == 3
         assert rows[0]["price"] == 2356.0
         assert rows[0]["date"] == "2026-08-27"
+        assert rows[0]["quarantine_reason"] is None
+
+    def test_missing_session_date_is_not_replaced_by_today(self):
+        html = "<table><tr><td>DEC26</td><td>4277</td></tr><tr><td>n/a</td><td>4100</td></tr></table>"
+        rows = parse_table_rows_from_html(html)
+        assert rows[0]["session_date"] is None
+        assert rows[0]["contract"] == "DEC26"
+        assert rows[0]["quarantine_reason"] == "contrat_sans_date_de_seance"
+        assert rows[1]["quarantine_reason"] == "date_de_seance_absente"
+        assert all(row["date"] != date.today().isoformat() for row in rows)
 
     def test_empty_table_returns_empty(self):
         assert parse_table_rows_from_html(EMPTY_TABLE) == []

@@ -1,0 +1,29 @@
+{
+  "summary": {
+    "pilot_month": "2024-03",
+    "doc_articles": 0,
+    "doc_articles_before_rate_limit": 225,
+    "doc_with_seendate": 0,
+    "doc_replayable_share": 0.0,
+    "seendate_parser": "YYYYMMDDTHHMMSSZ accepted after the first pull",
+    "gkg_slot": "20240315120000",
+    "gkg": {
+      "rows_scanned": 1482,
+      "cocoa_rows": 1,
+      "capped": false
+    },
+    "mentions": {
+      "rows_scanned": 0,
+      "url_matches": 0,
+      "skipped": false
+    },
+    "errors": [
+      "20240301: 429 https://api.gdeltproject.org/api/v2/doc/doc?query=cocoa&mode=artlist&maxrecords=75&startdatetime=20240301000000&enddatetime=20240307235959&format=json",
+      "20240308: 429 https://api.gdeltproject.org/api/v2/doc/doc?query=cocoa&mode=artlist&maxrecords=75&startdatetime=20240308000000&enddatetime=20240314235959&format=json",
+      "20240315: 429 https://api.gdeltproject.org/api/v2/doc/doc?query=cocoa&mode=artlist&maxrecords=75&startdatetime=20240315000000&enddatetime=20240321235959&format=json",
+      "20240322: 429 https://api.gdeltproject.org/api/v2/doc/doc?query=cocoa&mode=artlist&maxrecords=75&startdatetime=20240322000000&enddatetime=20240331235959&format=json"
+    ],
+    "note": "seendate est une heure d'observation GDELT, pas la preuve que le texte actuel existait à cette heure. Sans observed_at, la ligne est exclue du rejeu."
+  },
+  "articles": []
+}

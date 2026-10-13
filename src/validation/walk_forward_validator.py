@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -18,6 +19,7 @@ from src.models.hybrid_features import (
     FEATURE_COLS,
     build_prediction_row,
     build_price_lookup,
+    fill_missing_ohlcv,
     future_business_date,
     prepare_training_frame,
 )
@@ -38,6 +40,9 @@ class WalkForwardConfig:
     min_train_days: int = 252
     step_size: int = 5
     max_origins: Optional[int] = None
+    origin_dates: Optional[List[str]] = None
+    checkpoint_path: Optional[str] = None
+    checkpoint_identity: Optional[str] = None
     origin_window: str = "recent"
     include_recursive: bool = True
     include_direct_hstep: bool = False
@@ -88,13 +93,28 @@ class WalkForwardValidator:
             xgb_params=self.config.xgb_params,
         )
 
-    def _origin_indices(self, n_rows: int, max_horizon: int) -> List[int]:
+    def _origin_indices(self, dates: pd.Series, max_horizon: int) -> List[int]:
         """Return row indices used as prediction origins."""
+        n_rows = len(dates)
         start = self.config.min_train_days - 1
         end = n_rows - max_horizon - 1
+        if self.config.origin_dates:
+            wanted = {pd.Timestamp(value).normalize() for value in self.config.origin_dates}
+            indexed = pd.to_datetime(dates).dt.normalize()
+            found = [
+                position
+                for position, stamp in enumerate(indexed)
+                if stamp in wanted and position >= start
+            ]
+            present = {indexed.iloc[position] for position in found}
+            missing = sorted(stamp.strftime("%Y-%m-%d") for stamp in wanted - present)
+            if missing:
+                logger.warning(
+                    f"Origines absentes de l'instantané, non interpolées : {missing}"
+                )
+            return found
         if start > end:
             return []
-
         indices = list(range(start, end + 1, self.config.step_size))
         limit = self.config.max_origins
         if limit is not None and len(indices) > limit:
@@ -125,16 +145,38 @@ class WalkForwardValidator:
 
         At each origin t, trains on df[:t+1] and predicts each configured horizon.
         """
-        df = df.sort_values("date").reset_index(drop=True)
+        df = fill_missing_ohlcv(df.sort_values("date").reset_index(drop=True))
         price_lookup = build_price_lookup(df)
         max_horizon = max(self.config.horizons)
 
-        origin_indices = self._origin_indices(len(df), max_horizon)
+        origin_indices = self._origin_indices(df["date"], max_horizon)
         logger.info(
             f"Walk-forward: {len(origin_indices)} origins, horizons={self.config.horizons}"
         )
 
         records: List[Dict[str, Any]] = []
+        completed = set()
+        checkpoint = Path(self.config.checkpoint_path) if self.config.checkpoint_path else None
+        identity_path = checkpoint.with_suffix(checkpoint.suffix + ".identity") if checkpoint else None
+        stored_identity = identity_path.read_text(encoding="utf-8") if identity_path and identity_path.exists() else None
+        identity_matches = (
+            not self.config.checkpoint_identity
+            or stored_identity == self.config.checkpoint_identity
+        )
+        if checkpoint is not None and checkpoint.exists() and not identity_matches:
+            raise RuntimeError(
+                "Point de reprise refusé : l'empreinte ne correspond pas au gel."
+            )
+        if checkpoint is not None and checkpoint.exists() and identity_matches:
+            prior = pd.read_json(checkpoint, lines=True)
+            if not prior.empty:
+                records = prior.to_dict("records")
+                completed = set(pd.to_datetime(prior["origin_date"]).dt.strftime("%Y-%m-%d"))
+                origin_indices = [
+                    index
+                    for index in origin_indices
+                    if pd.Timestamp(df.loc[index, "date"]).strftime("%Y-%m-%d") not in completed
+                ]
 
         for origin_idx in origin_indices:
             df_train = df.iloc[: origin_idx + 1].copy()
@@ -194,6 +236,10 @@ class WalkForwardValidator:
                 target_ts = pd.Timestamp(target_date).normalize()
 
                 if target_ts not in price_lookup.index:
+                    logger.warning(
+                        f"Cible non évaluable {target_ts.date()} pour l'origine "
+                        f"{pd.Timestamp(origin_date).date()} J+{horizon}. Aucune interpolation."
+                    )
                     continue
 
                 actual = float(price_lookup.loc[target_ts])
@@ -279,9 +325,15 @@ class WalkForwardValidator:
                             price_volatility=float(df_train["price"].std()),
                         )
                         record["xgb_pred_direct"] = raw_level
+                        record["nhits_pred"] = nhits_price if nhits_price is not None else float("nan")
                         record["published_pred"] = served["price"]
-                        record["feature_failure"] = bool(served["feature_failure"])
-                        record["engine_missing"] = bool(engine_missing)
+                        record["feature_failure"] = False
+                        record["large_move_warning"] = bool(served.get("large_move_warning"))
+                        record["engine_missing"] = bool(engine_missing or served.get("engine_missing"))
+                        record["recent_lower"] = served.get("recent_lower")
+                        record["recent_upper"] = served.get("recent_upper")
+                        record["garch_log_half"] = served.get("garch_log_half")
+                        record["garch_required"] = bool(served.get("garch_required"))
                         record["engines_present"] = ",".join(
                             name
                             for name, present in (
@@ -292,7 +344,7 @@ class WalkForwardValidator:
                             if present
                         )
                         record["weights_used"] = json.dumps(weights, sort_keys=True)
-                        if not self.config.defer_bands:
+                        if not self.config.defer_bands and served.get("lower") is not None:
                             record["published_lower"] = served["lower"]
                             record["published_upper"] = served["upper"]
                         record["xgb_direct_error_pct"] = abs(raw_level - actual) / actual * 100
@@ -301,6 +353,12 @@ class WalkForwardValidator:
                         record["published_pred"] = float("nan")
 
                 records.append(record)
+
+            if checkpoint is not None and records:
+                checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                pd.DataFrame(records).to_json(checkpoint, orient="records", lines=True)
+                if identity_path is not None and self.config.checkpoint_identity:
+                    identity_path.write_text(self.config.checkpoint_identity, encoding="utf-8")
 
         predictions_df = pd.DataFrame(records)
         pred_columns = ["xgb_pred", "prophet_pred", "naive_pred", "drift_pred"]

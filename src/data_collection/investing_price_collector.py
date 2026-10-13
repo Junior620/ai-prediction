@@ -136,6 +136,9 @@ def fetch_investing_price(
     return {
         "price": price,
         "symbol": symbol,
-        "date": datetime.now().strftime("%Y-%m-%d"),
+        "session_date": None,
+        "collected_at": datetime.now().isoformat(timespec="seconds"),
         "source": "investing_com",
+        "price_kind": "intraday",
+        "quarantine_reason": "date_de_seance_absente",
     }

@@ -1,0 +1,128 @@
+{
+  "policies": [
+    {
+      "policy": "daily",
+      "initial_horizon": 1,
+      "mature_initials": 5,
+      "initial_mape": 1.7440666827962361,
+      "revision_mape_by_remaining": {},
+      "revision_count": 0,
+      "median_abs_revision": null,
+      "max_abs_revision": null,
+      "median_abs_revision_pct": null,
+      "max_abs_revision_pct": null,
+      "inversions": 0
+    },
+    {
+      "policy": "daily",
+      "initial_horizon": 7,
+      "mature_initials": 0,
+      "initial_mape": null,
+      "revision_mape_by_remaining": {},
+      "revision_count": 15,
+      "median_abs_revision": 79.31465148925781,
+      "max_abs_revision": 190.74292373657227,
+      "median_abs_revision_pct": 1.9098158316700653,
+      "max_abs_revision_pct": 4.528559442938563,
+      "inversions": 0
+    },
+    {
+      "policy": "daily",
+      "initial_horizon": 14,
+      "mature_initials": 0,
+      "initial_mape": null,
+      "revision_mape_by_remaining": {},
+      "revision_count": 15,
+      "median_abs_revision": 105.75126504898071,
+      "max_abs_revision": 415.8805389404297,
+      "median_abs_revision_pct": 2.3722192166519585,
+      "max_abs_revision_pct": 10.013978784985063,
+      "inversions": 3
+    },
+    {
+      "policy": "daily",
+      "initial_horizon": 30,
+      "mature_initials": 0,
+      "initial_mape": null,
+      "revision_mape_by_remaining": {},
+      "revision_count": 15,
+      "median_abs_revision": 150.08157348632812,
+      "max_abs_revision": 283.6356201171875,
+      "median_abs_revision_pct": 3.6138110639616694,
+      "max_abs_revision_pct": 6.733989081604641,
+      "inversions": 0
+    },
+    {
+      "policy": "five",
+      "initial_horizon": 1,
+      "mature_initials": 5,
+      "initial_mape": 2.6460934498026134,
+      "revision_mape_by_remaining": {},
+      "revision_count": 0,
+      "median_abs_revision": null,
+      "max_abs_revision": null,
+      "median_abs_revision_pct": null,
+      "max_abs_revision_pct": null,
+      "inversions": 0
+    },
+    {
+      "policy": "five",
+      "initial_horizon": 7,
+      "mature_initials": 0,
+      "initial_mape": null,
+      "revision_mape_by_remaining": {},
+      "revision_count": 15,
+      "median_abs_revision": 117.41818237304688,
+      "max_abs_revision": 233.41818237304688,
+      "median_abs_revision_pct": 2.8300357284417177,
+      "max_abs_revision_pct": 5.62047152355037,
+      "inversions": 1
+    },
+    {
+      "policy": "five",
+      "initial_horizon": 14,
+      "mature_initials": 0,
+      "initial_mape": null,
+      "revision_mape_by_remaining": {},
+      "revision_count": 15,
+      "median_abs_revision": 109.78547859191895,
+      "max_abs_revision": 338.65765380859375,
+      "median_abs_revision_pct": 2.606492844062653,
+      "max_abs_revision_pct": 8.154530551615549,
+      "inversions": 2
+    },
+    {
+      "policy": "five",
+      "initial_horizon": 30,
+      "mature_initials": 0,
+      "initial_mape": null,
+      "revision_mape_by_remaining": {},
+      "revision_count": 15,
+      "median_abs_revision": 182.53057861328125,
+      "max_abs_revision": 500.5283203125,
+      "median_abs_revision_pct": 4.1814901901675,
+      "max_abs_revision_pct": 12.05221093938117,
+      "inversions": 0
+    }
+  ],
+  "diagnostics": 60,
+  "note": "Pr\u00e9cision et stabilit\u00e9 sont lues ensemble. Une estimation qui change moins souvent peut rester fausse plus longtemps. Aucune cadence n'est choisie. Ce n'est pas une preuve de couverture des bandes.",
+  "market": "cocoa",
+  "as_of": "2026-10-06",
+  "sessions": [
+    "2026-09-29",
+    "2026-09-30",
+    "2026-10-01",
+    "2026-10-02",
+    "2026-10-05",
+    "2026-10-06"
+  ],
+  "identity": {
+    "market": "cocoa",
+    "as_of": "2026-10-06",
+    "n_origins": 60,
+    "mode": "trial",
+    "data_fingerprint": "00fc4991ed4440fca49a0264a4d7f067ebb6009c2530992289a49cea263b7cdc",
+    "procedure_fingerprint": "dfa3713cdee69828e513275fa11d9081325d6e03e6d30afb102d10ce56612fe2"
+  }
+}

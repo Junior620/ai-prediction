@@ -13,12 +13,15 @@ import type {
   ModelComparisonResponse,
   PredictionHistoryItem,
   CocoaWeatherResponse,
+  RevisionValueResponse,
+  ValidationHistoryResponse,
 } from '@/types/api';
 import { TradingViewEmbed } from '@/components/TradingViewEmbed';
 import { MarketBrief } from '@/components/MarketBrief';
 import { MarketKPIBar } from '@/components/dashboard/MarketKPIBar';
 import { CocoaWeatherStrip } from '@/components/dashboard/CocoaWeatherStrip';
 import { PredictionHorizonCard } from '@/components/dashboard/PredictionHorizonCard';
+import { ForecastTrackingPanel } from '@/components/dashboard/ForecastTrackingPanel';
 import { ForecastChart } from '@/components/dashboard/ForecastChart';
 import { AnalysisPanel } from '@/components/dashboard/AnalysisPanel';
 import { FuturesCurvePanel } from '@/components/dashboard/FuturesCurvePanel';
@@ -46,6 +49,7 @@ export interface MarketDashboardConfig {
   priceSource: string;
   activeNav: 'cacao' | 'coffee';
   otherMarket: { href: string; label: string };
+  showTracking?: boolean;
 }
 
 const TV_FALLBACKS: Record<string, {
@@ -95,6 +99,8 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const [data, setData] = useState<PredictionResponse | null>(null);
   const [intelligence, setIntelligence] = useState<MarketIntelligenceResponse | null>(null);
   const [validation, setValidation] = useState<ValidationMetricsResponse | null>(null);
+  const [reportHistory, setReportHistory] = useState<ValidationHistoryResponse | null>(null);
+  const [revisionValue, setRevisionValue] = useState<RevisionValueResponse | null>(null);
   const [futures, setFutures] = useState<FuturesCurveResponse | null>(null);
   const [londonMarket, setLondonMarket] = useState<LondonMarketResponse | null>(null);
   const [cocoaWeather, setCocoaWeather] = useState<CocoaWeatherResponse | null>(null);
@@ -204,6 +210,16 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    api.getRevisionValue(config.market).then(payload => {
+      if (!cancelled) setRevisionValue(payload);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [config.market]);
+
   const fetchAll = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = Boolean(opts?.silent);
     if (await pullLatestPage()) return;
@@ -217,12 +233,14 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
         horizons: [1, 7, 14, 30],
         include_sentiment: config.includeSentiment,
       });
-      const [valRes, histRes] = await Promise.all([
+      const [valRes, histRes, reportRes] = await Promise.all([
         api.getValidationMetrics(config.market, predRes.model_version),
         api.getPredictionHistory(36, undefined, config.market).catch(() => ({ predictions: [], count: 0 })),
+        api.getValidationHistory(config.market),
       ]);
       setData(predRes);
       setValidation(valRes);
+      setReportHistory(reportRes);
       setPredictionHistory(histRes?.predictions ?? []);
       if (config.market === 'ICE_NY') {
         try {
@@ -469,6 +487,78 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 <CocoaWeatherStrip data={cocoaWeather} />
               )}
 
+              {config.showTracking && (
+                <ForecastTrackingPanel
+                  market={config.market}
+                  currency={config.priceCurrency ?? 'USD'}
+                />
+              )}
+
+              <div className="glass-card px-4 py-3 text-sm text-slate-300">
+                <p className="text-slate-500 uppercase tracking-wide text-xs mb-2">
+                  Évaluation historique — sans activation
+                </p>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Le lot servi conserve les dates fermées de l&apos;entraînement.
+                  L&apos;étude des révisions utilise le calendrier des séances.
+                  Ce n&apos;est pas la même mesure.
+                </p>
+                {!validation?.xgb_metrics?.length ? (
+                  <p className="text-slate-400">
+                    Aucun rapport d&apos;évaluation n&apos;est rattaché à ce lot. Les rapports
+                    déjà produits restent un historique et ne valident pas ce modèle.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-slate-400">
+                      {validation.measurement_status || 'diagnostic'}
+                      {validation.report_id ? ` · ${validation.report_id}` : ''}
+                      {validation.partition ? ` · partie ${validation.partition}` : ''}
+                      {validation.origin_start
+                        ? ` · origines ${validation.origin_start} – ${validation.origin_end}`
+                        : ''}
+                    </p>
+                    {validation.xgb_metrics.map(metric => (
+                      <p key={metric.horizon}>
+                        J+{metric.horizon}{' '}
+                        {metric.gap_reading || 'résultat non lu'}
+                        {metric.available_mape != null
+                          ? ` · erreur disponible ${Number(metric.available_mape).toFixed(2)}%`
+                          : ''}
+                        {metric.naive_mape != null
+                          ? ` · clôture ${Number(metric.naive_mape).toFixed(2)}%`
+                          : ''}
+                        {metric.abstention_rate != null
+                          ? ` · abstentions ${(Number(metric.abstention_rate) * 100).toFixed(1)}%`
+                          : ''}
+                        {metric.coverage != null
+                          ? ` · couverture observée ${(Number(metric.coverage) * 100).toFixed(1)}%`
+                          : ' · couverture indisponible'}
+                      </p>
+                    ))}
+                    <p className="text-[11px] text-slate-500">
+                      {validation.xgb_metrics.find(metric => metric.coverage_note)?.coverage_note
+                        || 'Une couverture compatible avec 90 % n’est pas une certification.'}
+                    </p>
+                  </div>
+                )}
+                {reportHistory?.reports?.length ? (
+                  <div className="mt-3 space-y-1 border-t border-slate-700/40 pt-2">
+                    <p className="text-slate-500 text-xs">
+                      Rapports archivés · {reportHistory.reports.length} · aucun ne valide le lot chargé
+                    </p>
+                    {reportHistory.reports.slice(0, 20).map(report => (
+                      <p key={report.report_id} className="text-xs text-slate-400">
+                        {report.kind === 'revision_stability' ? 'Révisions' : 'Walk-forward'}
+                        {report.period ? ` · ${report.period}` : ''}
+                        {report.timestamp ? ` · ${report.timestamp}` : ''}
+                        {report.counts ? ` · ${report.counts}` : ''}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
               {metricsByHorizon[1]?.mape != null && (
                 <div className="glass-card px-4 py-3 flex flex-wrap gap-6 text-sm text-slate-300">
                   <span className="text-slate-500 uppercase tracking-wide text-xs self-center">
@@ -498,9 +588,10 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                     pred={pred}
                     currentPrice={currentPrice}
                     priceCurrency={config.priceCurrency ?? 'USD'}
-                    briefSignal={intelligence?.brief?.signal}
                     validation={metricsByHorizon[pred.horizon] ?? null}
                     evaluatedPeriod={validation}
+                    revisionValue={revisionValue?.horizons.find(item => item.horizon === pred.horizon) ?? null}
+                    revisionAsOf={revisionValue?.as_of}
                   />
                 ))}
               </div>

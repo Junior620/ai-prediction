@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-09-01T06:42:54.135735",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "xgb_pred uses frozen lags for h>1; xgb_pred_recursive uses multi-step simulation.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 284,
+    "horizons": [
+      1,
+      7,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 1049.0284340531161,
+          "mae": 511.7480816031193,
+          "mape": 10.994563017088659,
+          "directional_accuracy": 0.4891304347826087,
+          "n_predictions": 276
+        },
+        "7": {
+          "rmse": 1066.3501721739035,
+          "mae": 582.1924595598493,
+          "mape": 12.724296377652461,
+          "directional_accuracy": 0.4107142857142857,
+          "n_predictions": 280
+        },
+        "30": {
+          "rmse": 1355.3544701717933,
+          "mae": 795.2048105221965,
+          "mape": 17.342258280236337,
+          "directional_accuracy": 0.37545126353790614,
+          "n_predictions": 277
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 727.0469012276362,
+          "mae": 442.84969068557996,
+          "mape": 10.17612900375867,
+          "directional_accuracy": 0.5144927536231884,
+          "n_predictions": 276
+        },
+        "7": {
+          "rmse": 911.065876732313,
+          "mae": 574.4099162058877,
+          "mape": 13.305233738499966,
+          "directional_accuracy": 0.4857142857142857,
+          "n_predictions": 280
+        },
+        "30": {
+          "rmse": 1320.8509676055914,
+          "mae": 877.3788917038831,
+          "mape": 20.745481792271793,
+          "directional_accuracy": 0.5018050541516246,
+          "n_predictions": 277
+        }
+      },
+      "xgb_pred_recursive": {
+        "1": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        },
+        "7": {
+          "rmse": 1249.8251708871958,
+          "mae": 722.4586469203405,
+          "mape": 15.699567719674912,
+          "directional_accuracy": 0.44642857142857145,
+          "n_predictions": 280
+        },
+        "30": {
+          "rmse": 1514.981662197402,
+          "mae": 922.0823620825811,
+          "mape": 20.20235274084367,
+          "directional_accuracy": 0.4657039711191336,
+          "n_predictions": 277
+        }
+      }
+    }
+  }
+}

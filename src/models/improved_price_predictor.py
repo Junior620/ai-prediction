@@ -4,6 +4,7 @@ Improved Price Predictor for hybrid cocoa price forecasting.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -17,20 +18,31 @@ from src.models.data_models import Prediction, NewsArticle
 from src.models.direct_horizon_trainer import DirectHorizonTrainer
 from src.models.ensemble_weights import (
     DEFAULT_FALLBACK,
-    get_weights_for_horizon,
     load_ensemble_weights,
 )
+from src.models.horizon_schedule import scheduled_cap, scheduled_weights
 from src.models.hybrid_features import (
     FEATURE_COLS,
     build_prediction_row,
-    clean_price_dataframe,
     future_business_date,
     prepare_training_frame,
     resolve_feature_cols,
 )
 from src.models.conformal_intervals import load_conformal_margins
 from src.models.served_forecast import direct_level, publish_level
-from src.models.multi_step_predictor import predict_frozen, predict_recursive
+
+
+def historical_cache_is_fresh(
+    age_seconds: float,
+    cached_fingerprint: Optional[str],
+    remote_fingerprint: Optional[str],
+) -> bool:
+    """A same-day price correction is a different snapshot, even inside the hour."""
+    if age_seconds >= 3600:
+        return False
+    if not cached_fingerprint or not remote_fingerprint:
+        return False
+    return cached_fingerprint == remote_fingerprint
 
 
 class ImprovedPricePredictor:
@@ -109,6 +121,10 @@ class ImprovedPricePredictor:
 
         self._historical_data = None
         self._last_data_fetch = None
+        self._data_fingerprint = None
+        self._remote_fingerprint = None
+        self._frozen_frame = None
+        self._nhits_levels = None
 
         self.direct_target = "price"
         self.direct_info_path = direct_info_path
@@ -127,7 +143,10 @@ class ImprovedPricePredictor:
 
         if not self.direct_horizon_models:
             try:
-                self.direct_horizon_models = DirectHorizonTrainer.load_latest(self.models_dir)
+                if direct_info_path:
+                    self.direct_horizon_models = DirectHorizonTrainer.load_from_info(direct_info_path)
+                else:
+                    self.direct_horizon_models = DirectHorizonTrainer.load_latest(self.models_dir)
             except Exception as e:
                 logger.debug(f"No direct horizon models loaded: {e}")
 
@@ -176,28 +195,33 @@ class ImprovedPricePredictor:
             )
         return central, change_pct, feature_failure
 
+    def _market_id(self) -> str:
+        if self.price_table == "cocoa_london_prices":
+            return "cocoa"
+        if "robusta" in (self.price_table or ""):
+            return "coffee_robusta"
+        return "other"
+
+    def _remember_identities(self, raw: pd.DataFrame, filled: pd.DataFrame) -> None:
+        from src.models.hybrid_features import consumed_snapshot_rows
+        from src.models.release_manifest import data_fingerprint
+
+        self._data_fingerprint = data_fingerprint(consumed_snapshot_rows(raw))
+        self._served_fingerprint = data_fingerprint(consumed_snapshot_rows(filled))
+
     def _fetch_historical_data(self, force_refresh: bool = False) -> pd.DataFrame:
-        latest_session = None
-        if self.supabase_client is not None:
-            try:
-                probe = (
-                    self.supabase_client.table(self.price_table)
-                    .select("date")
-                    .order("date", desc=True)
-                    .limit(1)
-                    .execute()
-                )
-                if probe.data:
-                    latest_session = str(probe.data[0]["date"])[:10]
-            except Exception as exc:
-                logger.warning(f"Latest session probe failed: {exc}")
-        if not force_refresh and self._historical_data is not None:
-            if self._last_data_fetch is not None:
-                age = (datetime.now() - self._last_data_fetch).total_seconds()
-                cached_day = str(pd.to_datetime(self._historical_data["date"].iloc[-1]).date())
-                same_session = latest_session is None or cached_day == latest_session
-                if age < 3600 and same_session:
-                    return self._historical_data
+        from src.models.hybrid_features import fill_missing_ohlcv
+
+        if self._frozen_frame is not None:
+            raw = self._frozen_frame
+            filled = fill_missing_ohlcv(raw)
+            self._remember_identities(raw, filled)
+            return filled
+        if not force_refresh and self._historical_data is not None and self._last_data_fetch is not None:
+            age = (datetime.now() - self._last_data_fetch).total_seconds()
+            remote = self._remote_fingerprint or self._remote_snapshot_fingerprint()
+            if historical_cache_is_fresh(age, self._data_fingerprint, remote):
+                return self._historical_data
 
         if self.supabase_client is None:
             raise RuntimeError("Supabase client not initialized")
@@ -231,13 +255,51 @@ class ImprovedPricePredictor:
             except Exception:
                 continue
 
-        df = clean_price_dataframe(pd.DataFrame(all_data))
-        for col in ("open", "high", "low", "volume", "open_interest"):
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce").ffill()
-        self._historical_data = df
+        from src.models.hybrid_features import fill_missing_ohlcv, prepare_market_frame
+
+        raw = prepare_market_frame(pd.DataFrame(all_data), market_id=self._market_id())
+        filled = fill_missing_ohlcv(raw)
+        self._remember_identities(raw, filled)
+        self._historical_data = filled
+        self._nhits_levels = None
         self._last_data_fetch = datetime.now()
-        return df
+        return filled
+
+    def _remote_snapshot_fingerprint(self) -> Optional[str]:
+        """Hash the stored columns. A same-day correction does not match the cache."""
+        if self.supabase_client is None:
+            return None
+        from src.models.hybrid_features import consumed_snapshot_rows, prepare_market_frame
+        from src.models.release_manifest import data_fingerprint
+
+        select_candidates = (
+            "date,price,open,high,low,volume,open_interest",
+            "date,price,open,high,low,volume",
+            "date,price",
+        )
+        for clause in select_candidates:
+            rows = []
+            offset = 0
+            page = 1000
+            try:
+                while True:
+                    response = (
+                        self.supabase_client.table(self.price_table)
+                        .select(clause)
+                        .order("date")
+                        .range(offset, offset + page - 1)
+                        .execute()
+                    )
+                    batch = list(response.data or [])
+                    rows.extend(batch)
+                    if len(batch) < page:
+                        break
+                    offset += page
+                prepared = prepare_market_frame(pd.DataFrame(rows), market_id=self._market_id())
+                return data_fingerprint(consumed_snapshot_rows(prepared))
+            except Exception:
+                continue
+        return None
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df_features, _ = prepare_training_frame(df, prophet_model=self.prophet_model)
@@ -271,6 +333,12 @@ class ImprovedPricePredictor:
             self._garch_forecast = None
         return self._garch_forecast
 
+    def bind_frame(self, frame: pd.DataFrame) -> None:
+        """Use one frozen table for training and for the forecasts of that run."""
+        self._frozen_frame = frame.copy()
+        self._historical_data = None
+        self._nhits_levels = None
+
     def _predict_xgb_price(
         self,
         horizon: int,
@@ -279,41 +347,35 @@ class ImprovedPricePredictor:
         current_price: float,
         current_date,
     ) -> float:
-        """XGBoost price using direct h-step, recursive, or frozen strategy."""
-        cols = self.feature_cols
-        if horizon in self.direct_horizon_models:
-            return direct_level(
-                self.direct_horizon_models[horizon],
-                last_row,
-                cols,
-                current_price,
-                self.direct_target,
-            )
-
-        if horizon == 1 or self.multi_step_mode == "frozen":
-            return predict_frozen(
-                last_row,
-                current_price,
-                current_date,
-                horizon,
-                self.prophet_model,
-                self.xgboost_model,
-                feature_cols=cols,
-            )
-
-        keep = [
-            c
-            for c in ("date", "price", "open", "high", "low", "volume", "open_interest")
-            if c in df_clean.columns
-        ]
-        df_history = df_clean[keep].copy()
-        return predict_recursive(
-            df_history,
-            self.prophet_model,
-            self.xgboost_model,
-            horizon,
-            feature_cols=cols,
+        """Direct model of this horizon. A missing model is not replaced."""
+        del df_clean, current_date
+        if horizon not in self.direct_horizon_models:
+            return float("nan")
+        return direct_level(
+            self.direct_horizon_models[horizon],
+            last_row,
+            self.feature_cols,
+            current_price,
+            self.direct_target,
         )
+
+    def _nhits_price_at(self, df_clean: pd.DataFrame, horizon: int, weights: dict) -> Optional[float]:
+        """One 30-step N-HiTS forecast per snapshot, reread at the requested horizon."""
+        if self.nhits_model is None or float(weights.get("nhits", 0.0) or 0.0) <= 0.0:
+            return None
+        if self._nhits_levels is None:
+            levels: Dict[int, float] = {}
+            try:
+                nhits_input = df_clean[["date", "price"]].copy()
+                nhits_input.columns = ["ds", "y"]
+                nhits_input["unique_id"] = self.nhits_unique_id
+                forecast = self.nhits_model.predict(df=nhits_input.sort_values("ds"))
+                for index in range(min(30, len(forecast))):
+                    levels[index + 1] = float(forecast["NHITS"].iloc[index])
+            except Exception as exc:
+                logger.warning(f"N-HiTS prediction failed: {exc}")
+            self._nhits_levels = levels
+        return self._nhits_levels.get(int(horizon))
 
     def predict(
         self,
@@ -374,6 +436,7 @@ class ImprovedPricePredictor:
 
         predictions = []
         current_time = datetime.now()
+        self._nhits_levels = None
         garch_forecast = self._get_garch_forecast(df_clean, horizons)
 
         for horizon in horizons:
@@ -394,18 +457,24 @@ class ImprovedPricePredictor:
                 )
             except Exception as exc:
                 logger.warning(f"Horizon {horizon} indisponible: {exc}")
+                placeholder = max(float(current_price), 1000.0)
+                failed_target = pd.to_datetime(future_business_date(current_date, horizon)).date().isoformat()
                 predictions.append(
                     Prediction(
                         horizon=horizon,
-                        price=max(float(current_price), 500.0),
-                        confidence_interval=(float(current_price), float(current_price)),
+                        price=placeholder,
+                        confidence_interval=(placeholder, placeholder + 1.0),
                         confidence_level=self.confidence_level,
                         timestamp=current_time,
                         model_version=self.model_version,
                         components={
+                            "baseline": placeholder,
+                            "residual": 0.0,
+                            "sentiment": 0.0,
                             "calculation_failed": True,
                             "origin_date": origin_day,
                             "origin_price": float(current_price),
+                            "target_date": failed_target,
                             "ensemble_weights": {},
                         },
                     )
@@ -441,20 +510,12 @@ class ImprovedPricePredictor:
             horizon, df_clean, last_row, current_price, current_date
         )
 
-        weights = get_weights_for_horizon(
+        weights = scheduled_weights(
             horizon, self._ensemble_weights, self.ensemble_fallback
         )
-        nhits_price = None
-        if self.nhits_model is not None and float(weights.get("nhits", 0.0)) > 0:
-            try:
-                nhits_input = df_clean[["date", "price"]].copy()
-                nhits_input.columns = ["ds", "y"]
-                nhits_input["unique_id"] = self.nhits_unique_id
-                nhits_forecast = self.nhits_model.predict(df=nhits_input.sort_values("ds"))
-                if horizon <= len(nhits_forecast):
-                    nhits_price = float(nhits_forecast["NHITS"].iloc[horizon - 1])
-            except Exception as e:
-                logger.warning(f"N-HiTS prediction failed for horizon {horizon}d: {e}")
+        caps = dict(self.max_abs_change_pct)
+        caps[str(horizon)] = scheduled_cap(horizon, self.max_abs_change_pct)
+        nhits_price = self._nhits_price_at(df_clean, horizon, weights)
 
         from src.models.served_forecast import compose_served_price
 
@@ -466,7 +527,7 @@ class ImprovedPricePredictor:
             weights=weights,
             spot=spot_anchor,
             horizon=horizon,
-            max_abs_change_pct=self.max_abs_change_pct,
+            max_abs_change_pct=caps,
             conformal_margins=self._conformal_margins,
             price_bounds=historical_range,
             garch_forecast=garch_forecast,
@@ -477,20 +538,50 @@ class ImprovedPricePredictor:
         lower_bound = served["lower"]
         upper_bound = served["upper"]
         feature_failure = served["feature_failure"]
-        if feature_failure:
+        if served.get("large_move_warning"):
             logger.warning(
-                "h=%sd feature failure: raw ensemble %.2f vs spot %.2f. "
-                "Central scenario stays at the spot.",
+                "h={} mouvement au-delà du seuil: ensemble {:.2f} vs spot {:.2f}. Prix conservé.",
                 horizon,
                 served["ensemble"],
                 spot_anchor,
             )
+        if served.get("engine_missing") or not math.isfinite(float(final_price)) or final_price <= 0:
+            placeholder = max(float(current_price), 1000.0)
+            predictions.append(
+                Prediction(
+                    horizon=horizon,
+                    price=placeholder,
+                    confidence_interval=(placeholder, placeholder + 1.0),
+                    confidence_level=self.confidence_level,
+                    timestamp=current_time,
+                    model_version=self.model_version,
+                    components={
+                        "baseline": placeholder,
+                        "residual": 0.0,
+                        "sentiment": 0.0,
+                        "calculation_failed": True,
+                        "engine_missing": bool(served.get("engine_missing")),
+                        "origin_date": origin_day,
+                        "origin_price": float(current_price),
+                        "target_date": pd.to_datetime(future_date).date().isoformat(),
+                        "ensemble_weights": weights,
+                        "nhits": None,
+                    },
+                )
+            )
+            return
+        band_unavailable = lower_bound is None or upper_bound is None or not (lower_bound < upper_bound)
+        interval = (
+            (max(float(final_price), 500.0), max(float(final_price), 500.0) + 1.0)
+            if band_unavailable
+            else (float(lower_bound), float(upper_bound))
+        )
 
         predictions.append(
             Prediction(
                 horizon=horizon,
                 price=float(final_price),
-                confidence_interval=(float(lower_bound), float(upper_bound)),
+                confidence_interval=interval,
                 confidence_level=self.confidence_level,
                 timestamp=current_time,
                 model_version=self.model_version,
@@ -504,7 +595,10 @@ class ImprovedPricePredictor:
                     "sentiment_score": float(sentiment_score),
                     "dampened_change_pct": float(served["dampened_change_pct"]),
                     "raw_change_pct": float(served["raw_change_pct"]),
-                    "feature_failure": bool(feature_failure),
+                    "feature_failure": False,
+                    "large_move_warning": bool(served.get("large_move_warning")),
+                    "engine_missing": False,
+                    "band_unavailable": bool(band_unavailable),
                     "origin_date": origin_day,
                     "origin_price": float(current_price),
                     "target_date": pd.to_datetime(future_date).date().isoformat(),
@@ -516,9 +610,7 @@ class ImprovedPricePredictor:
                     "garch_annualized_volatility": served["garch_annualized_volatility"],
                     "high_volatility_regime": bool(served["high_volatility_regime"]),
                     "xgb_mode": (
-                        "direct_hstep" if horizon in self.direct_horizon_models
-                        else ("frozen" if horizon == 1 or self.multi_step_mode == "frozen"
-                              else "recursive")
+                        "direct_hstep" if horizon in self.direct_horizon_models else "missing"
                     ),
                 },
             )

@@ -1,4 +1,4 @@
-"""Direct h-step XGBoost models for horizons 1, 7, 14 and 30."""
+"""Direct h-step XGBoost models. The evening lot trains horizons 1 to 30."""
 
 from __future__ import annotations
 

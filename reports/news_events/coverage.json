@@ -1,0 +1,20 @@
+{
+  "articles": 0,
+  "distinct_events": 0,
+  "replayable": 0,
+  "published_verified": 0,
+  "published_verified_share": 0.0,
+  "replayable_share": 0.0,
+  "months": {},
+  "empty_note": "Les mois absents de months n'ont aucun événement rejouable.",
+  "origins": 0,
+  "usable_by_horizon": {
+    "30": 0,
+    "60": 0,
+    "90": 0
+  },
+  "min_replayable_origins": 40,
+  "history_sufficient": false,
+  "redundant_pairs": [],
+  "source": "E:\\prediction\\data\\cocoa_news_event_versions.jsonl"
+}

@@ -96,6 +96,11 @@ def _merge_upsert_price(
     - Databento ecrase/complete OHLCV+OI
     - scrape ICE ne detruit jamais open/high/low/volume/open_interest Databento
     """
+    if result.quarantine_reason or not result.date:
+        return (
+            f"[QUARANTAINE] {result.quarantine_reason or 'date_de_seance_absente'} "
+            f"prix {result.price:,.2f} non écrit"
+        )
     existing = _get_row(supabase, table, result.date)
     row: Dict[str, Any] = {
         "date": result.date,
@@ -338,6 +343,22 @@ def main() -> int:
                         "[WARN] Prix issu d'Investing (ICE sans chiffre) — "
                         "verifier vs TradingView / settlement"
                     )
+
+            if ice is not None and ice.quarantine_reason:
+                from src.data_collection.ice_london_collector import (
+                    append_quarantine,
+                    quarantine_record,
+                )
+
+                record = quarantine_record(ice)
+                append_quarantine(record, Path("data/quarantine/cocoa_sessions.jsonl"))
+                attempts.append(record)
+                print(
+                    f"[QUARANTAINE] {ice.quarantine_reason} "
+                    f"prix {ice.price:,.2f} contrat {ice.contract or '-'} "
+                    f"non daté — pas d'écriture"
+                )
+                ice = None
 
             if ice is not None:
                 scrape_result = ice

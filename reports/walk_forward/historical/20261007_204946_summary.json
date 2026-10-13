@@ -1,0 +1,244 @@
+{
+  "timestamp": "2026-10-07T20:49:46.467535",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "published_pred is the served direct forecast after the guard.",
+    "The hybrid column at one session uses the origin row to forecast the next close.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 48,
+    "horizons": [
+      1,
+      7,
+      14,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "origin_window": "historical",
+    "evaluated_period": {
+      "origin_start": "2020-12-22",
+      "origin_end": "2021-11-22",
+      "target_start": "2020-12-23",
+      "target_end": "2022-01-03",
+      "n_origins": 48
+    },
+    "baseline_comparison": {
+      "model_column": "xgb_pred",
+      "by_horizon": {
+        "1": {
+          "model_mape": 2.521821398361921,
+          "model_mae": 42.66400295091712,
+          "naive_mape": 1.182466634687381,
+          "naive_mae": 20.31804347826087,
+          "drift_mape": 1.1958569902617808,
+          "drift_mae": 20.568243874004388,
+          "mape_minus_naive": 1.33935476367454
+        },
+        "7": {
+          "model_mape": 4.0470333337617115,
+          "model_mae": 68.37901824951172,
+          "naive_mape": 2.626701251703602,
+          "naive_mae": 44.99854166666666,
+          "drift_mape": 3.459826451832735,
+          "drift_mae": 59.57486399392488,
+          "mape_minus_naive": 1.4203320820581093
+        },
+        "14": {
+          "model_mape": 4.7767577807781985,
+          "model_mae": 81.46698506673177,
+          "naive_mape": 3.343883498742494,
+          "naive_mae": 57.6575,
+          "drift_mape": 5.127127247247295,
+          "drift_mae": 88.63149732437778,
+          "mape_minus_naive": 1.4328742820357045
+        },
+        "30": {
+          "model_mape": 4.776917631294261,
+          "model_mae": 81.04733306884765,
+          "naive_mape": 4.753402665284992,
+          "naive_mae": 82.618125,
+          "drift_mape": 9.325757355438453,
+          "drift_mae": 160.77509476899255,
+          "mape_minus_naive": 0.0235149660092695
+        }
+      }
+    },
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 55.33021170178558,
+          "mae": 42.66400295091712,
+          "mape": 2.521821398361921,
+          "directional_accuracy": 0.6521739130434783,
+          "n_predictions": 46
+        },
+        "7": {
+          "rmse": 87.5231632864847,
+          "mae": 68.37901824951172,
+          "mape": 4.0470333337617115,
+          "directional_accuracy": 0.5416666666666666,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 99.38674754644602,
+          "mae": 81.46698506673177,
+          "mape": 4.7767577807781985,
+          "directional_accuracy": 0.5833333333333334,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 109.50779260565011,
+          "mae": 81.04733306884765,
+          "mape": 4.776917631294261,
+          "directional_accuracy": 0.6458333333333334,
+          "n_predictions": 48
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 59.20889503228086,
+          "mae": 47.5886906332226,
+          "mape": 2.778328704338922,
+          "directional_accuracy": 0.717391304347826,
+          "n_predictions": 46
+        },
+        "7": {
+          "rmse": 127.4458319631753,
+          "mae": 106.00072732483147,
+          "mape": 6.23354031258018,
+          "directional_accuracy": 0.5208333333333334,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 186.2030951512957,
+          "mae": 164.00751430799025,
+          "mape": 9.571356331807335,
+          "directional_accuracy": 0.5,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 281.6890910807547,
+          "mae": 243.1730181299873,
+          "mape": 14.267225423597605,
+          "directional_accuracy": 0.5833333333333334,
+          "n_predictions": 48
+        }
+      },
+      "naive_pred": {
+        "1": {
+          "rmse": 31.627058620056992,
+          "mae": 20.31804347826087,
+          "mape": 1.182466634687381,
+          "directional_accuracy": 0.0,
+          "n_predictions": 46
+        },
+        "7": {
+          "rmse": 59.73054259547623,
+          "mae": 44.99854166666666,
+          "mape": 2.626701251703602,
+          "directional_accuracy": 0.0,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 72.4143795572859,
+          "mae": 57.6575,
+          "mape": 3.343883498742494,
+          "directional_accuracy": 0.020833333333333332,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 103.87776158583382,
+          "mae": 82.618125,
+          "mape": 4.753402665284992,
+          "directional_accuracy": 0.0,
+          "n_predictions": 48
+        }
+      },
+      "drift_pred": {
+        "1": {
+          "rmse": 33.25250572350254,
+          "mae": 20.568243874004388,
+          "mape": 1.1958569902617808,
+          "directional_accuracy": 0.4782608695652174,
+          "n_predictions": 46
+        },
+        "7": {
+          "rmse": 73.90087538913694,
+          "mae": 59.57486399392488,
+          "mape": 3.459826451832735,
+          "directional_accuracy": 0.4583333333333333,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 109.40769621879195,
+          "mae": 88.63149732437778,
+          "mape": 5.127127247247295,
+          "directional_accuracy": 0.5,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 193.6761799043801,
+          "mae": 160.77509476899255,
+          "mape": 9.325757355438453,
+          "directional_accuracy": 0.4583333333333333,
+          "n_predictions": 48
+        }
+      },
+      "xgb_pred_recursive": {
+        "1": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        },
+        "7": {
+          "rmse": 104.87914542663938,
+          "mae": 84.81977834065755,
+          "mape": 5.0177164783205646,
+          "directional_accuracy": 0.5625,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 119.86236873653819,
+          "mae": 99.5540262858073,
+          "mape": 5.823639544500447,
+          "directional_accuracy": 0.5625,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 126.95896671545977,
+          "mae": 98.31469248453776,
+          "mape": 5.7807134789996395,
+          "directional_accuracy": 0.6458333333333334,
+          "n_predictions": 48
+        }
+      }
+    },
+    "recursive_vs_frozen": {
+      "1": {
+        "frozen_mape": 2.521821398361921,
+        "recursive_mape": NaN
+      },
+      "7": {
+        "frozen_mape": 4.0470333337617115,
+        "recursive_mape": 5.0177164783205646
+      },
+      "14": {
+        "frozen_mape": 4.7767577807781985,
+        "recursive_mape": 5.823639544500447
+      },
+      "30": {
+        "frozen_mape": 4.776917631294261,
+        "recursive_mape": 5.7807134789996395
+      }
+    }
+  },
+  "legacy_holdout_baseline": {
+    "mape_1step_holdout": 11.87104165686559,
+    "n_val": 208
+  }
+}

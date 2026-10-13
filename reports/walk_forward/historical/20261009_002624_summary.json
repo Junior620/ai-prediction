@@ -1,0 +1,247 @@
+{
+  "timestamp": "2026-10-09T00:26:24.015314",
+  "validation_type": "walk_forward_multi_horizon",
+  "notes": [
+    "Sentiment FinBERT excluded from backtest (no historical news replay).",
+    "published_pred is the served direct forecast after the guard.",
+    "The hybrid column at one session uses the origin row to forecast the next close.",
+    "Prophet fit only on training slice at each origin (no leakage)."
+  ],
+  "walk_forward": {
+    "n_origins": 48,
+    "horizons": [
+      1,
+      7,
+      14,
+      30
+    ],
+    "min_train_days": 252,
+    "step_size": 5,
+    "origin_window": "historical",
+    "evaluated_period": {
+      "origin_start": "2020-12-22",
+      "origin_end": "2021-11-22",
+      "target_start": "2020-12-23",
+      "target_end": "2022-01-06",
+      "n_origins": 48
+    },
+    "baseline_comparison": {
+      "model_column": "xgb_pred",
+      "by_horizon": {
+        "1": {
+          "model_mape": 2.7918699182505575,
+          "model_mae": 46.79772694905599,
+          "naive_mape": 1.3068361830698954,
+          "naive_mae": 22.136666666666667,
+          "drift_mape": 1.3076484175927197,
+          "drift_mae": 22.178693373655943,
+          "mape_minus_naive": 1.4850337351806622
+        },
+        "7": {
+          "model_mape": 4.0963402007396805,
+          "model_mae": 69.61795806884766,
+          "naive_mape": 2.5607272342695984,
+          "naive_mae": 44.13666666666666,
+          "drift_mape": 3.347740613551711,
+          "drift_mae": 57.83051799416697,
+          "mape_minus_naive": 1.5356129664700822
+        },
+        "14": {
+          "model_mape": 4.913167342899081,
+          "model_mae": 83.69115193684895,
+          "naive_mape": 3.411674813062632,
+          "naive_mae": 58.615833333333335,
+          "drift_mape": 5.176760715664262,
+          "drift_mae": 89.09998800793409,
+          "mape_minus_naive": 1.5014925298364492
+        },
+        "30": {
+          "model_mape": 4.9509578963098635,
+          "model_mae": 82.6951395670573,
+          "naive_mape": 4.652130049115141,
+          "naive_mae": 79.2825,
+          "drift_mape": 9.091216742224978,
+          "drift_mae": 154.348342825754,
+          "mape_minus_naive": 0.29882784719472255
+        }
+      }
+    },
+    "summary_by_component": {
+      "xgb_pred": {
+        "1": {
+          "rmse": 61.410649478690445,
+          "mae": 46.79772694905599,
+          "mape": 2.7918699182505575,
+          "directional_accuracy": 0.625,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 86.17834031811486,
+          "mae": 69.61795806884766,
+          "mape": 4.0963402007396805,
+          "directional_accuracy": 0.5416666666666666,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 100.92045826160097,
+          "mae": 83.69115193684895,
+          "mape": 4.913167342899081,
+          "directional_accuracy": 0.6041666666666666,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 114.46699886907199,
+          "mae": 82.6951395670573,
+          "mape": 4.9509578963098635,
+          "directional_accuracy": 0.625,
+          "n_predictions": 48
+        }
+      },
+      "prophet_pred": {
+        "1": {
+          "rmse": 64.6496780560676,
+          "mae": 52.13091732057176,
+          "mape": 3.0726975444123696,
+          "directional_accuracy": 0.6875,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 132.27901650226445,
+          "mae": 109.57239494146341,
+          "mape": 6.417328160791556,
+          "directional_accuracy": 0.5208333333333334,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 189.94254629092654,
+          "mae": 168.38285459495594,
+          "mape": 9.843157290260512,
+          "directional_accuracy": 0.5416666666666666,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 291.4838478916752,
+          "mae": 249.01687436873826,
+          "mape": 14.69508659158133,
+          "directional_accuracy": 0.5625,
+          "n_predictions": 48
+        }
+      },
+      "naive_pred": {
+        "1": {
+          "rmse": 35.858144588549656,
+          "mae": 22.136666666666667,
+          "mape": 1.3068361830698954,
+          "directional_accuracy": 0.0,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 57.25328112868292,
+          "mae": 44.13666666666666,
+          "mape": 2.5607272342695984,
+          "directional_accuracy": 0.0,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 74.50984744761371,
+          "mae": 58.615833333333335,
+          "mape": 3.411674813062632,
+          "directional_accuracy": 0.020833333333333332,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 99.21865096845451,
+          "mae": 79.2825,
+          "mape": 4.652130049115141,
+          "directional_accuracy": 0.0,
+          "n_predictions": 48
+        }
+      },
+      "drift_pred": {
+        "1": {
+          "rmse": 36.93963169996909,
+          "mae": 22.178693373655943,
+          "mape": 1.3076484175927197,
+          "directional_accuracy": 0.5208333333333334,
+          "n_predictions": 48
+        },
+        "7": {
+          "rmse": 71.65818200226302,
+          "mae": 57.83051799416697,
+          "mape": 3.347740613551711,
+          "directional_accuracy": 0.4583333333333333,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 111.73917214913219,
+          "mae": 89.09998800793409,
+          "mape": 5.176760715664262,
+          "directional_accuracy": 0.5,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 189.73923206645972,
+          "mae": 154.348342825754,
+          "mape": 9.091216742224978,
+          "directional_accuracy": 0.5,
+          "n_predictions": 48
+        }
+      },
+      "xgb_pred_recursive": {
+        "1": {
+          "rmse": NaN,
+          "mae": NaN,
+          "mape": NaN,
+          "directional_accuracy": NaN,
+          "n_predictions": 0
+        },
+        "7": {
+          "rmse": 101.77374062095306,
+          "mae": 84.34549458821614,
+          "mape": 4.965183256437556,
+          "directional_accuracy": 0.5625,
+          "n_predictions": 48
+        },
+        "14": {
+          "rmse": 120.21938308822311,
+          "mae": 101.56943766276042,
+          "mape": 5.945029524159212,
+          "directional_accuracy": 0.6041666666666666,
+          "n_predictions": 48
+        },
+        "30": {
+          "rmse": 132.46158138899972,
+          "mae": 102.09737650553386,
+          "mape": 6.072675046432182,
+          "directional_accuracy": 0.6041666666666666,
+          "n_predictions": 48
+        }
+      }
+    },
+    "recursive_vs_frozen": {
+      "1": {
+        "frozen_mape": 2.7918699182505575,
+        "recursive_mape": NaN
+      },
+      "7": {
+        "frozen_mape": 4.0963402007396805,
+        "recursive_mape": 4.965183256437556
+      },
+      "14": {
+        "frozen_mape": 4.913167342899081,
+        "recursive_mape": 5.945029524159212
+      },
+      "30": {
+        "frozen_mape": 4.9509578963098635,
+        "recursive_mape": 6.072675046432182
+      }
+    }
+  },
+  "procedure_fingerprint": "9dd6bdef815316747bd67b532cfee68b8e62048e32f0f781a34645c5ac6336cf",
+  "data_window": {
+    "min_date": "2020-01-02",
+    "max_date": "2026-10-08",
+    "rows": 1737,
+    "cut": "2020-01-01"
+  }
+}

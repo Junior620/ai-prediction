@@ -16,6 +16,7 @@ export default function CoffeeDashboard() {
         priceSource: 'Investing.com (RCU6) · clôture quotidienne',
         activeNav: 'coffee',
         otherMarket: { href: '/', label: 'Cacao' },
+        showTracking: true,
       }}
     />
   );

@@ -60,7 +60,7 @@ pytest>=7.0.0,<8.0.0
 pytest-asyncio==0.23.4
 pytest-cov==4.1.0
 httpx>=0.26.0,<0.29.0
-sympy==1.13.1
+sympy>=1.13.3,<1.14
 
 # Logging and Monitoring
 loguru==0.7.2

@@ -70,6 +70,11 @@ class IceLondonResult:
     low: Optional[float] = None
     volume: Optional[float] = None
     attempts: List[Dict[str, Any]] = field(default_factory=list)
+    session_date: Optional[str] = None
+    collected_at: str = ""
+    contract: Optional[str] = None
+    price_kind: str = "unknown"
+    quarantine_reason: Optional[str] = None
 
 
 def _parse_price(raw: str) -> Optional[float]:
@@ -99,27 +104,91 @@ def _normalize_date(raw: str) -> Optional[str]:
     return None
 
 
+def _contract_from_cell(text: str) -> Optional[str]:
+    match = CONTRACT_LABEL_RE.search(text or "") or CONTRACT_COMPACT_RE.search(text or "")
+    if not match:
+        return None
+    return f"{match.group(1).upper()}{match.group(2)}"
+
+
+def _observation(
+    *,
+    price: float,
+    session_date: Optional[str],
+    source: str,
+    strategy: str,
+    contract: Optional[str] = None,
+    price_kind: str = "unknown",
+    quarantine_reason: Optional[str] = None,
+    attempts: Optional[List[Dict[str, Any]]] = None,
+) -> IceLondonResult:
+    """A missing session date stays missing. Collection time is not a session."""
+    collected_at = datetime.now().isoformat(timespec="seconds")
+    reason = quarantine_reason
+    if not session_date and reason is None:
+        reason = "date_de_seance_absente"
+    return IceLondonResult(
+        price=price,
+        date=session_date or "",
+        source=source,
+        strategy=strategy,
+        session_date=session_date,
+        collected_at=collected_at,
+        contract=contract,
+        price_kind=price_kind,
+        quarantine_reason=reason,
+        attempts=attempts or [],
+    )
+
+
+def quarantine_record(result: IceLondonResult) -> Dict[str, Any]:
+    return {
+        "session_date": result.session_date,
+        "collected_at": result.collected_at or datetime.now().isoformat(timespec="seconds"),
+        "contract": result.contract,
+        "source": result.source,
+        "price_kind": result.price_kind,
+        "price": result.price,
+        "quarantine_reason": result.quarantine_reason,
+        "strategy": result.strategy,
+    }
+
+
+def append_quarantine(record: Dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def parse_table_rows_from_html(html: str, max_rows: int = 60) -> List[Dict[str, Any]]:
-    """Extrait date + settlement depuis un tableau ICE rendu."""
+    """Extrait date + settlement. Une date absente est mise en quarantaine."""
     rows: List[Dict[str, Any]] = []
     if not html:
         return rows
 
+    collected_at = datetime.now().isoformat(timespec="seconds")
     for match in TABLE_ROW_RE.finditer(html):
         date_raw = _strip_tags(match.group(1))
         price_raw = _strip_tags(match.group(2))
         price = _parse_price(price_raw)
-        date_str = _normalize_date(date_raw)
         if price is None:
             continue
-        if date_str is None:
-            date_str = datetime.now().strftime("%Y-%m-%d")
+        session_date = _normalize_date(date_raw)
+        contract = _contract_from_cell(date_raw)
+        reason = None
+        if session_date is None:
+            reason = "contrat_sans_date_de_seance" if contract else "date_de_seance_absente"
         rows.append(
             {
-                "date": date_str,
+                "date": session_date,
+                "session_date": session_date,
                 "price": price,
                 "source": "ice_london",
                 "symbol": "LCC",
+                "contract": contract,
+                "collected_at": collected_at,
+                "price_kind": "settlement",
+                "quarantine_reason": reason,
             }
         )
         if len(rows) >= max_rows:
@@ -216,12 +285,15 @@ def _investing_fallback() -> Optional[IceLondonResult]:
     data = fetch_investing_price(url=INVESTING_FALLBACK_URL, fallback_symbol="LCC")
     if not data:
         return None
-    return IceLondonResult(
+    session_date = _normalize_date(str(data.get("session_date") or data.get("date") or ""))
+    return _observation(
         price=float(data["price"]),
-        date=data.get("date") or datetime.now().strftime("%Y-%m-%d"),
+        session_date=session_date,
         source="ice_london_fallback",
-        symbol=data.get("symbol") or "LCC",
         strategy="investing_fallback",
+        contract=data.get("symbol") or "LCC",
+        price_kind="intraday",
+        quarantine_reason=None if session_date else "date_de_seance_absente",
     )
 
 
@@ -244,11 +316,32 @@ def fetch_ice_london_spot(
     )
 
     if direct_price and lo <= direct_price <= hi:
-        return IceLondonResult(
+        rows = parse_table_rows_from_html(html or "", max_rows=8)
+        matched = next(
+            (
+                row
+                for row in rows
+                if row.get("session_date") and abs(float(row["price"]) - direct_price) < 0.01
+            ),
+            None,
+        )
+        if matched:
+            return _observation(
+                price=direct_price,
+                session_date=matched["session_date"],
+                source="ice_london",
+                strategy=pw_info or "playwright_direct",
+                contract=matched.get("contract"),
+                price_kind="settlement",
+                attempts=attempts,
+            )
+        return _observation(
             price=direct_price,
-            date=datetime.now().strftime("%Y-%m-%d"),
+            session_date=None,
             source="ice_london",
             strategy=pw_info or "playwright_direct",
+            price_kind="intraday",
+            quarantine_reason="date_de_seance_absente",
             attempts=attempts,
         )
 
@@ -258,21 +351,26 @@ def fetch_ice_london_spot(
             row = rows[0]
             price = float(row["price"])
             if lo <= price <= hi:
-                return IceLondonResult(
+                return _observation(
                     price=price,
-                    date=row["date"],
+                    session_date=row.get("session_date"),
                     source="ice_london",
                     strategy=pw_info or "playwright_table",
+                    contract=row.get("contract"),
+                    price_kind=row.get("price_kind") or "settlement",
+                    quarantine_reason=row.get("quarantine_reason"),
                     attempts=attempts,
                 )
 
         price = extract_price_regex(html)
         if price and lo <= price <= hi:
-            return IceLondonResult(
+            return _observation(
                 price=price,
-                date=datetime.now().strftime("%Y-%m-%d"),
+                session_date=None,
                 source="ice_london",
                 strategy=pw_info or "playwright_regex",
+                price_kind="intraday",
+                quarantine_reason="date_de_seance_absente",
                 attempts=attempts,
             )
 
@@ -313,7 +411,10 @@ def fetch_ice_london_history(
         price = float(row["price"])
         if not (lo <= price <= hi):
             continue
-        d = row["date"]
+        session = row.get("session_date") or row.get("date")
+        if row.get("quarantine_reason") or not session:
+            continue
+        d = session
         if d in seen:
             continue
         seen.add(d)

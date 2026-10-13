@@ -1,0 +1,15 @@
+{
+  "candidates": [
+    "prophet_xgboost",
+    "prophet_xgboost_sentiment",
+    "prophet_xgboost_events"
+  ],
+  "horizons": [
+    30,
+    60,
+    90
+  ],
+  "history_sufficient": false,
+  "manifest_updated": false,
+  "reason": "Historique rejouable insuffisant. Aucun candidat n'est ajusté."
+}

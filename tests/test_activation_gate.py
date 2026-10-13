@@ -18,7 +18,14 @@ from src.models.release_manifest import (
     load_active_release,
     promote_accepted_horizons,
 )
-from src.models.served_forecast import compose_served_price, publish_or_close, snapshot_journal_fields
+from scripts.write_experimental_release import keep_evening_nhits
+from src.models.served_forecast import (
+    build_served_interval,
+    compose_served_price,
+    publish_or_close,
+    snapshot_journal_fields,
+)
+from src.validation.acceptance import gap_reading
 from src.validation.report_loader import find_release_summary
 from src.validation.acceptance import (
     effective_sample_size,
@@ -253,7 +260,7 @@ def test_an_accepted_horizon_is_the_only_one_marked(tmp_path):
     assert release["source_report"] == "20261008_120000"
 
 
-def test_missing_nhits_renormalizes_instead_of_keeping_xgboost_alone():
+def test_missing_required_engine_is_not_renormalized():
     served = compose_served_price(
         xgb_price=110.0,
         prophet_price=90.0,
@@ -264,9 +271,9 @@ def test_missing_nhits_renormalizes_instead_of_keeping_xgboost_alone():
         max_abs_change_pct={"1": 20.0},
         price_bounds=(50.0, 200.0),
     )
-    assert abs(served["price"] - (0.4 * 110.0 + 0.2 * 90.0) / 0.6) < 1e-6
-    assert served["sentiment"] == 0.0
-    assert served["scored_variant"] == "no_sentiment"
+    assert served["engine_missing"] is True
+    assert served["price"] != served["price"]
+    assert served["lower"] is None
 
 
 def test_an_unvalidated_horizon_publishes_the_close_and_keeps_the_candidate():
@@ -371,6 +378,79 @@ def test_a_future_open_interest_does_not_change_a_past_session():
     past = -5
     assert before["oi_change_1d"].iloc[past] == after["oi_change_1d"].iloc[past]
     assert before["open_interest"].iloc[past] == after["open_interest"].iloc[past]
+
+
+def test_large_move_stays_visible_and_a_bad_band_is_dropped():
+    served = compose_served_price(
+        xgb_price=80.0,
+        prophet_price=80.0,
+        nhits_price=None,
+        weights={"xgb": 1.0, "prophet": 0.0, "nhits": 0.0},
+        spot=100.0,
+        horizon=1,
+        max_abs_change_pct={"1": 5.0},
+        conformal_margins={"1": {"margin_lower": 1.0, "margin_upper": 1.0}},
+        price_bounds=(50.0, 200.0),
+    )
+    assert served["large_move_warning"] is True
+    assert served["price"] == 80.0
+    assert served["lower"] == 79.0
+    assert served["upper"] == 81.0
+
+    class _Item:
+        def __init__(self):
+            self.horizon = 1
+            self.price = 80.0
+            self.confidence_interval = [90.0, 95.0]
+            self.components = {"large_move_warning": True}
+
+    item = _Item()
+    publish_or_close(
+        [item],
+        {"validated": False, "horizons": {"1": {"validated": False}}, "release_mode": "experimental"},
+        100.0,
+        release_mode="experimental",
+    )
+    assert item.price == 80.0
+    assert item.confidence_interval is None
+    assert item.status == "experimental"
+    assert "seuil" in item.components["warning"]
+
+
+def test_gap_interval_has_three_readings():
+    assert gap_reading(-2.0, -0.1) == "amélioration étayée"
+    assert gap_reading(0.2, 1.5) == "dégradation étayée"
+    assert gap_reading(-0.4, 0.3) == "résultat incertain"
+
+
+def test_band_uses_recorded_recent_limits_and_garch_width():
+    lower, upper = build_served_interval(
+        100.0,
+        1,
+        margins={"1": {"margin_lower": 5.0, "margin_upper": 5.0}},
+        recent_bounds=(90.0, 110.0),
+        garch_log_half=0.02,
+    )
+    assert lower is not None and upper is not None
+    assert lower <= 100.0 <= upper
+    missing, _ = build_served_interval(100.0, 1, margins=None, garch_required=True)
+    assert missing is None
+
+
+def test_evening_lot_does_not_reuse_the_active_nhits():
+    active = "models/coffee_robusta/nhits_20261006_211916"
+    assert keep_evening_nhits(active, active) is None
+    fresh = "models/coffee_robusta/nhits_20261008_233657"
+    assert keep_evening_nhits(fresh, active) == fresh
+    assert keep_evening_nhits(None, active) is None
+    bat = Path("update_system.bat").read_text(encoding="utf-8")
+    deploy = Path("deploy_models.ps1").read_text(encoding="utf-8")
+    assert "deploy_models.ps1" in bat
+    assert "active_release_" in deploy
+    assert "experimental_release_" not in deploy
+    assert "PREDICTION_RELEASE_MODE=experimental" in bat
+    assert "--force-recreate api" in bat
+    assert "max-origins 96" not in bat
 
 
 def test_unvalidated_horizon_card_shows_the_close_label():

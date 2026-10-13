@@ -1,0 +1,126 @@
+{
+  "generated_at": "2026-09-01T03:16:25.889370Z",
+  "market": "cocoa",
+  "unit": "GBP/MT",
+  "split_date": "2025-01-01",
+  "min_date": "2020-01-01",
+  "n_train": 1277,
+  "n_test": 424,
+  "feature_cols_m3": [
+    "price_lag_1",
+    "price_lag_3",
+    "price_lag_7",
+    "price_lag_14",
+    "price_lag_30",
+    "price_ma_7",
+    "price_ma_14",
+    "price_ma_30",
+    "price_ma_60",
+    "price_std_7",
+    "price_std_30",
+    "price_change_1d",
+    "price_change_7d",
+    "price_change_30d",
+    "prophet_trend",
+    "prophet_yearly",
+    "prophet_yhat",
+    "year",
+    "month",
+    "day_of_week",
+    "day_of_year",
+    "quarter",
+    "rsi_14",
+    "hl_range_pct",
+    "return_1d",
+    "realized_vol_7",
+    "realized_vol_30",
+    "volume",
+    "volume_change_1d",
+    "volume_ratio_30",
+    "open_interest",
+    "oi_change_1d",
+    "oi_change_7d",
+    "return_oi_interaction"
+  ],
+  "feature_cols_m3_macro": [
+    "price_lag_1",
+    "price_lag_3",
+    "price_lag_7",
+    "price_lag_14",
+    "price_lag_30",
+    "price_ma_7",
+    "price_ma_14",
+    "price_ma_30",
+    "price_ma_60",
+    "price_std_7",
+    "price_std_30",
+    "price_change_1d",
+    "price_change_7d",
+    "price_change_30d",
+    "prophet_trend",
+    "prophet_yearly",
+    "prophet_yhat",
+    "year",
+    "month",
+    "day_of_week",
+    "day_of_year",
+    "quarter",
+    "rsi_14",
+    "hl_range_pct",
+    "return_1d",
+    "realized_vol_7",
+    "realized_vol_30",
+    "volume",
+    "volume_change_1d",
+    "volume_ratio_30",
+    "open_interest",
+    "oi_change_1d",
+    "oi_change_7d",
+    "return_oi_interaction",
+    "usd_gbp"
+  ],
+  "models": {
+    "M3_OHLCV_OI": {
+      "1": {
+        "mae": 242.65253198596017,
+        "rmse": 326.95379619471754,
+        "mape": 5.7858898693423395,
+        "n": 414
+      },
+      "7": {
+        "mae": 360.77572052076937,
+        "rmse": 463.4116502434465,
+        "mape": 8.74501449689535,
+        "n": 407
+      },
+      "30": {
+        "mae": 745.4883672128652,
+        "rmse": 928.070529424569,
+        "mape": 18.910518399781886,
+        "n": 385
+      }
+    },
+    "M3_plus_USDGBP": {
+      "1": {
+        "mae": 261.57156929347826,
+        "rmse": 344.62602897288133,
+        "mape": 6.317288000996086,
+        "n": 414
+      },
+      "7": {
+        "mae": 367.51334013168,
+        "rmse": 475.70798405763287,
+        "mape": 9.059926113352008,
+        "n": 407
+      },
+      "30": {
+        "mae": 746.7227124086851,
+        "rmse": 930.5129956750956,
+        "mape": 19.20992905072499,
+        "n": 385
+      }
+    }
+  },
+  "decision": "Pas de lift clair J+1 (M3=5.79%, M3+FX=6.32%) \u2014 prod reste M3 pur.",
+  "production": false
+}

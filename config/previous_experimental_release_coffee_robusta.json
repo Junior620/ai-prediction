@@ -1,0 +1,62 @@
+{
+  "market": "coffee_robusta",
+  "version": "improved_20261010_093542",
+  "release_mode": "experimental",
+  "validated": false,
+  "scored_variant": "no_sentiment",
+  "artifacts": {
+    "prophet": "models/candidates/coffee_robusta/20261010_093542/prophet_improved_20261010_093542.pkl",
+    "xgboost": "models/candidates/coffee_robusta/20261010_093542/xgboost_improved_20261010_093542.pkl",
+    "direct_info": "models/candidates/coffee_robusta/20261010_093542/model_info_direct_horizon_20261010_093542.json",
+    "improved_info": "models/candidates/coffee_robusta/20261010_093542/model_info_improved_20261010_093542.json",
+    "nhits": "models/coffee_robusta/nhits_20261010_083837",
+    "ensemble_weights": "config/coffee_robusta/ensemble_weights.json",
+    "conformal_intervals": "config/coffee_robusta/conformal_intervals.json"
+  },
+  "direct_horizons": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30
+  ],
+  "horizons": {
+    "1": {
+      "validated": false
+    },
+    "7": {
+      "validated": false
+    },
+    "14": {
+      "validated": false
+    },
+    "30": {
+      "validated": false
+    }
+  }
+}

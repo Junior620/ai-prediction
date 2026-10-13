@@ -1,0 +1,31 @@
+{
+  "snapshot": "data\\freeze\\coffee_robusta_prices.csv",
+  "note": "Liste seule. Aucun prix et aucune date ne sont corriges.",
+  "count": 4,
+  "rows": [
+    {
+      "date": "2021-12-28",
+      "price": 2343.0,
+      "source": null,
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2026-08-29",
+      "price": 3538.0,
+      "source": null,
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2026-09-12",
+      "price": 3522.0,
+      "source": null,
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    },
+    {
+      "date": "2026-10-03",
+      "price": 3470.0,
+      "source": null,
+      "reason": "date_presente_alors_que_le_calendrier_la_declare_fermee"
+    }
+  ]
+}

@@ -1,0 +1,853 @@
+{
+  "note": "\u00ab Sans Prophet dans le m\u00e9lange \u00bb retire Prophet du m\u00e9lange final. XGBoost continue d'utiliser les variables produites par Prophet. Cette variante ne mesure pas une suppression compl\u00e8te de Prophet.",
+  "measurement": "verification",
+  "promoted": false,
+  "variants": {
+    "cours_inchange": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 3,
+          "n_effective": 3.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 3.8877979586654554,
+          "naive_mape": 3.8877979586654554,
+          "relative_gain": 0.0,
+          "gap_ci": [
+            0.0,
+            0.0
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.6666666666666666,
+          "coverage_ci": [
+            0.0,
+            1.0
+          ],
+          "coverage_n": 3,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 212.2445157041302,
+          "naive_width": 212.2445157041302,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 3,
+          "available_mape": 3.8877979586654554,
+          "operational_mape": 3.8877979586654554,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 3.8877979586654554,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 2,
+          "n_effective": 0.6666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 4.629222735696115,
+          "naive_mape": 4.629222735696115,
+          "relative_gain": 0.0,
+          "gap_ci": [
+            0.0,
+            0.0
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 2,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 624.0,
+          "naive_width": 624.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 2,
+          "available_mape": 4.629222735696115,
+          "operational_mape": 4.629222735696115,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 4.629222735696115,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 1,
+          "n_effective": 0.25,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 4.229525862068965,
+          "naive_mape": 4.229525862068965,
+          "relative_gain": 0.0,
+          "gap_ci": [
+            0.0,
+            0.0
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 1,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 800.5107493151881,
+          "naive_width": 800.5107493151881,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 4.229525862068965,
+          "operational_mape": 4.229525862068965,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 4.229525862068965,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. Bornes finales absentes.",
+          "n": 1,
+          "n_effective": 0.14285714285714285,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 2.799890200384299,
+          "naive_mape": 2.799890200384299,
+          "relative_gain": 0.0,
+          "gap_ci": [
+            0.0,
+            0.0
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": NaN,
+          "coverage_ci": [
+            NaN,
+            NaN
+          ],
+          "coverage_n": 0,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": NaN,
+          "naive_width": NaN,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 2.799890200384299,
+          "operational_mape": 2.799890200384299,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 2.799890200384299,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 44.0,
+          "margin_upper": 44.0,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 88.0,
+          "n": 3
+        },
+        "7": {
+          "margin_lower": 312.0,
+          "margin_upper": 312.0,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 624.0,
+          "n": 2
+        },
+        "14": {
+          "margin_lower": 240.0,
+          "margin_upper": 240.0,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 480.0,
+          "n": 1
+        }
+      }
+    },
+    "ensemble_actuel": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro.",
+          "n": 3,
+          "n_effective": 3.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 3.595619701616524,
+          "naive_mape": 3.8877979586654554,
+          "relative_gain": 0.07515263399881661,
+          "gap_ci": [
+            -1.5914809999686181,
+            1.975639649337431
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.6666666666666666,
+          "coverage_ci": [
+            0.0,
+            1.0
+          ],
+          "coverage_n": 3,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 208.71660618073307,
+          "naive_width": 212.2445157041302,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 3,
+          "available_mape": 3.595619701616524,
+          "operational_mape": 3.595619701616524,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 3.595619701616524,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 2,
+          "n_effective": 0.6666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 5.808178427458369,
+          "naive_mape": 4.629222735696115,
+          "relative_gain": -0.2546768127338702,
+          "gap_ci": [
+            1.1789556917622541,
+            1.1789556917622541
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 2,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 755.0336721003314,
+          "naive_width": 624.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 2,
+          "available_mape": 5.808178427458369,
+          "operational_mape": 5.808178427458369,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 5.808178427458369,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 1,
+          "n_effective": 0.25,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 3.2303272716724014,
+          "naive_mape": 4.229525862068965,
+          "relative_gain": 0.23624364124535321,
+          "gap_ci": [
+            -0.9991985903965639,
+            -0.9991985903965639
+          ],
+          "gap_reading": "am\u00e9lioration \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 1,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 808.8626888822937,
+          "naive_width": 800.5107493151881,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 3.2303272716724014,
+          "operational_mape": 3.2303272716724014,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 3.2303272716724014,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. Bornes finales absentes.",
+          "n": 1,
+          "n_effective": 0.14285714285714285,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 4.079729608351056,
+          "naive_mape": 2.799890200384299,
+          "relative_gain": -0.4571034277669506,
+          "gap_ci": [
+            1.2798394079667572,
+            1.2798394079667572
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": NaN,
+          "coverage_ci": [
+            NaN,
+            NaN
+          ],
+          "coverage_n": 0,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": NaN,
+          "naive_width": NaN,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 4.079729608351056,
+          "operational_mape": 4.079729608351056,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 4.079729608351056,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 42.8913577454814,
+          "margin_upper": 42.8913577454814,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 85.7827154909628,
+          "n": 3
+        },
+        "7": {
+          "margin_lower": 377.5168360501657,
+          "margin_upper": 377.5168360501657,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 755.0336721003314,
+          "n": 2
+        },
+        "14": {
+          "margin_lower": 323.1739022859829,
+          "margin_upper": 323.1739022859829,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 646.3478045719658,
+          "n": 1
+        }
+      }
+    },
+    "xgboost_direct": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro.",
+          "n": 3,
+          "n_effective": 3.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 4.176469479568701,
+          "naive_mape": 3.8877979586654554,
+          "relative_gain": -0.074250648817753,
+          "gap_ci": [
+            0.007205455221681367,
+            0.5549942312343443
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 0.6666666666666666,
+          "coverage_ci": [
+            0.0,
+            1.0
+          ],
+          "coverage_n": 3,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 212.0188452753661,
+          "naive_width": 212.2445157041302,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 3,
+          "available_mape": 4.176469479568701,
+          "operational_mape": 4.176469479568701,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 4.176469479568701,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance.",
+          "n": 2,
+          "n_effective": 0.6666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 3.4358227923183255,
+          "naive_mape": 4.629222735696115,
+          "relative_gain": 0.25779704531722714,
+          "gap_ci": [
+            -1.1933999433777895,
+            -1.1933999433777895
+          ],
+          "gap_reading": "am\u00e9lioration \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 2,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 607.771032333374,
+          "naive_width": 624.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 2,
+          "available_mape": 3.4358227923183255,
+          "operational_mape": 3.4358227923183255,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 3.4358227923183255,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro.",
+          "n": 1,
+          "n_effective": 0.25,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 6.644790953603284,
+          "naive_mape": 4.229525862068965,
+          "relative_gain": -0.5710486636799612,
+          "gap_ci": [
+            2.4152650915343186,
+            2.4152650915343186
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 1,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 780.3224221128571,
+          "naive_width": 800.5107493151881,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 6.644790953603284,
+          "operational_mape": 6.644790953603284,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 6.644790953603284,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. Bornes finales absentes.",
+          "n": 1,
+          "n_effective": 0.14285714285714285,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 3.253248540902903,
+          "naive_mape": 2.799890200384299,
+          "relative_gain": -0.1619200425989485,
+          "gap_ci": [
+            0.45335834051860413,
+            0.45335834051860413
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": NaN,
+          "coverage_ci": [
+            NaN,
+            NaN
+          ],
+          "coverage_n": 0,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": NaN,
+          "naive_width": NaN,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 3.253248540902903,
+          "operational_mape": 3.253248540902903,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 3.253248540902903,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 58.51580047607422,
+          "margin_upper": 58.51580047607422,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 117.03160095214844,
+          "n": 3
+        },
+        "7": {
+          "margin_lower": 303.885516166687,
+          "margin_upper": 303.885516166687,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 607.771032333374,
+          "n": 2
+        },
+        "14": {
+          "margin_lower": 152.58289337158203,
+          "margin_upper": 152.58289337158203,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 305.16578674316406,
+          "n": 1
+        }
+      }
+    },
+    "nhits_seul": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 3,
+          "n_effective": 3.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 4.0861671841873175,
+          "naive_mape": 3.8877979586654554,
+          "relative_gain": -0.05102354279489238,
+          "gap_ci": [
+            -0.27607262424806644,
+            0.9641885349893164
+          ],
+          "gap_reading": "r\u00e9sultat incertain",
+          "coverage": 0.6666666666666666,
+          "coverage_ci": [
+            0.0,
+            1.0
+          ],
+          "coverage_n": 3,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 212.76953733511255,
+          "naive_width": 212.2445157041302,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 3,
+          "available_mape": 4.0861671841873175,
+          "operational_mape": 4.0861671841873175,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 4.0861671841873175,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 2,
+          "n_effective": 0.6666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 2.453421337545672,
+          "naive_mape": 4.629222735696115,
+          "relative_gain": 0.470014411139208,
+          "gap_ci": [
+            -2.175801398150443,
+            -2.175801398150443
+          ],
+          "gap_reading": "am\u00e9lioration \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 2,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 779.03173828125,
+          "naive_width": 624.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 2,
+          "available_mape": 2.453421337545672,
+          "operational_mape": 2.453421337545672,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 2.453421337545672,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 1,
+          "n_effective": 0.25,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 5.567169189453125,
+          "naive_mape": 4.229525862068965,
+          "relative_gain": -0.3162631867038217,
+          "gap_ci": [
+            1.3376433273841597,
+            1.3376433273841597
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 1,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 882.3977793951649,
+          "naive_width": 800.5107493151881,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 5.567169189453125,
+          "operational_mape": 5.567169189453125,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 5.567169189453125,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. Bornes finales absentes.",
+          "n": 1,
+          "n_effective": 0.14285714285714285,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 11.775512862853416,
+          "naive_mape": 2.799890200384299,
+          "relative_gain": -3.2057052313112737,
+          "gap_ci": [
+            8.975622662469117,
+            8.975622662469117
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": NaN,
+          "coverage_ci": [
+            NaN,
+            NaN
+          ],
+          "coverage_n": 0,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": NaN,
+          "naive_width": NaN,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 11.775512862853416,
+          "operational_mape": 11.775512862853416,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 11.775512862853416,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 49.504150390625,
+          "margin_upper": 49.504150390625,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 99.00830078125,
+          "n": 3
+        },
+        "7": {
+          "margin_lower": 389.515869140625,
+          "margin_upper": 389.515869140625,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 779.03173828125,
+          "n": 2
+        },
+        "14": {
+          "margin_lower": 362.593505859375,
+          "margin_upper": 362.593505859375,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 725.18701171875,
+          "n": 1
+        }
+      }
+    },
+    "sans_prophet_dans_le_melange": {
+      "horizons": {
+        "1": {
+          "horizon": 1,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 3,
+          "n_effective": 3.0,
+          "overlap": 0,
+          "fallback_rate": 0.0,
+          "model_mape": 4.131318331878011,
+          "naive_mape": 3.8877979586654554,
+          "relative_gain": -0.06263709580632304,
+          "gap_ci": [
+            0.013871126002822809,
+            0.4856969951054988
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": 0.6666666666666666,
+          "coverage_ci": [
+            0.0,
+            1.0
+          ],
+          "coverage_n": 3,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 212.39419130523916,
+          "naive_width": 212.2445157041302,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 3,
+          "available_mape": 4.131318331878011,
+          "operational_mape": 4.131318331878011,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 4.131318331878011,
+          "measurement": "verification"
+        },
+        "7": {
+          "horizon": 7,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 2,
+          "n_effective": 0.6666666666666666,
+          "overlap": 2,
+          "fallback_rate": 0.0,
+          "model_mape": 2.91572790449751,
+          "naive_mape": 4.629222735696115,
+          "relative_gain": 0.37014741545827556,
+          "gap_ci": [
+            -1.713494831198605,
+            -1.713494831198605
+          ],
+          "gap_reading": "am\u00e9lioration \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 2,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 698.438464894014,
+          "naive_width": 624.0,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 2,
+          "available_mape": 2.91572790449751,
+          "operational_mape": 2.91572790449751,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 2.91572790449751,
+          "measurement": "verification"
+        },
+        "14": {
+          "horizon": 14,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. La bande n'est pas plus \u00e9troite que celle de la cl\u00f4ture inchang\u00e9e.",
+          "n": 1,
+          "n_effective": 0.25,
+          "overlap": 3,
+          "fallback_rate": 0.0,
+          "model_mape": 0.25137477424033544,
+          "naive_mape": 4.229525862068965,
+          "relative_gain": 0.9405666775808837,
+          "gap_ci": [
+            -3.9781510878286297,
+            -3.9781510878286297
+          ],
+          "gap_reading": "am\u00e9lioration \u00e9tay\u00e9e",
+          "coverage": 1.0,
+          "coverage_ci": [
+            1.0,
+            1.0
+          ],
+          "coverage_n": 1,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": 837.9649768134541,
+          "naive_width": 800.5107493151881,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 0.25137477424033544,
+          "operational_mape": 0.25137477424033544,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 0.25137477424033544,
+          "measurement": "verification"
+        },
+        "30": {
+          "horizon": 30,
+          "validated": false,
+          "reason": "Le nombre d'observations est sous le minimum \u00e9crit \u00e0 l'avance. Le nombre de blocs temporels est sous le minimum \u00e9crit \u00e0 l'avance. Le gain sur la cl\u00f4ture inchang\u00e9e est inf\u00e9rieur au minimum utile. L'intervalle par blocs sur l'\u00e9cart n'exclut pas z\u00e9ro. Bornes finales absentes.",
+          "n": 1,
+          "n_effective": 0.14285714285714285,
+          "overlap": 6,
+          "fallback_rate": 0.0,
+          "model_mape": 8.266345200873792,
+          "naive_mape": 2.799890200384299,
+          "relative_gain": -1.9523819183120803,
+          "gap_ci": [
+            5.466455000489493,
+            5.466455000489493
+          ],
+          "gap_reading": "d\u00e9gradation \u00e9tay\u00e9e",
+          "coverage": NaN,
+          "coverage_ci": [
+            NaN,
+            NaN
+          ],
+          "coverage_n": 0,
+          "coverage_note": "Une couverture compatible avec 90 % n'est pas une certification.",
+          "model_width": NaN,
+          "naive_width": NaN,
+          "abstention_count": 0,
+          "abstention_rate": 0.0,
+          "available_n": 1,
+          "available_mape": 8.266345200873792,
+          "operational_mape": 8.266345200873792,
+          "warning_count": 0,
+          "secondary_mape_when_model_spoke": 8.266345200873792,
+          "measurement": "verification"
+        }
+      },
+      "margins": {
+        "1": {
+          "margin_lower": 53.143723487854004,
+          "margin_upper": 53.143723487854004,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 106.28744697570801,
+          "n": 3
+        },
+        "7": {
+          "margin_lower": 349.219232447007,
+          "margin_upper": 349.219232447007,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 698.438464894014,
+          "n": 2
+        },
+        "14": {
+          "margin_lower": 271.1771215999829,
+          "margin_upper": 271.1771215999829,
+          "calibration_coverage": 1.0,
+          "mean_interval_width": 542.3542431999658,
+          "n": 1
+        }
+      }
+    }
+  },
+  "ranking": {
+    "1": {
+      "meilleure": "ind\u00e9cidable",
+      "moins_bonne": "ind\u00e9cidable",
+      "lecture": "ind\u00e9cidable"
+    },
+    "7": {
+      "meilleure": "ind\u00e9cidable",
+      "moins_bonne": "ensemble_actuel",
+      "lecture": "d\u00e9cid\u00e9e"
+    },
+    "14": {
+      "meilleure": "ind\u00e9cidable",
+      "moins_bonne": "ind\u00e9cidable",
+      "lecture": "ind\u00e9cidable"
+    },
+    "30": {
+      "meilleure": "ind\u00e9cidable",
+      "moins_bonne": "ind\u00e9cidable",
+      "lecture": "ind\u00e9cidable"
+    }
+  },
+  "partition": {
+    "partition": "test",
+    "origin_start": "2026-06-19",
+    "origin_end": "2026-07-03",
+    "target_start": "2026-06-22",
+    "target_end": "2026-08-14",
+    "n_origins": 3
+  },
+  "previous_snapshot": null
+}

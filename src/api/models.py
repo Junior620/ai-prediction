@@ -46,6 +46,18 @@ class PredictionRequest(BaseModel):
         }
 
 
+class ForecastView(BaseModel):
+    """One forecast: the kept initial, the latest same-target estimate, or today's calculation."""
+
+    price: Optional[float] = None
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+    target_date: Optional[str] = None
+    issued_date: Optional[str] = None
+    model_version: Optional[str] = None
+    status: Optional[Literal["experimental", "validated", "unavailable"]] = None
+
+
 class PredictionItem(BaseModel):
     """
     Individual prediction item in the response.
@@ -73,6 +85,26 @@ class PredictionItem(BaseModel):
         description="experimental and unavailable in experimental mode; validated only for an active validated horizon",
     )
     components: Optional[dict] = Field(None, description="Individual engine predictions (baseline, nhits, prophet, etc.)")
+    target_date: Optional[str] = Field(None, description="Échéance de l'engagement affiché")
+    reference_price: Optional[float] = Field(None, description="Cours du jour d'ouverture de l'engagement")
+    initial_horizon: Optional[int] = Field(None, description="Horizon du jour d'ouverture")
+    sessions_remaining: Optional[int] = Field(None, description="Séances de bourse restantes jusqu'à l'échéance")
+    latest_price: Optional[float] = Field(None, description="Dernière estimation publiée de la même échéance")
+    latest_date: Optional[str] = Field(None, description="Date de calcul de la dernière estimation")
+    latest_gap: Optional[float] = Field(None, description="Écart de la dernière estimation avec le prix initial")
+    latest_gap_pct: Optional[float] = Field(None, description="Écart en pourcentage du prix initial")
+    revision_notice: Optional[Literal["inversion", "revision"]] = Field(
+        None,
+        description="inversion de sens, ou révision au-delà de la bande neutre",
+    )
+    has_revision: Optional[bool] = Field(None, description="Une estimation plus récente vise la même échéance")
+    latest_unavailable: Optional[bool] = Field(
+        None,
+        description="Un calcul de la même échéance a échoué",
+    )
+    initial: Optional[ForecastView] = None
+    latest: Optional[ForecastView] = None
+    fresh: Optional[ForecastView] = None
 
 
 class PredictionResponse(BaseModel):
@@ -198,6 +230,14 @@ class HorizonValidationMetrics(BaseModel):
     fallback_rate: Optional[float] = None
     measurement: Optional[str] = None
     reason: Optional[str] = None
+    gap_reading: Optional[str] = None
+    available_mape: Optional[float] = None
+    naive_mape: Optional[float] = None
+    abstention_count: Optional[int] = None
+    abstention_rate: Optional[float] = None
+    coverage: Optional[float] = None
+    coverage_note: Optional[str] = None
+    warning_count: Optional[int] = None
 
 
 class ValidationMetricsResponse(BaseModel):
@@ -219,6 +259,26 @@ class ValidationMetricsResponse(BaseModel):
     conformal_intervals: Optional[Dict[str, Any]] = None
     release_version: Optional[str] = None
     release_matches_report: bool = False
+    report_id: Optional[str] = None
+    measurement_status: Optional[str] = None
+    partition: Optional[str] = None
+
+
+class HistoricalEvaluationItem(BaseModel):
+    report_id: str
+    timestamp: Optional[str] = None
+    kind: Optional[str] = None
+    period: Optional[str] = None
+    protocol: Optional[str] = None
+    counts: Optional[str] = None
+    compatible_with_current_lot: bool = False
+    note: str
+
+
+class HistoricalEvaluationsResponse(BaseModel):
+    market: str
+    release_version: Optional[str] = None
+    reports: List[HistoricalEvaluationItem] = Field(default_factory=list)
 
 
 class ModelInfo(BaseModel):
@@ -552,3 +612,110 @@ class CocoaWeatherResponse(BaseModel):
     locations: List[CocoaWeatherLocation] = Field(default_factory=list)
     collected_at: Optional[str] = None
     note: str = "Contexte météo, non utilisé par la prévision."
+
+
+class ForecastTrackingPoint(BaseModel):
+    forecast_id: Optional[str] = None
+    origin_date: Optional[str] = None
+    origin_price: Optional[float] = None
+    target_date: Optional[str] = None
+    horizon: Optional[int] = None
+    price: Optional[float] = None
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+    status: Optional[str] = None
+    model_version: Optional[str] = None
+    reference_price: Optional[float] = None
+    trace: Optional[str] = None
+    revises: List[str] = Field(default_factory=list)
+    error: Optional[float] = None
+
+
+class ForecastChartPoint(BaseModel):
+    date: str
+    price: Optional[float] = None
+    model_version: Optional[str] = None
+    gap: bool = False
+
+
+class ModelChangeDiagnostic(BaseModel):
+    available: bool = False
+    comparison: str = "indisponible"
+    previous_model_version: Optional[str] = None
+    previous_price: Optional[float] = None
+    new_price: Optional[float] = None
+    note: Optional[str] = None
+
+
+class RevisionDelayStep(BaseModel):
+    """Gain at one remaining horizon, or between two successive revisions."""
+
+    remaining: int
+    comparison: Literal["initial_vs_remaining", "successive"]
+    expected: int = 0
+    available: int = 0
+    abstentions: int = 0
+    availability_rate: Optional[float] = None
+    mean_initial_error: Optional[float] = None
+    mean_revised_error: Optional[float] = None
+    mean_spot_error: Optional[float] = None
+    mean_gain: Optional[float] = None
+    improved_share: Optional[float] = None
+    gain_low: Optional[float] = None
+    gain_high: Optional[float] = None
+    verdict: Literal["etabli", "defavorable", "incertain"] = "incertain"
+    interval_level: float = 0.90
+    usable_blocks: int = 0
+    block: Optional[int] = None
+
+
+class RevisionValueHorizon(BaseModel):
+    horizon: int
+    comparison: str = "initiale contre dernière estimation avant échéance"
+    verdict: Literal["etabli", "defavorable", "incertain"] = "incertain"
+    expiries: int = 0
+    mean_initial_error: Optional[float] = None
+    mean_latest_error: Optional[float] = None
+    mean_gain: Optional[float] = None
+    improved_share: Optional[float] = None
+    worsened_share: Optional[float] = None
+    improvement_sum: Optional[float] = None
+    degradation_sum: Optional[float] = None
+    gain_low: Optional[float] = None
+    gain_high: Optional[float] = None
+    block: Optional[int] = None
+    interval_level: float = 0.90
+    usable_blocks: Optional[int] = None
+    steps: List[RevisionDelayStep] = Field(default_factory=list)
+
+
+class RevisionValueResponse(BaseModel):
+    market: str
+    as_of: Optional[str] = None
+    note: Optional[str] = None
+    horizons: List[RevisionValueHorizon] = Field(default_factory=list)
+
+
+class ForecastTrackingResponse(BaseModel):
+    market: str
+    found: Optional[bool] = None
+    initial_id: Optional[str] = None
+    initials: List[ForecastTrackingPoint] = Field(default_factory=list)
+    total_initials: Optional[int] = None
+    offset: Optional[int] = None
+    initial: Optional[ForecastTrackingPoint] = None
+    reference_price: Optional[float] = None
+    revisions: List[ForecastTrackingPoint] = Field(default_factory=list)
+    latest: Optional[ForecastTrackingPoint] = None
+    gap: Optional[float] = None
+    gap_pct: Optional[float] = None
+    direction: Optional[str] = None
+    direction_vs_emission_spot: Optional[str] = None
+    inversions: Optional[int] = None
+    points: List[ForecastChartPoint] = Field(default_factory=list)
+    remaining_horizon: Optional[int] = None
+    mature: Optional[bool] = None
+    realized_price: Optional[float] = None
+    initial_error: Optional[float] = None
+    latest_error: Optional[float] = None
+    model_comparison: Optional[ModelChangeDiagnostic] = None
