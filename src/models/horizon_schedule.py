@@ -12,7 +12,10 @@ from typing import Dict, Mapping, Optional, Sequence
 ANCHORS: tuple[int, ...] = (1, 7, 14, 30)
 OFFICIAL_HORIZONS: tuple[int, ...] = (1, 7, 14, 30)
 FROZEN_HORIZONS: tuple[int, ...] = (7, 14, 30)
-TRACKED_HORIZONS: tuple[int, ...] = tuple(range(1, 31))
+# Mesurés dans le journal pour accumuler des preuves, jamais affichés : ils n'ouvrent
+# pas d'initiale et ne révisent rien. Poids et plafonds : ceux de J+30 (dernier ancrage).
+JOURNAL_ONLY_HORIZONS: tuple[int, ...] = (60, 90)
+TRACKED_HORIZONS: tuple[int, ...] = tuple(range(1, 31)) + JOURNAL_ONLY_HORIZONS
 
 
 def _as_float_map(values: Mapping) -> Dict[str, float]:
