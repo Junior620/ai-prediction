@@ -52,7 +52,10 @@ class TestDatabentoMapping:
         assert len(bars) == 2
         assert all(1500 <= b.price <= 6000 for b in bars)
 
-    def test_parse_oi_df(self):
+    def test_parse_oi_df(self, tmp_path):
+        # Ces valeurs sont factices : elles ne doivent jamais atteindre data/cocoa_oi_receipts.csv,
+        # que lit l'entraînement (le 20/10, elles y étaient et servaient de faux open interest).
+        ledger = tmp_path / "cocoa_oi_receipts.csv"
         idx = pd.to_datetime(["2024-01-02T18:00:00Z", "2024-01-02T20:00:00Z"])
         df = pd.DataFrame(
             {
@@ -64,8 +67,9 @@ class TestDatabentoMapping:
             },
             index=idx,
         )
-        oi = _parse_oi_df(df)
+        oi = _parse_oi_df(df, ledger_path=ledger)
         assert oi[("2024-01-02", "C.v.0")] == 10500.0
+        assert len(pd.read_csv(ledger)) == 2
 
     def test_attach_open_interest(self):
         bars = [

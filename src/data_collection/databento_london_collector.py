@@ -231,10 +231,15 @@ def _ohlcv_df_to_bars(
     return bars
 
 
-def _parse_oi_df(df: pd.DataFrame) -> Dict[Tuple[str, str], float]:
+OI_LEDGER_PATH = Path(__file__).resolve().parents[2] / "data" / "cocoa_oi_receipts.csv"
+
+
+def _parse_oi_df(df: pd.DataFrame, ledger_path: Optional[Path] = None) -> Dict[Tuple[str, str], float]:
     """
     Retourne {(date, symbol): open_interest} depuis statistics.
     Preferre la derniere revision par (date, symbol).
+    Les receptions sont ajoutees au registre ``ledger_path`` (par defaut celui que lit
+    l'entrainement) : un test doit toujours passer un chemin temporaire.
     """
     if df is None or df.empty:
         return {}
@@ -272,7 +277,7 @@ def _parse_oi_df(df: pd.DataFrame) -> Dict[Tuple[str, str], float]:
 
     work = work.dropna(subset=["date"])
     work = work.sort_values(by=[c for c in ("ts_recv", "ts_event") if c in work.columns])
-    _append_oi_receipts(work, qty_col)
+    _append_oi_receipts(work, qty_col, ledger_path)
     grouped = work.groupby(["date", "symbol"], as_index=False).last()
 
     out: Dict[Tuple[str, str], float] = {}
@@ -430,9 +435,9 @@ def fetch_open_interest(
         return {}, attempts
 
 
-def _append_oi_receipts(work: pd.DataFrame, qty_col: str) -> None:
+def _append_oi_receipts(work: pd.DataFrame, qty_col: str, ledger_path: Optional[Path] = None) -> None:
     """Persist receipt time. Training joins this file; it does not trust ts_ref alone."""
-    path = Path(__file__).resolve().parents[2] / "data" / "cocoa_oi_receipts.csv"
+    path = Path(ledger_path) if ledger_path is not None else OI_LEDGER_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = []
     for _, row in work.iterrows():

@@ -160,4 +160,6 @@ def test_cocoa_direct_recipe_has_no_price_level_or_year():
     assert recipe["xgb_params"]["max_depth"] <= 3
     banned = {"year", "day_of_year", "price_lag_1", "price_ma_30", "volume", "open_interest", "prophet_yhat"}
     assert not banned & set(FEATURE_COLS_RELATIVE)
+    # Sans source réelle, l'open interest n'était qu'une indicatrice de date (registre de test).
+    assert not {"oi_change_1d", "oi_change_7d"} & set(FEATURE_COLS_RELATIVE)
     assert direct_recipe("coffee_robusta", ["price_lag_1"])["target"] == "close_delta"
