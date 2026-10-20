@@ -1,10 +1,11 @@
-"""update_system.bat : aucun caractère invisible, scripts présents, codes de sortie distincts."""
+"""update_system.bat : enveloppe de scripts/run_pipeline.py, sans caractère invisible ni pause cachée."""
 
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BAT = ROOT / "update_system.bat"
+PIPELINE = ROOT / "scripts" / "run_pipeline.py"
 
 
 def _text() -> str:
@@ -18,41 +19,33 @@ def test_no_control_character_in_the_batch():
     assert b"\r\n" in data and data.count(b"\n") == data.count(b"\r\n")
 
 
-def test_every_local_python_script_exists():
+def test_the_batch_only_wraps_the_pipeline():
     text = _text()
-    called = set(re.findall(r"venv_py311\\Scripts\\python\.exe\s+([\w\\/.-]+\.py)", text))
-    assert "scripts\\build_cocoa_roll_series.py" in called
-    assert "scripts\\check_roll_series.py" in called
-    missing = [name for name in called if not (ROOT / name.replace("\\", "/")).exists()]
+    called = re.findall(r"venv_py311\\Scripts\\python\.exe\s+([\w\\/.-]+\.py)", text)
+    assert called == ["scripts\\run_pipeline.py"]
+    assert "call venv_py311\\Scripts\\python.exe scripts\\run_pipeline.py %*" in text
+    assert "docker compose" not in text
+
+
+def test_every_script_named_by_the_pipeline_exists():
+    source = PIPELINE.read_text(encoding="utf-8")
+    named = set(re.findall(r'"((?:scripts/)?[\w]+\.py)"', source))
+    assert "scripts/build_cocoa_roll_series.py" in named and "scripts/check_roll_series.py" in named
+    missing = [name for name in named if not (ROOT / name).exists()]
     assert missing == []
 
 
 def test_unattended_mode_never_pauses():
     lines = [line.strip() for line in _text().splitlines()]
     pauses = [line for line in lines if re.search(r"\bpause\b", line) and not line.upper().startswith("REM")]
-    assert pauses == ["if !UNATTENDED! equ 0 pause"]
-    assert 'if /i "%~1"=="--unattended" set UNATTENDED=1' in lines
+    assert pauses == ["if %UNATTENDED% equ 0 pause"]
+    assert 'for %%a in (%*) do if /i "%%~a"=="--unattended" set UNATTENDED=1' in lines
 
 
-def test_exit_codes_are_distinct():
-    text = _text()
+def test_the_batch_returns_the_pipeline_exit_code():
+    lines = [line.strip() for line in _text().splitlines()]
+    assert "set FINAL=%ERRORLEVEL%" in lines
+    assert lines[-1] == "exit /b %FINAL%"
+    assert re.findall(r"exit /b \S+", _text()) == ["exit /b %FINAL%"]
     for code in ("0", "1", "2", "3", "4"):
-        assert f"if !FINAL! equ {code} echo" in text
-    assert "exit /b !FINAL!" in text
-    assert "set FINAL=2" in text and "set FINAL=3" in text and "set FINAL=4" in text
-    # Aucune sortie directe qui court-circuiterait le code final.
-    assert re.findall(r"exit /b (\d)", text) == ["0"]  # seulement la sous-routine wait_for_api
-
-
-def test_roll_series_check_blocks_training():
-    text = _text()
-    check = text.index("scripts\\check_roll_series.py")
-    train = text.index("train_hybrid_improved.py --market cocoa")
-    assert check < train
-
-
-def test_health_503_is_not_ready():
-    block = _text().split("\n:wait_for_api", 1)[1].split("\n:finish", 1)[0]
-    code = [line for line in block.splitlines() if not line.strip().upper().startswith("REM")]
-    assert "Invoke-WebRequest" in "\n".join(code)
-    assert "503" not in "\n".join(code)
+        assert f"REM   {code} " in _text()

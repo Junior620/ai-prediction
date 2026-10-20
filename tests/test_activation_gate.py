@@ -464,14 +464,14 @@ def test_evening_lot_does_not_reuse_the_active_nhits():
     fresh = "models/coffee_robusta/nhits_20261008_233657"
     assert keep_evening_nhits(fresh, active) == fresh
     assert keep_evening_nhits(None, active) is None
-    bat = Path("update_system.bat").read_text(encoding="utf-8")
+    pipeline = Path("scripts/run_pipeline.py").read_text(encoding="utf-8")
     deploy = Path("deploy_models.ps1").read_text(encoding="utf-8")
-    assert "deploy_models.ps1" in bat
+    assert "deploy_models.ps1" in pipeline
     assert "active_release_" in deploy
     assert "experimental_release_" not in deploy
-    assert "PREDICTION_RELEASE_MODE=experimental" in bat
-    assert "--force-recreate api" in bat
-    assert "max-origins 96" not in bat
+    assert 'DOCKER_ENV = {"PREDICTION_RELEASE_MODE": "experimental"}' in pipeline
+    assert '["--force-recreate"] if recreate else []' in pipeline
+    assert '"96"' not in pipeline
 
 
 def test_unvalidated_horizon_card_shows_the_close_label():

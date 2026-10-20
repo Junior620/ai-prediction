@@ -55,11 +55,41 @@ def _served_price(item) -> float | None:
     return model_price(item)
 
 
+def _preview(predictor, release: dict, api_market: str, output: str) -> int:
+    from src.models.revision_command import preview_served
+
+    rows = preview_served(predictor.predict(list(TRACKED_HORIZONS)), release=release)
+    print(f"[APERÇU] {api_market} {release['version']} : rien n'est écrit dans le journal")
+    print(f"  {'H':>3}  {'cible':10}  {'naïf':>9}  {'publié':16}  {'modèle':>9}  type modèle")
+    for row in rows:
+        naive = row["naive_price"]
+        model = row["candidate_price"]
+        print(
+            f"  {row['horizon']:>3}  {row['target_date'] or '-':10}  "
+            f"{'-' if naive is None else f'{naive:,.0f}':>9}  {row['served_kind']:16}  "
+            f"{'-' if model is None else f'{model:,.0f}':>9}  {row['candidate_kind'] or '-'}"
+            + ("  (journal seul)" if row["journal_only"] else "")
+        )
+    if output:
+        path = Path(output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"market": api_market, "version": release["version"], "rows": rows}
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[OK] Aperçu écrit : {path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--market", required=True, choices=("cocoa", "coffee_robusta"))
     parser.add_argument("--snapshot", required=True)
     parser.add_argument("--stamp", default="")
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Calcule les prévisions et affiche ce qui serait journalisé, sans rien écrire.",
+    )
+    parser.add_argument("--preview-output", default="", help="Fichier JSON de l'aperçu (option).")
     args = parser.parse_args()
     pointer = ROOT / "models" / "candidates" / args.market / "TRAINED_LOT.json"
     stamp = args.stamp
@@ -95,6 +125,8 @@ def main() -> int:
     predictor.bind_frame(frame)
     predictor.release_mode = "experimental"
     predictor.active_release = release
+    if args.preview:
+        return _preview(predictor, release, api_market, args.preview_output)
     try:
         fresh = predictor.predict(list(TRACKED_HORIZONS))
         journal_served(

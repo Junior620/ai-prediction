@@ -137,8 +137,13 @@ def main() -> int:
             "source": [],
         }
     )
+    from src.models.retrain_policy import contaminated_versions
+
+    # Lots de l'inventaire data/quarantine/oi_contamination.json (faux open interest) : non mesurés.
+    contaminated = contaminated_versions()
     seen = set()
     skipped = 0
+    excluded = 0
     for row in rows:
         target = row.get("target_date")
         origin = row.get("origin_price")
@@ -149,6 +154,9 @@ def main() -> int:
         if target_day > today:
             continue
         version = str(row.get("model_version") or "")
+        if version in contaminated:
+            excluded += 1
+            continue
         trained = training_day(version)
         if trained is None or target_day <= trained:
             skipped += 1
@@ -178,6 +186,7 @@ def main() -> int:
         bucket["targets"].append(target_day)
 
     print(f"Lignes ignorees (sans date cible, prix d'origine ou marche): {skipped}")
+    print(f"Lignes de lots contamines exclues (inventaire open interest): {excluded}")
     if not groups:
         print("[AVERTISSEMENT] Pas assez de paires pour calculer des metriques")
         return 0
