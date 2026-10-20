@@ -118,8 +118,9 @@ FEATURE_COLS_RELATIVE = [
     "realized_vol_30",
     "volume_ratio_30",
     "volume_change_1d",
-    "oi_change_1d",
-    "oi_change_7d",
+    # Pas d'open interest : Databento n'en fournit pas (aucune ligne de type 9) et le
+    # registre ne contenait que des valeurs de test. C'est la variante validée par la
+    # grille J+30 du 20/10. À réintroduire seulement avec une vraie source datée.
     "month",
     "day_of_week",
 ]

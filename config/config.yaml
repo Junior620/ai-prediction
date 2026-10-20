@@ -96,6 +96,10 @@ claude:
 # Data Collection Settings
 data_collection:
   frequency: "daily"  # hourly, daily, weekly
+  # Databento : le schéma « statistics » coûte environ 0,82 $ par passage et ne renvoie
+  # aucun open interest pour le cacao Londres (aucune ligne de type 9, 20/10/2026).
+  # Désactivé tant qu'un diagnostic ne montre pas une vraie source datée.
+  databento_open_interest: false
   retry_attempts: 3
   retry_delay: 300  # 5 minutes in seconds
   timeout: 30  # seconds

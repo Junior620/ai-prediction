@@ -2,6 +2,9 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File .\deploy_models.ps1
 #   powershell -ExecutionPolicy Bypass -File .\deploy_models.ps1 -SkipRestart
+#   powershell -ExecutionPolicy Bypass -File .\deploy_models.ps1 -DataOnly
+#     (jours sans nouveau lot : series sans saut seulement, sans redemarrage ;
+#      verifie ensuite la derniere seance vue par /health)
 #
 # Config (optional file .env.deploy at repo root):
 #   DEPLOY_VPS_HOST=169.58.99.28
@@ -12,7 +15,8 @@
 
 param(
     [switch]$SkipRestart,
-    [switch]$SkipHealth
+    [switch]$SkipHealth,
+    [switch]$DataOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -229,6 +233,57 @@ function Send-RepoFile([string]$Relative) {
     }
     Invoke-Scp -Sources @($local) -Destination ($remoteDir + "/")
 }
+# --- Donnees seules : series sans saut, ni modele, ni code, ni redemarrage ---
+# L'API du VPS relit la serie a chaque calcul ; le cache Redis est vide pour qu'elle serve.
+# Code 0 : le VPS voit la derniere seance figee ; 2 : /health illisible ou seance en retard.
+if ($DataOnly) {
+    $series = @(Get-ChildItem -Path (Join-Path $Root "data") -Filter "*_roll_series.csv" -File -ErrorAction SilentlyContinue)
+    if ($series.Count -eq 0) {
+        Write-Host '[ERREUR] Aucune serie data\*_roll_series.csv a envoyer.'
+        exit 1
+    }
+    Invoke-Ssh "mkdir -p $RemotePath/data"
+    foreach ($file in $series) {
+        Write-Host ('[INFO] Upload data\' + $file.Name)
+        Invoke-Scp -Sources @($file.FullName) -Destination "$RemotePath/data/"
+    }
+    try {
+        Invoke-Ssh "cd $RemotePath && docker compose exec -T redis redis-cli FLUSHDB"
+    } catch {
+        Write-Host ('[AVERTISSEMENT] Flush Redis echoue (non bloquant): ' + $_.Exception.Message)
+    }
+    if ($SkipHealth) {
+        Write-Host '[OK] Donnees envoyees (controle /health ignore)'
+        exit 0
+    }
+    $expected = $null
+    $stampFile = Join-Path $Root "data\freeze\cocoa_prices.json"
+    if (Test-Path $stampFile) {
+        $expected = (Get-Content $stampFile -Raw -Encoding UTF8 | ConvertFrom-Json).max_date
+    }
+    for ($i = 1; $i -le 6; $i++) {
+        try {
+            $health = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 20
+        } catch {
+            Write-Host ('[INFO] /health illisible (' + $i + '/6): ' + $_.Exception.Message)
+            Start-Sleep -Seconds 10
+            continue
+        }
+        $fresh = $health.serving.cocoa.freshness
+        $last = if ($fresh) { [string]$fresh.last_session } else { "" }
+        $state = if ($fresh) { [string]$fresh.status } else { "absent" }
+        Write-Host ('[INFO] /health cacao : fraicheur=' + $state + ' derniere seance=' + $last + ' attendue=' + $expected)
+        if ($state -eq "ok" -and (-not $expected -or $last -ge $expected)) {
+            Write-Host '[OK] Donnees VPS a jour'
+            exit 0
+        }
+        Write-Host '[AVERTISSEMENT] Le VPS ne voit pas la derniere seance figee.'
+        exit 2
+    }
+    Write-Host '[AVERTISSEMENT] /health illisible apres 6 essais'
+    exit 2
+}
+
 $cocoaRelease = Get-ActiveRelease "cocoa"
 $robustaRelease = Get-ActiveRelease "coffee_robusta"
 $cocoaProphet = Get-Item (Resolve-ReleaseFile $cocoaRelease "prophet")

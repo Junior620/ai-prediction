@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from src.models.horizon_schedule import FROZEN_HORIZONS, OFFICIAL_HORIZONS
+from src.models.horizon_schedule import FROZEN_HORIZONS, JOURNAL_ONLY_HORIZONS, OFFICIAL_HORIZONS
 from src.models.hybrid_features import future_business_date
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -462,6 +462,22 @@ def _status(status: str, release_mode: str) -> str:
     return status
 
 
+def _served_kind(status: str, served_as_close: bool) -> str:
+    """Ce que le site publie (ou aurait publié) pour cette ligne."""
+    if status == "unavailable":
+        return "unavailable"
+    if served_as_close:
+        return "unchanged_close"
+    return "validated_model" if status == "validated" else "experimental_model"
+
+
+def _candidate_kind(status: str, price: Optional[float]) -> Optional[str]:
+    """Le prix du modèle, toujours étiqueté : expérimental tant qu'il n'est pas validé."""
+    if price is None:
+        return None
+    return "validated_model" if status == "validated" else "experimental_model"
+
+
 def append_forecast(
     *,
     market: str,
@@ -558,12 +574,14 @@ def append_forecast(
         ):
             opens = identity
             reference_price = None if origin_price is None else float(origin_price)
-        if not diagnostic:
+        journal_only = int(horizon) in JOURNAL_ONLY_HORIZONS
+        if not diagnostic and not journal_only:
             revises = [
                 item
                 for item in _initials(existing, market, target_date)
                 if item != identity
             ]
+        record_status = _status(status, release_mode)
         record = {
             "forecast_id": identity,
             "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -579,7 +597,7 @@ def append_forecast(
             "origin_date": origin_date,
             "origin_price": origin_price,
             "target_date": target_date,
-            "status": _status(status, release_mode),
+            "status": record_status,
             "procedure_fingerprint": procedure_fingerprint,
             "data_fingerprint": data_fingerprint,
             "source_fingerprint": source_fingerprint,
@@ -593,6 +611,12 @@ def append_forecast(
             "previous_price": previous_price,
             "comparison": comparison,
             "served_as_close": bool(served_as_close),
+            # Deux valeurs à ne jamais confondre : la référence publiée (ou qui l'aurait été)
+            # et le prix du modèle expérimental, gardé à part tant qu'il n'est pas validé.
+            "naive_price": origin_price,
+            "served_kind": _served_kind(record_status, served_as_close),
+            "candidate_kind": _candidate_kind(record_status, price),
+            "journal_only": journal_only,
             "trace": "complete",
         }
         journal.parent.mkdir(parents=True, exist_ok=True)

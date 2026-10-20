@@ -1,0 +1,23 @@
+# Secrets : jamais dans le contexte de build ni dans l'image.
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+
+# Données, modèles et sorties : montés en volumes par docker-compose.yml.
+data/
+models/
+logs/
+reports/
+mlruns/
+
+# Outils et dépendances locales.
+.git/
+.claude/
+.npm-cache/
+frontend/node_modules/
+frontend/.next/
+venv*/
+**/__pycache__/
+*.pyc

@@ -2,9 +2,11 @@
 Collecte quotidienne du prix cacao ICE London -> Supabase (cocoa_london_prices).
 
 Priorite :
-1. Databento ohlcv-1d (C.v.0..3) + Open Interest + contrats
+1. Databento ohlcv-1d (C.v.0..3) + contrats ; open interest seulement si
+   data_collection.databento_open_interest est vrai (requetes statistics payantes,
+   vides pour le cacao Londres)
 2. Playwright ICE / Investing (jour recent seulement, sans ecraser OHLCV Databento)
-3. Rattrapage OI J-3..J-1 via Databento
+3. Rattrapage OI J-3..J-1 via Databento, meme condition
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from src.data_collection.databento_london_collector import (
     bars_to_contract_rows,
     bars_to_supabase_rows,
     fetch_latest_curve,
+    open_interest_enabled,
     write_collection_journal as write_databento_journal,
 )
 from src.data_collection.ice_london_collector import (
@@ -272,6 +275,7 @@ def main() -> int:
     )
     supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
     include_oi = _table_has_oi(supabase, market.price_table)
+    fetch_oi = open_interest_enabled()
 
     print("\n[1/5] Dernier prix en base...")
     last = (
@@ -295,9 +299,11 @@ def main() -> int:
     db_bars = []
 
     # --- 1) Databento courbe C.v.0..3 ---
-    print("\n[2/5] Databento courbe C.v.0..3 + OI...")
+    print("\n[2/5] Databento courbe C.v.0..3" + (" + OI..." if fetch_oi else " (sans OI)..."))
+    if not fetch_oi:
+        print("[SKIP] Open interest Databento desactive (config.yaml : databento_open_interest)")
     t0 = datetime.now()
-    db_result = fetch_latest_curve(price_bounds=market.price_bounds, include_oi=True)
+    db_result = fetch_latest_curve(price_bounds=market.price_bounds, include_oi=fetch_oi)
     duration_db = int((datetime.now() - t0).total_seconds() * 1000)
     attempts.extend(db_result.attempts)
 
@@ -321,6 +327,7 @@ def main() -> int:
                     "date": latest_front.date,
                     "open_interest": open_interest,
                     "n_bars": len(db_bars),
+                    "open_interest_requested": fetch_oi,
                     "attempts": db_result.attempts,
                 }
             )
@@ -420,21 +427,25 @@ def main() -> int:
 
     # --- 3) Rattrapage OI J-3..J-1 ---
     print("\n[5/5] Rattrapage OI Databento (J-3..J-1)...")
-    end_bf = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
-    start_bf = (datetime.utcnow() - timedelta(days=4)).strftime("%Y-%m-%d")
-    try:
-        bf = backfill_recent_oi(start=start_bf, end=end_bf, price_bounds=market.price_bounds)
-        attempts.extend(bf.attempts)
-        if bf.ok and bf.bars:
-            n = _upsert_databento_bars(supabase, market.price_table, bf.bars, include_oi)
-            _upsert_contracts(supabase, bf.bars)
-            print(f"[OK] Rattrapage OI: {n} jours front mis a jour")
-        else:
-            print(f"[INFO] Pas de rattrapage OI ({bf.error})")
-    except Exception as exc:
-        print(f"[WARN] Rattrapage OI echoue: {exc}")
-
-    _check_oi_gap_alert(supabase, market.price_table)
+    if not fetch_oi:
+        # La courbe ci-dessus couvre deja ces jours en OHLCV ; seul l'OI justifiait ce passage.
+        print("[SKIP] Rattrapage OI desactive (config.yaml : databento_open_interest)")
+        attempts.append({"strategy": "databento_oi_backfill", "ok": True, "skipped": "disabled_by_config"})
+    else:
+        end_bf = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+        start_bf = (datetime.utcnow() - timedelta(days=4)).strftime("%Y-%m-%d")
+        try:
+            bf = backfill_recent_oi(start=start_bf, end=end_bf, price_bounds=market.price_bounds)
+            attempts.extend(bf.attempts)
+            if bf.ok and bf.bars:
+                n = _upsert_databento_bars(supabase, market.price_table, bf.bars, include_oi)
+                _upsert_contracts(supabase, bf.bars)
+                print(f"[OK] Rattrapage OI: {n} jours front mis a jour")
+            else:
+                print(f"[INFO] Pas de rattrapage OI ({bf.error})")
+        except Exception as exc:
+            print(f"[WARN] Rattrapage OI echoue: {exc}")
+        _check_oi_gap_alert(supabase, market.price_table)
 
     final = scrape_result or latest_front
     journal = {

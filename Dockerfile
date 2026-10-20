@@ -35,9 +35,10 @@ RUN pip install --no-cache-dir --timeout=1000 --retries=10 -r requirements.txt
 RUN pip install --no-cache-dir --timeout=1000 --retries=10 "pyarrow>=17.0.0"
 
 # Copy application code
+# Les secrets ne sont jamais copiés dans l'image : docker-compose.yml les fournit au
+# démarrage (env_file: .env et montage en lecture seule de ./.env). Voir .dockerignore.
 COPY src/ ./src/
 COPY config/ ./config/
-COPY .env .
 
 # Create necessary directories
 RUN mkdir -p logs data mlruns models

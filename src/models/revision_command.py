@@ -208,3 +208,30 @@ def journal_served(
             raise
         written.append(result)
     return written
+
+
+def preview_served(predictions: list[Prediction], *, release: dict) -> list[dict]:
+    """Ce que journal_served écrirait, horizon par horizon, sans toucher au journal."""
+    from src.models.horizon_schedule import JOURNAL_ONLY_HORIZONS
+    from src.models.prediction_journal import _candidate_kind, _served_kind, _status
+
+    publish_or_close(predictions, release, None, release_mode="experimental")
+    rows = []
+    for item in predictions:
+        parts = dict(item.components or {})
+        raw = str(getattr(item, "status", None) or parts.get("status") or "unavailable")
+        status = _status(raw, "experimental")
+        price = None if status == "unavailable" else model_price(item)
+        rows.append(
+            {
+                "horizon": int(item.horizon),
+                "origin_date": parts.get("origin_date"),
+                "target_date": parts.get("target_date"),
+                "naive_price": parts.get("origin_price"),
+                "served_kind": _served_kind(status, bool(parts.get("served_as_close"))),
+                "candidate_kind": _candidate_kind(status, price),
+                "candidate_price": price,
+                "journal_only": int(item.horizon) in JOURNAL_ONLY_HORIZONS,
+            }
+        )
+    return rows
