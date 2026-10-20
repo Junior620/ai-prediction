@@ -22,6 +22,7 @@ from scripts.write_experimental_release import keep_evening_nhits
 from src.models.served_forecast import (
     build_served_interval,
     compose_served_price,
+    model_price,
     publish_or_close,
     snapshot_journal_fields,
 )
@@ -291,12 +292,29 @@ def test_an_unvalidated_horizon_publishes_the_close_and_keeps_the_candidate():
         100.0,
         release_mode="experimental",
     )
-    assert item.price == 110.0
-    assert item.confidence_interval == [100.0, 120.0]
+    # Non validé : le cours inchangé est publié, le prix du modèle reste à côté.
+    assert item.price == 100.0
+    assert item.confidence_interval is None
+    assert item.components["served_as_close"] is True
     assert item.components["candidate_price"] == 110.0
     assert item.components["candidate_lower"] == 100.0
     assert item.components["status"] == "experimental"
     assert item.status == "experimental"
+    assert model_price(item) == 110.0
+    # Un second passage (prévision en cache) ne remplace pas le candidat par le cours.
+    publish_or_close(
+        [item],
+        {"validated": False, "horizons": {"1": {"validated": False}}, "release_mode": "experimental"},
+        100.0,
+        release_mode="experimental",
+    )
+    assert item.price == 100.0
+    assert item.components["candidate_price"] == 110.0
+    # Un lot validé ensuite republie le prix du modèle et sa bande.
+    publish_or_close([item], {"validated": True, "horizons": {"1": {"validated": True}}}, 100.0)
+    assert item.price == 110.0
+    assert item.confidence_interval == [100.0, 120.0]
+    assert item.components["served_as_close"] is False
 
     kept = _Item()
     publish_or_close(
@@ -317,7 +335,9 @@ def test_an_unvalidated_horizon_publishes_the_close_and_keeps_the_candidate():
         release_mode="experimental",
     )
     assert blocked.status == "experimental"
-    assert blocked.price == 110.0
+    # Le mode expérimental n'émet jamais « validé » : le cours est publié.
+    assert blocked.price == 100.0
+    assert blocked.components["candidate_price"] == 110.0
     assert blocked.components["status"] == "experimental"
 
 
@@ -411,7 +431,8 @@ def test_large_move_stays_visible_and_a_bad_band_is_dropped():
         100.0,
         release_mode="experimental",
     )
-    assert item.price == 80.0
+    assert item.price == 100.0
+    assert item.components["candidate_price"] == 80.0
     assert item.confidence_interval is None
     assert item.status == "experimental"
     assert "seuil" in item.components["warning"]

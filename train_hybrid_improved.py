@@ -30,6 +30,7 @@ from src.models.hybrid_features import (
     future_business_date,
     fill_missing_ohlcv,
     prepare_market_frame,
+    trading_sessions,
     load_price_data_from_supabase,
     resolve_feature_cols,
 )
@@ -43,6 +44,12 @@ load_dotenv()
 parser = argparse.ArgumentParser(description="Entraînement du modèle hybride")
 parser.add_argument("--market", default="cocoa", help="Marché (cocoa, coffee_robusta)")
 parser.add_argument("--snapshot", default="", help="CSV figé partagé avec le journal")
+parser.add_argument(
+    "--calendar",
+    default="keep_closed_rows",
+    choices=("keep_closed_rows", "trading_sessions"),
+    help="Préparation des séances. trading_sessions écarte week-ends et jours listés.",
+)
 args = parser.parse_args()
 
 market = get_market_config(args.market)
@@ -68,13 +75,18 @@ print("\n[1/6] Recuperation des donnees...")
 if args.snapshot:
     raw = pd.read_csv(args.snapshot)
     df = prepare_market_frame(raw, market_id=args.market)
-    print(f"[OK] Instantané figé {args.snapshot}")
+    if args.calendar == "trading_sessions":
+        df = trading_sessions(df)
+    print(f"[OK] Instantané figé {args.snapshot} ({args.calendar})")
 else:
     supabase = create_client(
         os.getenv("SUPABASE_URL"),
         os.getenv("SUPABASE_KEY")
     )
-    df = load_price_data_from_supabase(supabase, table_name=market.price_table)
+    df = prepare_market_frame(
+        load_price_data_from_supabase(supabase, table_name=market.price_table),
+        market_id=args.market,
+    )
 
 print(f"[OK] {len(df)} points")
 if len(df) < 100:
@@ -217,6 +229,7 @@ model_info = {
     "feature_set": feature_set,
     "feature_cols": feature_cols,
     "market": args.market,
+    "calendar": args.calendar,
     "description": f"XGBoost {feature_set} avec Prophet features",
     "data_period": "2020-2026",
     "train_start_date": str(pd.to_datetime(df["date"]).min().date()),
@@ -258,10 +271,18 @@ try:
     from src.models.direct_horizon_trainer import DirectHorizonTrainer
 
     print("\n[6/6] Direct horizons h=1..30...")
-    dht = DirectHorizonTrainer(horizons=list(TRACKED_HORIZONS), feature_cols=feature_cols)
+    from src.models.hybrid_features import direct_recipe
+
+    recipe = direct_recipe(args.market, feature_cols)
+    dht = DirectHorizonTrainer(
+        horizons=list(TRACKED_HORIZONS),
+        feature_cols=recipe["feature_cols"],
+        xgb_params=recipe["xgb_params"],
+        target=recipe["target"],
+    )
     direct_models, direct_meta = dht.fit(df, prophet_model=prophet_model)
-    direct_meta["feature_set"] = feature_set
-    direct_meta["feature_cols"] = feature_cols
+    direct_meta["feature_set"] = feature_set if recipe["feature_cols"] == feature_cols else "relative"
+    print(f"   Cible {recipe['target']}, {len(recipe['feature_cols'])} variables")
     paths = dht.save(direct_models, direct_meta, models_dir=str(models_dir), timestamp=timestamp)
     print(f"[OK] Direct horizons: {paths}")
 except Exception as exc:

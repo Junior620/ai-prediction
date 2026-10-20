@@ -34,14 +34,19 @@ def publish_or_close(
     *,
     release_mode: str = "active",
 ) -> None:
-    """Keep the model price. An unvalidated horizon is experimental, never the close.
+    """Publish the model price only on a horizon that beat the unchanged close.
+
+    A horizon is validated when its release passed ``config/acceptance.json``
+    (at least 10 % less error than the unchanged close on a reserved test).
+    Any other horizon publishes the close of the session the model used; the
+    model price stays in ``candidate_price`` and is what the journal records.
 
     Status is one of experimental, validated, unavailable. Experimental mode
     cannot emit validated. A failed calculation clears the price and the band.
+    Calling it again on the same items gives the same result.
     """
     from src.models.release_manifest import horizon_is_validated
 
-    del spot
     experimental = release_mode == "experimental" or (
         isinstance(release, dict) and release.get("release_mode") == "experimental"
     )
@@ -51,12 +56,21 @@ def publish_or_close(
             if release_mode == "experimental" and getattr(item, "status", None) == "validated":
                 item.status = "experimental"
             continue
-        raw_price = getattr(item, "price", None)
+        already_close = bool(components.get("served_as_close"))
+        if already_close:
+            raw_price = components.get("candidate_price")
+            interval = (
+                [components.get("candidate_lower"), components.get("candidate_upper")]
+                if components.get("candidate_lower") is not None
+                else []
+            )
+        else:
+            raw_price = getattr(item, "price", None)
+            interval = list(getattr(item, "confidence_interval", None) or [])
         try:
             finite_price = raw_price is not None and bool(np.isfinite(float(raw_price)))
         except (TypeError, ValueError):
             finite_price = False
-        interval = list(getattr(item, "confidence_interval", None) or [])
         finite_band = False
         if len(interval) == 2:
             try:
@@ -100,22 +114,82 @@ def publish_or_close(
             status = "experimental"
         components["status"] = status
         components["served_as_close"] = False
+        close = _close_of(components, spot)
         if status == "unavailable":
             item.price = None
             item.confidence_interval = None
-        elif status == "experimental":
-            components["label"] = "Prévision expérimentale — non validée"
+        elif status == "experimental" and close is not None:
+            item.price = close
+            item.confidence_interval = None
+            components["served_as_close"] = True
+            components["label"] = "Cours inchangé — le modèle ne bat pas encore cette référence"
+            components["candidate_label"] = "Prix du modèle — non validé"
             if bool(components.get("large_move_warning")):
-                components["warning"] = "Mouvement au-delà du seuil — prix conservé"
-            if finite_band:
-                components["band_label"] = "Bande expérimentale — couverture non démontrée"
-            else:
-                item.confidence_interval = None
+                components["warning"] = "Mouvement du modèle au-delà du seuil"
+        else:
+            if already_close:
+                item.price = float(raw_price)
+                item.confidence_interval = [float(v) for v in interval] if finite_band else None
+            if status == "experimental":
+                components["label"] = "Prévision expérimentale — non validée"
+                if bool(components.get("large_move_warning")):
+                    components["warning"] = "Mouvement au-delà du seuil — prix conservé"
+                if finite_band:
+                    components["band_label"] = "Bande expérimentale — couverture non démontrée"
+                else:
+                    item.confidence_interval = None
         try:
             item.status = status
         except Exception:
             pass
         item.components = components
+
+
+def _close_of(components: dict, spot: Optional[float]) -> Optional[float]:
+    """Close of the session the model used, else the spot passed by the caller."""
+    for value in (components.get("origin_price"), spot):
+        try:
+            close = float(value)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(close) and close > 0:
+            return close
+    return None
+
+
+def model_price(item) -> Optional[float]:
+    """Price the model produced, also when the close is what is published."""
+    parts = dict(getattr(item, "components", None) or {})
+    status = str(getattr(item, "status", None) or parts.get("status") or "")
+    if status == "unavailable":
+        return None
+    if parts.get("served_as_close"):
+        value = parts.get("candidate_price")
+    else:
+        value = getattr(item, "price", None)
+    return None if value is None else float(value)
+
+
+def served_journal_bounds(item) -> dict:
+    """Bounds actually published. Rejected candidates stay in a separate field."""
+    parts = dict(getattr(item, "components", None) or {})
+    interval = list(getattr(item, "confidence_interval", None) or [])
+    lower = None
+    upper = None
+    if len(interval) == 2 and interval[0] is not None and interval[1] is not None:
+        lower = float(interval[0])
+        upper = float(interval[1])
+    rejected_lower = None
+    rejected_upper = None
+    if lower is None and parts.get("candidate_lower") is not None:
+        rejected_lower = parts.get("candidate_lower")
+        rejected_upper = parts.get("candidate_upper")
+    return {
+        "lower": lower,
+        "upper": upper,
+        "rejected_lower": None if rejected_lower is None else float(rejected_lower),
+        "rejected_upper": None if rejected_upper is None else float(rejected_upper),
+    }
 
 
 def snapshot_journal_fields(components: dict, later_read: dict | None = None) -> dict:

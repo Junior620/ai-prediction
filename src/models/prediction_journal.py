@@ -102,6 +102,45 @@ def _read_lines(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _logical_key(row: dict[str, Any]) -> tuple:
+    price = row.get("price")
+    return (
+        str(row.get("market") or ""),
+        _day(row.get("origin_date")),
+        _day(row.get("target_date")),
+        int(row.get("horizon") or -1),
+        str(row.get("model_version") or ""),
+        str(row.get("procedure_fingerprint") or ""),
+        None if price is None else float(price),
+        bool(row.get("diagnostic")),
+    )
+
+
+def collapse_fingerprint_twins(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One emission when only the data fingerprint differs. The file stays untouched."""
+    order = sorted(range(len(rows)), key=lambda index: str(rows[index].get("recorded_at") or ""))
+    kept_id: dict[tuple, str] = {}
+    redirect: dict[str, str] = {}
+    chosen: list[dict[str, Any]] = []
+    for index in order:
+        row = rows[index]
+        key = _logical_key(row)
+        forecast_id = str(row.get("forecast_id") or "")
+        if key in kept_id:
+            if forecast_id:
+                redirect[forecast_id] = kept_id[key]
+            continue
+        if forecast_id:
+            kept_id[key] = forecast_id
+        chosen.append(dict(row))
+    for row in chosen:
+        opens = row.get("opens_initial_id")
+        if opens is not None and str(opens) in redirect:
+            row["opens_initial_id"] = redirect[str(opens)]
+        row["revises"] = [redirect.get(str(item), str(item)) for item in (row.get("revises") or [])]
+    return chosen
+
+
 def load_forecasts(path: Optional[Path] = None) -> list[dict[str, Any]]:
     """Read every line. Older lines stay readable and are not rewritten."""
     rows = []
@@ -347,6 +386,17 @@ def overlay_commitments(
             )
         fresh_same_target = _day(fresh.get("target_date")) == _day(row.get("target_date"))
         latest_unavailable = latest_failed or (not has_revision and fresh_same_target and _failed(item))
+        today_remaining = sessions_between(as_of, row.get("target_date"))
+        issued_remaining = None
+        if latest is not None and latest.get("issued_date"):
+            issued_remaining = sessions_between(latest.get("issued_date"), row.get("target_date"))
+        revision_matches_today = bool(
+            has_revision
+            and not latest_failed
+            and issued_remaining is not None
+            and issued_remaining == today_remaining
+            and _day(latest.get("issued_date")) == _day(as_of)
+        )
         if latest_failed:
             shown_latest_price = None
             shown_latest_date = None
@@ -360,15 +410,32 @@ def overlay_commitments(
         for key in ("calculation_failed", "engine_missing", "ensemble_weights"):
             components.pop(key, None)
         components["display_final"] = True
+        shown_price = initial["price"]
+        shown_band = initial_band
+        # Même règle que publish_or_close : une initiale non validée publie le
+        # cours de son jour d'émission ; le prix du modèle reste à côté.
+        if (
+            str(initial.get("status") or "experimental") != "validated"
+            and initial["price"] is not None
+            and reference is not None
+        ):
+            components["served_as_close"] = True
+            components["candidate_price"] = initial["price"]
+            components["label"] = "Cours inchangé — le modèle ne bat pas encore cette référence"
+            components["candidate_label"] = "Prix du modèle — non validé"
+            shown_price = float(reference)
+            shown_band = None
         copied.update(
             {
-                "price": initial["price"],
-                "confidence_interval": initial_band,
+                "price": shown_price,
+                "confidence_interval": shown_band,
                 "target_date": initial["target_date"],
                 "reference_price": None if reference is None else float(reference),
                 "held_commitment": True,
                 "initial_horizon": int(row.get("horizon") or item.get("horizon") or 0),
-                "sessions_remaining": sessions_between(as_of, row.get("target_date")),
+                "sessions_remaining": today_remaining,
+                "latest_sessions_remaining": issued_remaining,
+                "revision_matches_today": revision_matches_today,
                 "latest_price": shown_latest_price,
                 "latest_date": shown_latest_date,
                 "latest_gap": gap if has_revision and not latest_failed else None,
@@ -410,14 +477,22 @@ def append_forecast(
     status: str,
     procedure_fingerprint: str = "",
     data_fingerprint: str = "",
+    source_fingerprint: str = "",
     train_end_date: Optional[str] = None,
     diagnostic: bool = False,
     previous_model_version: Optional[str] = None,
     previous_price: Optional[float] = None,
     comparison: Optional[str] = None,
+    rejected_lower: Optional[float] = None,
+    rejected_upper: Optional[float] = None,
+    served_as_close: bool = False,
     path: Optional[Path] = None,
 ) -> str:
-    """Journal one served forecast. Official horizons also open their own initial."""
+    """Journal one served forecast. Official horizons also open their own initial.
+
+    ``price`` is the model price. ``served_as_close`` says the dashboard
+    showed the unchanged close instead, because the horizon is not validated.
+    """
     kind = "diagnostic" if diagnostic else "published"
     identity = forecast_identity(
         market=market,
@@ -499,12 +574,15 @@ def append_forecast(
             "price": price,
             "lower": lower,
             "upper": upper,
+            "rejected_lower": None if rejected_lower is None else float(rejected_lower),
+            "rejected_upper": None if rejected_upper is None else float(rejected_upper),
             "origin_date": origin_date,
             "origin_price": origin_price,
             "target_date": target_date,
             "status": _status(status, release_mode),
             "procedure_fingerprint": procedure_fingerprint,
             "data_fingerprint": data_fingerprint,
+            "source_fingerprint": source_fingerprint,
             "train_end_date": train_end_date or origin_date,
             "opens_initial_id": opens,
             "revises": revises,
@@ -514,6 +592,7 @@ def append_forecast(
             "previous_model_version": previous_model_version,
             "previous_price": previous_price,
             "comparison": comparison,
+            "served_as_close": bool(served_as_close),
             "trace": "complete",
         }
         journal.parent.mkdir(parents=True, exist_ok=True)
@@ -628,7 +707,7 @@ def tracking_view(
     horizon: Optional[int] = None,
 ) -> dict[str, Any]:
     """One initial and the later estimates that revise that same target."""
-    market_rows = [row for row in rows if row.get("market") == market]
+    market_rows = collapse_fingerprint_twins([row for row in rows if row.get("market") == market])
     published = _published(market_rows)
     initials = [
         row
@@ -637,8 +716,21 @@ def tracking_view(
         and row.get("opens_initial_id") == row.get("forecast_id")
     ]
     initials.sort(key=lambda row: (str(row.get("origin_date") or ""), str(row.get("recorded_at") or "")), reverse=True)
+    distinct = []
+    seen = set()
+    for row in initials:
+        key = (
+            _day(row.get("origin_date")),
+            _day(row.get("target_date")),
+            int(row.get("horizon") or -1),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        distinct.append(row)
+    initials_for_page = distinct
     page, total = _select_initials(
-        initials, target_date=target_date, horizon=horizon, offset=offset, limit=limit
+        initials_for_page, target_date=target_date, horizon=horizon, offset=offset, limit=limit
     )
     if initial_id is None:
         return {

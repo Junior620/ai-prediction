@@ -98,6 +98,14 @@ class PredictionItem(BaseModel):
         description="inversion de sens, ou révision au-delà de la bande neutre",
     )
     has_revision: Optional[bool] = Field(None, description="Une estimation plus récente vise la même échéance")
+    latest_sessions_remaining: Optional[int] = Field(
+        None,
+        description="Séances restantes au moment du calcul de la dernière révision",
+    )
+    revision_matches_today: Optional[bool] = Field(
+        None,
+        description="La dernière révision a été calculée aujourd'hui pour le délai encore ouvert",
+    )
     latest_unavailable: Optional[bool] = Field(
         None,
         description="Un calcul de la même échéance a échoué",
@@ -135,6 +143,10 @@ class PredictionResponse(BaseModel):
     current_date: Optional[str] = Field(
         None,
         description="Date of the current price"
+    )
+    service_calendar: Optional[str] = Field(
+        None,
+        description="Préparation des séances appliquée par le lot servi",
     )
     historical_prices: Optional[List[Dict[str, Any]]] = Field(
         None,
@@ -655,6 +667,9 @@ class RevisionDelayStep(BaseModel):
     expected: int = 0
     available: int = 0
     abstentions: int = 0
+    missing_emissions: int = 0
+    missing_realizations: int = 0
+    session_jumps: int = 0
     availability_rate: Optional[float] = None
     mean_initial_error: Optional[float] = None
     mean_revised_error: Optional[float] = None
@@ -693,6 +708,12 @@ class RevisionValueResponse(BaseModel):
     market: str
     as_of: Optional[str] = None
     note: Optional[str] = None
+    service_calendar: Optional[str] = None
+    study_calendar: Optional[str] = None
+    price_fingerprint: Optional[str] = None
+    report: Optional[str] = None
+    procedure: Optional[str] = None
+    live_price_differs: Optional[bool] = None
     horizons: List[RevisionValueHorizon] = Field(default_factory=list)
 
 

@@ -24,6 +24,14 @@ from src.models.prediction_journal import (
 )
 from src.validation.revision_stability import lot_index, params_frozen, study_window
 
+
+def _model(card: dict) -> float | None:
+    """Model price of a card; a non-validated card publishes the close beside it."""
+    parts = card.get("components") or {}
+    if parts.get("served_as_close"):
+        return parts.get("candidate_price")
+    return card["price"]
+
 COMMON = dict(
     market="ICE_NY",
     model_version="improved_a",
@@ -627,16 +635,19 @@ def test_next_day_j7_does_not_replace_the_open_commitment(tmp_path: Path):
         market="ICE_NY",
         as_of="2026-10-02",
     )
-    assert overlaid[0]["price"] == 110.0
+    assert _model(overlaid[0]) == 110.0
     assert overlaid[0]["reference_price"] == 100.0
+    # Initiale non validée : la carte publie le cours de son jour d'émission.
+    assert overlaid[0]["price"] == 100.0
+    assert overlaid[0]["components"]["served_as_close"] is True
     assert overlaid[0]["target_date"] == "2026-10-12"
     assert overlaid[0]["has_revision"] is False
     assert overlaid[0]["latest_price"] == 110.0
     assert overlaid[0]["revision_notice"] is None
     assert overlaid[1]["price"] == 121.0
     assert "held_commitment" not in overlaid[1]
-    frozen_pct = (overlaid[0]["price"] - overlaid[0]["reference_price"]) / overlaid[0]["reference_price"] * 100.0
-    spot_pct = (overlaid[0]["price"] - 120.0) / 120.0 * 100.0
+    frozen_pct = (_model(overlaid[0]) - overlaid[0]["reference_price"]) / overlaid[0]["reference_price"] * 100.0
+    spot_pct = (_model(overlaid[0]) - 120.0) / 120.0 * 100.0
     assert frozen_pct > 0
     assert spot_pct < 0
 
@@ -674,7 +685,7 @@ def test_reached_target_opens_the_next_long_horizon(tmp_path: Path):
         market="ICE_NY",
         as_of="2026-10-08",
     )
-    assert overlaid[0]["price"] == 130.0
+    assert _model(overlaid[0]) == 130.0
     assert overlaid[0]["target_date"] == "2026-10-19"
 
 
@@ -717,7 +728,7 @@ def test_same_target_revision_is_shown_beside_the_initial(tmp_path: Path):
         market="ICE_NY",
         as_of="2026-10-05",
     )[0]
-    assert quiet["price"] == 110.0
+    assert _model(quiet) == 110.0
     assert quiet["has_revision"] is True
     assert quiet["latest_price"] == 111.0
     assert quiet["latest_date"] == "2026-10-05"
@@ -744,7 +755,7 @@ def test_same_target_revision_is_shown_beside_the_initial(tmp_path: Path):
         market="ICE_NY",
         as_of="2026-10-06",
     )[0]
-    assert moved["price"] == 110.0
+    assert _model(moved) == 110.0
     assert moved["latest_price"] == 130.0
     assert moved["revision_notice"] == "revision"
 
@@ -766,12 +777,12 @@ def test_same_target_revision_is_shown_beside_the_initial(tmp_path: Path):
         market="ICE_NY",
         as_of="2026-10-07",
     )[0]
-    assert flipped["price"] == 110.0
+    assert _model(flipped) == 110.0
     assert flipped["reference_price"] == 100.0
     assert flipped["latest_price"] == 90.0
     assert flipped["latest_gap"] == pytest.approx(-20.0)
     assert flipped["revision_notice"] == "inversion"
-    assert (flipped["price"] - flipped["reference_price"]) > 0
+    assert (_model(flipped) - flipped["reference_price"]) > 0
     assert (flipped["latest_price"] - flipped["reference_price"]) < 0
 
 
@@ -816,7 +827,7 @@ def test_legacy_row_without_an_id_does_not_hide_the_revision(tmp_path: Path):
         market="ICE_NY",
         as_of="2026-10-05",
     )[0]
-    assert shown["price"] == 110.0
+    assert _model(shown) == 110.0
     assert shown["has_revision"] is True
     assert shown["latest_price"] == 90.0
     assert shown["revision_notice"] == "inversion"
@@ -943,7 +954,7 @@ def test_fresh_band_stays_off_the_initial_and_a_failure_survives_republish(tmp_p
         market="ICE_NY",
         as_of="2026-10-23",
     )[0]
-    assert shown["price"] == 4500.0
+    assert _model(shown) == 4500.0
     assert shown["confidence_interval"] is None
     assert shown["fresh"]["price"] == 4000.0
     assert shown["fresh"]["lower"] == 3900.0
@@ -969,12 +980,12 @@ def test_fresh_band_stays_off_the_initial_and_a_failure_survives_republish(tmp_p
         market="ICE_NY",
         as_of="2026-10-23",
     )[0]
-    assert failed["price"] == 4500.0
+    assert _model(failed) == 4500.0
     assert failed["latest_unavailable"] is True
     assert "calculation_failed" not in failed["components"]
     assert failed["components"]["display_final"] is True
     card = SimpleNamespace(
-        price=failed["price"],
+        price=_model(failed),
         status=failed["status"],
         confidence_interval=failed["confidence_interval"],
         components=failed["components"],
@@ -985,7 +996,7 @@ def test_fresh_band_stays_off_the_initial_and_a_failure_survives_republish(tmp_p
 
 
 def test_verifier_reads_the_fresh_calculation_built_like_the_api(tmp_path: Path):
-    from scripts.verify_served_forecast import assess_served
+    from scripts.verify_served_forecast import assess_served, expected_target
 
     journal = tmp_path / "journal.jsonl"
     _write(
@@ -1006,7 +1017,7 @@ def test_verifier_reads_the_fresh_calculation_built_like_the_api(tmp_path: Path)
         "model_version": "improved_x",
         "confidence_interval": [3900.0, 4100.0],
         "components": {
-            "target_date": "2026-11-12",
+            "target_date": expected_target("2026-10-13", 14),
             "origin_date": "2026-10-13",
             "status": "experimental",
         },
@@ -1027,7 +1038,7 @@ def test_verifier_reads_the_fresh_calculation_built_like_the_api(tmp_path: Path)
             "fresh": {
                 "price": 1000.0 + horizon,
                 "status": "experimental",
-                "target_date": "2026-11-01",
+                "target_date": expected_target("2026-10-13", horizon),
                 "issued_date": "2026-10-13",
                 "model_version": "improved_x",
             },
@@ -1038,9 +1049,109 @@ def test_verifier_reads_the_fresh_calculation_built_like_the_api(tmp_path: Path)
         "current_date": "2026-10-13",
         "predictions": [other(1), other(7), shown, other(30)],
     }
-    assert shown["price"] == 4500.0
+    assert _model(shown) == 4500.0
     assert shown["fresh"]["price"] == 4000.0
     assert assess_served(payload, "improved_x", "2026-10-13")[0] == 0
     shown["fresh"]["price"] = None
     shown["fresh"]["status"] = "unavailable"
     assert assess_served(payload, "improved_x", "2026-10-13")[0] == 3
+
+
+def test_a_rejected_band_is_not_written_back_into_the_card(tmp_path: Path):
+    from types import SimpleNamespace
+
+    from src.models.served_forecast import publish_or_close, served_journal_bounds
+
+    journal = tmp_path / "journal.jsonl"
+    item = SimpleNamespace(
+        horizon=14,
+        price=4500.0,
+        confidence_interval=[4100.0, 4300.0],
+        status="experimental",
+        components={
+            "origin_date": "2026-10-13",
+            "origin_price": 4200.0,
+            "target_date": "2026-11-02",
+        },
+    )
+    publish_or_close([item], {"release_mode": "experimental"}, None, release_mode="experimental")
+    bounds = served_journal_bounds(item)
+    assert item.confidence_interval is None
+    assert bounds["lower"] is None
+    assert bounds["upper"] is None
+    assert bounds["rejected_lower"] == 4100.0
+    assert bounds["rejected_upper"] == 4300.0
+    _write(
+        journal,
+        horizon=14,
+        price=4500.0,
+        lower=bounds["lower"],
+        upper=bounds["upper"],
+        origin_date="2026-10-01",
+        origin_price=4200.0,
+        target_date="2026-11-02",
+    )
+    shown = overlay_commitments(
+        [{
+            "horizon": 14,
+            "price": 4000.0,
+            "confidence_interval": [3900.0, 4100.0],
+            "status": "experimental",
+            "model_version": "fresh",
+            "components": {"origin_date": "2026-10-13", "target_date": "2026-11-02"},
+        }],
+        load_forecasts(journal),
+        market="ICE_NY",
+        as_of="2026-10-13",
+    )[0]
+    assert _model(shown) == 4500.0
+    assert shown["confidence_interval"] is None
+    assert shown["initial"]["lower"] is None
+
+
+def test_an_older_revision_does_not_take_todays_delay(tmp_path: Path):
+    journal = tmp_path / "journal.jsonl"
+    _write(
+        journal,
+        horizon=14,
+        price=4500.0,
+        lower=None,
+        upper=None,
+        origin_date="2026-10-01",
+        origin_price=4200.0,
+        target_date=future_business_date("2026-10-01", 14).date().isoformat(),
+    )
+    target = future_business_date("2026-10-01", 14).date().isoformat()
+    _write(
+        journal,
+        horizon=13,
+        price=4400.0,
+        lower=None,
+        upper=None,
+        origin_date="2026-10-02",
+        origin_price=4200.0,
+        target_date=target,
+        model_version="last",
+        data_fingerprint="last",
+    )
+    shown = overlay_commitments(
+        [{
+            "horizon": 14,
+            "price": 4300.0,
+            "confidence_interval": None,
+            "status": "experimental",
+            "model_version": "today",
+            "components": {
+                "origin_date": "2026-10-05",
+                "target_date": future_business_date("2026-10-05", 14).date().isoformat(),
+            },
+        }],
+        load_forecasts(journal),
+        market="ICE_NY",
+        as_of="2026-10-05",
+    )[0]
+    assert shown["has_revision"] is True
+    assert shown["revision_matches_today"] is False
+    assert shown["latest_sessions_remaining"] == sessions_between("2026-10-02", target)
+    assert shown["sessions_remaining"] == sessions_between("2026-10-05", target)
+    assert shown["latest_sessions_remaining"] != shown["sessions_remaining"]

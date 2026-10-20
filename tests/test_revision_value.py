@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from src.validation.revision_value import evaluate_records, paired_expiries, summarise_horizon
+import json
+from pathlib import Path
+
+from src.validation.revision_value import delay_steps, evaluate_records, paired_expiries, summarise_horizon
 
 
 def _initial(horizon, session, target, price):
@@ -145,9 +148,10 @@ def test_remaining_horizon_is_not_replaced_by_the_last_estimate():
         _revision(14, "2026-06-02", "2026-06-19", 13, 4300.0) | {"spot": 4400.0},
         _revision(14, "2026-06-03", "2026-06-19", 12, None),
         _revision(14, "2026-06-18", "2026-06-19", 1, 4700.0) | {"spot": 4360.0},
+        _initial(7, "2026-06-04", "2026-06-15", 100.0),
         _initial(14, "2026-06-01", "2026-06-22", 1000.0),
         _revision(14, "2026-06-02", "2026-06-22", 13, 1100.0),
-        _revision(14, "2026-06-04", "2026-06-22", 11, 1050.0) | {"spot": 1000.0},
+        _revision(14, "2026-06-03", "2026-06-22", 12, 1050.0) | {"spot": 1000.0},
     ]
     scored = evaluate_records(
         records,
@@ -172,15 +176,57 @@ def test_remaining_horizon_is_not_replaced_by_the_last_estimate():
         step for step in horizon["steps"]
         if step["comparison"] == "initial_vs_remaining" and step["remaining"] == 12
     )
-    assert missing["expected"] == 1
-    assert missing["available"] == 0
+    assert missing["expected"] == 2
+    assert missing["available"] == 1
     assert missing["abstentions"] == 1
-    assert missing["availability_rate"] == 0
+    assert missing["missing_emissions"] == 0
+    assert missing["availability_rate"] == 0.5
     successive = next(
         step for step in horizon["steps"]
-        if step["comparison"] == "successive" and step["remaining"] == 11
+        if step["comparison"] == "successive" and step["remaining"] == 12
     )
     assert successive["mean_gain"] == 50.0
+    jumped = next(
+        step for step in horizon["steps"]
+        if step["comparison"] == "successive" and step["remaining"] == 1
+    )
+    assert jumped["session_jumps"] >= 1
+    assert jumped["mean_gain"] is None
+
+
+def test_doubling_the_archive_does_not_change_the_score(tmp_path: Path):
+    from src.validation.revision_value import load_daily_records
+
+    opening = _initial(7, "2026-06-01", "2026-06-10", 110.0) | {"kind": "published"}
+    revision = _revision(7, "2026-06-02", "2026-06-10", 6, 100.0) | {"kind": "published"}
+    first = {"session": "2026-06-01", "rows": [opening]}
+    second = {"session": "2026-06-02", "rows": [revision]}
+    path = tmp_path / "sessions.jsonl"
+    path.write_text(
+        "".join(json.dumps(row) + "\n" for row in (first, second, first, second)),
+        encoding="utf-8",
+    )
+    once = load_daily_records(path)
+    assert len(once) == 2
+    prices = {"2026-06-10": 100.0}
+    single = delay_steps(once, prices, "2026-06-10", draws=20)
+    doubled = delay_steps(once + once, prices, "2026-06-10", draws=20)
+    assert doubled == single
+
+
+def test_a_missing_revision_stays_in_the_denominator():
+    records = [
+        _initial(7, "2026-06-01", "2026-06-10", 110.0),
+        _initial(7, "2026-06-02", "2026-06-11", 110.0),
+        _revision(7, "2026-06-02", "2026-06-10", 6, 105.0) | {"spot": 100.0},
+    ]
+    scores = delay_steps(records, {"2026-06-10": 100.0, "2026-06-11": 100.0}, "2026-06-30", draws=20)
+    step = next(item for item in scores[7] if item["comparison"] == "initial_vs_remaining" and item["remaining"] == 6)
+    assert step["expected"] == 2
+    assert step["available"] == 1
+    assert step["missing_emissions"] == 1
+    assert step["abstentions"] == 0
+    assert step["availability_rate"] == 0.5
 
 
 def test_eight_gains_and_one_loss_stay_uncertain_when_the_block_covers_them():
@@ -217,3 +263,76 @@ def test_a_dependent_series_is_not_established_without_two_blocks():
     assert summary["mean_gain"] == 10.0
     assert summary["usable_blocks"] < 2
     assert summary["verdict"] == "incertain"
+
+
+def test_a_calendar_hole_is_not_counted_as_the_next_session():
+    records = [
+        _initial(14, "2026-08-20", "2026-09-09", 100.0),
+        _revision(14, "2026-08-21", "2026-09-09", 5, 80.0),
+        _revision(14, "2026-08-26", "2026-09-09", 2, 90.0),
+    ]
+    scored = evaluate_records(records, {"2026-09-09": 100.0}, "2026-09-09", draws=20)
+    steps = {row["horizon"]: row for row in scored}[14]["steps"]
+    jumped = next(
+        step for step in steps if step["comparison"] == "successive" and step["remaining"] == 2
+    )
+    assert jumped["session_jumps"] >= 1
+    assert jumped["missing_emissions"] >= 1
+    assert jumped["mean_gain"] is None
+    assert all(
+        step["mean_gain"] is None
+        for step in steps
+        if step["comparison"] == "successive"
+    )
+
+
+def test_a_price_correction_or_a_new_cutoff_is_another_measurement(tmp_path: Path):
+    from src.validation.revision_value import (
+        bind_realized_prices,
+        evaluate_records,
+        load_prices,
+        measurement_identity,
+    )
+
+    sessions = tmp_path / "sessions.jsonl"
+    sessions.write_text("", encoding="utf-8")
+    live = tmp_path / "live.csv"
+    live.write_text("date,price\n2026-06-10,100\n", encoding="utf-8")
+    summary = tmp_path / "20260609_summary.json"
+    summary.write_text(json.dumps({"as_of": "2026-06-09"}), encoding="utf-8")
+    bound, digest, differs = bind_realized_prices(tmp_path, live)
+    assert differs is False
+    assert digest
+    first = measurement_identity(sessions, bound, summary, 20)
+    gain_before = evaluate_records(
+        [_initial(7, "2026-06-01", "2026-06-10", 110.0), _revision(7, "2026-06-02", "2026-06-10", 6, 100.0)],
+        load_prices(bound),
+        "2026-06-09",
+        draws=20,
+    )
+    live.write_text("date,price\n2026-06-10,80\n", encoding="utf-8")
+    again, same_digest, live_differs = bind_realized_prices(tmp_path, live)
+    assert again == bound
+    assert same_digest == digest
+    assert live_differs is True
+    assert measurement_identity(sessions, again, summary, 20) == first
+    gain_after = evaluate_records(
+        [_initial(7, "2026-06-01", "2026-06-10", 110.0), _revision(7, "2026-06-02", "2026-06-10", 6, 100.0)],
+        load_prices(again),
+        "2026-06-09",
+        draws=20,
+    )
+    assert gain_after[0]["mean_gain"] == gain_before[0]["mean_gain"]
+    bound.write_text("date,price\n2026-06-10,120\n", encoding="utf-8")
+    versioned, new_digest, _changed = bind_realized_prices(tmp_path, live)
+    assert new_digest != digest
+    assert versioned != bound
+    corrected = evaluate_records(
+        [_initial(7, "2026-06-01", "2026-06-10", 110.0), _revision(7, "2026-06-02", "2026-06-10", 6, 100.0)],
+        load_prices(versioned),
+        "2026-06-10",
+        draws=20,
+    )
+    assert corrected[0]["mean_gain"] != gain_before[0]["mean_gain"]
+    summary.write_text(json.dumps({"as_of": "2026-06-10"}), encoding="utf-8")
+    assert measurement_identity(sessions, versioned, summary, 20) != first

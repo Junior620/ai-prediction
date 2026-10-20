@@ -28,7 +28,7 @@ from supabase import create_client
 load_dotenv(ROOT / "config" / ".env")
 load_dotenv()
 
-from src.models.hybrid_features import load_price_data_from_supabase
+from src.models.hybrid_features import direct_recipe, load_price_data_from_supabase, prepare_market_frame
 from src.validation.metrics import compute_holdout_baseline
 from src.validation.nhits_validator import NHitsValidator, NHitsValidatorConfig
 from src.validation.report import _serialize_summary, print_console_report, save_report
@@ -338,6 +338,8 @@ def main() -> int:
     print("Chargement des donnees depuis Supabase...")
     supabase = create_client(supabase_url, supabase_key)
     df = load_price_data_from_supabase(supabase, table_name=market.price_table)
+    # Même préparation que l'entraînement et l'API (série cacao sans saut de contrat).
+    df = prepare_market_frame(df, market_id=args.market)
     print(f"  {len(df)} points charges ({df['date'].min().date()} -> {df['date'].max().date()})")
     if args.as_of:
         cutoff = pd.Timestamp(args.as_of).normalize()
@@ -393,6 +395,7 @@ def main() -> int:
     checkpoint_identity = f"{procedure_fp}:{data_fp}:{data_fingerprint(origin_dates or [])}"
 
     feature_cols = _feature_cols_for_market(args.market)
+    recipe = direct_recipe(args.market, feature_cols)
     caps, margins = _guard_config(market.conformal_intervals_file)
     import yaml
 
@@ -413,6 +416,9 @@ def main() -> int:
         include_recursive=not args.direct_hstep,
         include_direct_hstep=args.direct_hstep,
         feature_cols=feature_cols,
+        direct_target=recipe["target"],
+        direct_feature_cols=recipe["feature_cols"],
+        direct_xgb_params=recipe["xgb_params"],
         max_abs_change_pct=caps,
         conformal_margins=margins,
         ensemble_weights_file=market.ensemble_weights_file,

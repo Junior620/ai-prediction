@@ -50,6 +50,10 @@ class WalkForwardConfig:
     replay_nhits: bool = False
     nhits_unique_id: str = "cocoa_ice_london"
     feature_cols: Optional[List[str]] = None
+    # Recette des modèles directs (``direct_recipe``) ; vide = celle du lot.
+    direct_target: str = "close_delta"
+    direct_feature_cols: Optional[List[str]] = None
+    direct_xgb_params: Optional[Dict[str, Any]] = None
     max_abs_change_pct: Dict[str, float] = field(
         default_factory=lambda: {"1": 6.0, "7": 14.0, "14": 18.0, "30": 22.0}
     )
@@ -124,10 +128,13 @@ class WalkForwardValidator:
                 indices = indices[-limit:]
         return indices
 
+    def _direct_cols(self) -> List[str]:
+        return list(self.config.direct_feature_cols or self.config.feature_cols or FEATURE_COLS)
+
     def _direct_last_row(self, df_train: pd.DataFrame, prophet_model) -> Optional[pd.Series]:
         """Last training session with the same feature columns as the direct model."""
         frame, _ = prepare_training_frame(df_train, prophet_model=prophet_model)
-        cols = list(self.config.feature_cols or FEATURE_COLS)
+        cols = self._direct_cols()
         for col in cols:
             if col not in frame.columns:
                 frame[col] = 0.0
@@ -220,7 +227,9 @@ class WalkForwardValidator:
                 try:
                     direct_trainer = DirectHorizonTrainer(
                         horizons=list(self.config.horizons),
-                        feature_cols=self.config.feature_cols,
+                        feature_cols=self._direct_cols(),
+                        xgb_params=self.config.direct_xgb_params,
+                        target=self.config.direct_target,
                     )
                     direct_models, _ = direct_trainer.fit(
                         df_train, prophet_model=prophet_model
@@ -287,7 +296,7 @@ class WalkForwardValidator:
                     and horizon in direct_models
                 ):
                     try:
-                        cols = self.config.feature_cols or list(FEATURE_COLS)
+                        cols = self._direct_cols()
                         raw_level = direct_level(
                             direct_models[horizon],
                             direct_last,

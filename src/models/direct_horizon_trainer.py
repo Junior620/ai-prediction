@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import pickle
 from datetime import datetime
 from pathlib import Path
@@ -20,31 +21,50 @@ from src.models.hybrid_features import (
 )
 
 
+TARGETS = ("close_delta", "log_return")
+
+
 class DirectHorizonTrainer:
-    """Train one XGBoost regressor per horizon with target price at t+h."""
+    """Train one XGBoost regressor per horizon with target price at t+h.
+
+    ``close_delta`` is the change in price units since the close at t;
+    ``log_return`` is log(price[t+h] / price[t]). A change in pounds weighs a
+    volatile year far more than a calm one in the squared loss; a return
+    does not.
+    """
 
     def __init__(
         self,
         horizons: Optional[List[int]] = None,
         xgb_params: Optional[Dict[str, Any]] = None,
         feature_cols: Optional[List[str]] = None,
+        target: str = "close_delta",
     ):
+        if target not in TARGETS:
+            raise ValueError(f"Unknown direct target {target!r}")
         self.horizons = horizons or [1, 7, 14, 30]
         self.xgb_params = {**DEFAULT_XGB_PARAMS, **(xgb_params or {})}
         self.feature_cols = list(feature_cols) if feature_cols else list(FEATURE_COLS)
-        self.target = "close_delta"
+        self.target = target
 
     def _build_direct_dataset(
         self,
         df: pd.DataFrame,
         horizon: int,
         prophet_model=None,
+        df_features: Optional[pd.DataFrame] = None,
     ) -> Tuple[pd.DataFrame, pd.Series]:
         """Build features at t with target price at t+horizon (business days)."""
         df = df.sort_values("date").reset_index(drop=True)
-        df_features, prophet = prepare_training_frame(
-            df, prophet_model=prophet_model
-        )
+        if df_features is None:
+            df_features, _prophet = prepare_training_frame(
+                df, prophet_model=prophet_model
+            )
+        else:
+            df_features = df_features.copy()
+        price_on: Dict[pd.Timestamp, float] = {}
+        for day, price in zip(df["date"].dt.normalize(), df["price"]):
+            price_on[pd.Timestamp(day)] = float(price)
         for col in self.feature_cols:
             if col not in df_features.columns:
                 df_features[col] = 0.0
@@ -60,12 +80,17 @@ class DirectHorizonTrainer:
                 continue
             origin_date = row["date"]
             target_date = pd.Timestamp(future_business_date(origin_date, horizon)).normalize()
-            match = df[df["date"].dt.normalize() == target_date]
-            if match.empty:
+            target_price = price_on.get(target_date)
+            if target_price is None:
                 continue
-            valid_rows.append(idx)
             origin_price = float(row["price"])
-            targets.append(float(match["price"].iloc[-1]) - origin_price)
+            if self.target == "log_return":
+                if origin_price <= 0 or target_price <= 0:
+                    continue
+                targets.append(math.log(target_price / origin_price))
+            else:
+                targets.append(target_price - origin_price)
+            valid_rows.append(idx)
 
         if not valid_rows:
             raise ValueError(f"No valid direct h={horizon} training rows")
@@ -95,15 +120,22 @@ class DirectHorizonTrainer:
             "feature_cols": self.feature_cols,
             # Variation depuis la clôture de t, pas le niveau absolu :
             # le cours servi reste ancré sur le dernier settlement.
-            "target": "close_delta",
+            "target": self.target,
+            "xgb_params": self.xgb_params,
         }
 
-        shared_prophet = prophet_model
-        if shared_prophet is None:
-            _, shared_prophet = prepare_training_frame(df)
+        ordered = df.sort_values("date").reset_index(drop=True)
+        features, shared_prophet = prepare_training_frame(
+            ordered, prophet_model=prophet_model
+        )
 
         for h in self.horizons:
-            X_df, y = self._build_direct_dataset(df, h, prophet_model=shared_prophet)
+            X_df, y = self._build_direct_dataset(
+                ordered,
+                h,
+                prophet_model=shared_prophet,
+                df_features=features,
+            )
             X = X_df[self.feature_cols]
             model = xgb.XGBRegressor(**self.xgb_params)
             model.fit(X, y, verbose=False)
@@ -199,4 +231,6 @@ class DirectHorizonTrainer:
         """Rebuild a price level from a model output."""
         if target == "close_delta":
             return float(origin_price) + float(raw)
+        if target == "log_return":
+            return float(origin_price) * math.exp(float(raw))
         return float(raw)
