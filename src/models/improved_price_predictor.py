@@ -127,6 +127,7 @@ class ImprovedPricePredictor:
         self._nhits_levels = None
 
         self.direct_target = "price"
+        self.direct_feature_cols: Optional[List[str]] = None
         self.direct_info_path = direct_info_path
         try:
             if direct_info_path:
@@ -138,6 +139,9 @@ class ImprovedPricePredictor:
             else:
                 meta = DirectHorizonTrainer.load_latest_meta(self.models_dir)
             self.direct_target = str((meta or {}).get("target") or "price")
+            # Les modèles directs ont leurs propres variables (relatives pour le cacao).
+            if (meta or {}).get("feature_cols"):
+                self.direct_feature_cols = list(meta["feature_cols"])
         except Exception as e:
             logger.debug(f"No direct horizon metadata: {e}")
 
@@ -209,18 +213,28 @@ class ImprovedPricePredictor:
         self._data_fingerprint = data_fingerprint(consumed_snapshot_rows(raw))
         self._served_fingerprint = data_fingerprint(consumed_snapshot_rows(filled))
 
+    def _lot_calendar(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """The named lot keeps its own preparation. A declared calendar cannot be dropped."""
+        from src.models.hybrid_features import trading_sessions
+        from src.models.release_calendar import require_calendar
+
+        release = getattr(self, "active_release", None) or {}
+        if require_calendar(release) == "trading_sessions":
+            return trading_sessions(frame)
+        return frame
+
     def _fetch_historical_data(self, force_refresh: bool = False) -> pd.DataFrame:
         from src.models.hybrid_features import fill_missing_ohlcv
 
         if self._frozen_frame is not None:
-            raw = self._frozen_frame
+            raw = self._lot_calendar(self._frozen_frame)
             filled = fill_missing_ohlcv(raw)
             self._remember_identities(raw, filled)
             return filled
         if not force_refresh and self._historical_data is not None and self._last_data_fetch is not None:
             age = (datetime.now() - self._last_data_fetch).total_seconds()
             remote = self._remote_fingerprint or self._remote_snapshot_fingerprint()
-            if historical_cache_is_fresh(age, self._data_fingerprint, remote):
+            if historical_cache_is_fresh(age, self._served_fingerprint, remote):
                 return self._historical_data
 
         if self.supabase_client is None:
@@ -257,7 +271,9 @@ class ImprovedPricePredictor:
 
         from src.models.hybrid_features import fill_missing_ohlcv, prepare_market_frame
 
-        raw = prepare_market_frame(pd.DataFrame(all_data), market_id=self._market_id())
+        raw = self._lot_calendar(
+            prepare_market_frame(pd.DataFrame(all_data), market_id=self._market_id())
+        )
         filled = fill_missing_ohlcv(raw)
         self._remember_identities(raw, filled)
         self._historical_data = filled
@@ -295,8 +311,12 @@ class ImprovedPricePredictor:
                     if len(batch) < page:
                         break
                     offset += page
-                prepared = prepare_market_frame(pd.DataFrame(rows), market_id=self._market_id())
-                return data_fingerprint(consumed_snapshot_rows(prepared))
+                prepared = self._lot_calendar(
+                    prepare_market_frame(pd.DataFrame(rows), market_id=self._market_id())
+                )
+                from src.models.hybrid_features import fill_missing_ohlcv
+
+                return data_fingerprint(consumed_snapshot_rows(fill_missing_ohlcv(prepared)))
             except Exception:
                 continue
         return None
@@ -354,7 +374,7 @@ class ImprovedPricePredictor:
         return direct_level(
             self.direct_horizon_models[horizon],
             last_row,
-            self.feature_cols,
+            self.direct_feature_cols or self.feature_cols,
             current_price,
             self.direct_target,
         )

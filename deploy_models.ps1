@@ -108,13 +108,26 @@ function Invoke-ProcessWithTimeout {
     return [int]$p.ExitCode
 }
 
-function Invoke-Ssh([string]$RemoteCommand, [int]$TimeoutSec = 90) {
-    $code = Invoke-ProcessWithTimeout -FilePath "ssh.exe" `
-        -ArgumentList ($SshArgs + @($SshTarget, $RemoteCommand)) `
-        -TimeoutSec $TimeoutSec
-    if ($code -ne 0) {
-        throw "SSH failed ($code): $RemoteCommand"
+function Invoke-Ssh([string]$RemoteCommand, [int]$TimeoutSec = 180) {
+    $last = "SSH failed: $RemoteCommand"
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            $code = Invoke-ProcessWithTimeout -FilePath "ssh.exe" `
+                -ArgumentList ($SshArgs + @($SshTarget, $RemoteCommand)) `
+                -TimeoutSec $TimeoutSec
+            if ($code -eq 0) { return }
+            $last = "SSH failed ($code): $RemoteCommand"
+        } catch {
+            $last = $_.Exception.Message
+        }
+        Write-Host ('[AVERTISSEMENT] ' + $last + ' (essai ' + $attempt + '/5)')
+        if ($attempt -lt 5) {
+            $wait = [Math]::Min(60, 8 * $attempt)
+            Write-Host ("[INFO] Pause ${wait}s avant retry SSH...")
+            Start-Sleep -Seconds $wait
+        }
     }
+    throw $last
 }
 
 function Invoke-Scp {
@@ -122,7 +135,7 @@ function Invoke-Scp {
         [Parameter(Mandatory = $true)][string[]]$Sources,
         [Parameter(Mandatory = $true)][string]$Destination,
         [switch]$Recurse,
-        [int]$TimeoutSec = 180,
+        [int]$TimeoutSec = 300,
         [switch]$AllowFail
     )
     # Un fichier a la fois : le scp Windows OpenSSH bloque souvent
@@ -209,7 +222,11 @@ function Send-RepoFile([string]$Relative) {
     if (-not (Test-Path $local)) { throw ("Fichier absent: " + $normalized) }
     $remoteParent = Split-Path $normalized -Parent
     $remoteDir = if ($remoteParent) { "$RemotePath/" + ($remoteParent -replace '\\', '/') } else { "$RemotePath" }
-    Invoke-Ssh ("mkdir -p '" + $remoteDir + "'")
+    if ($null -eq $script:PreparedRemoteDirs) { $script:PreparedRemoteDirs = @{} }
+    if (-not $script:PreparedRemoteDirs.ContainsKey($remoteDir)) {
+        Invoke-Ssh ("mkdir -p '" + $remoteDir + "'")
+        $script:PreparedRemoteDirs[$remoteDir] = $true
+    }
     Invoke-Scp -Sources @($local) -Destination ($remoteDir + "/")
 }
 $cocoaRelease = Get-ActiveRelease "cocoa"
@@ -244,7 +261,51 @@ Write-Host ""
 
 # --- Ensure remote dirs ---
 Write-Host '[INFO] Preparation des dossiers distants...'
-Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/models/futures $RemotePath/models/futures_london $RemotePath/models/futures_london_named $RemotePath/config/coffee_robusta $RemotePath/src/models $RemotePath/src/monitoring $RemotePath/src/validation"
+Invoke-Ssh "mkdir -p $RemotePath/models/coffee_robusta $RemotePath/models/futures $RemotePath/models/futures_london $RemotePath/models/futures_london_named $RemotePath/config/coffee_robusta $RemotePath/src/models $RemotePath/src/monitoring $RemotePath/src/validation $RemotePath/src/api $RemotePath/src/data_collection $RemotePath/data"
+$script:PreparedRemoteDirs = @{
+    "$RemotePath/models" = $true
+    "$RemotePath/models/coffee_robusta" = $true
+    "$RemotePath/models/futures" = $true
+    "$RemotePath/models/futures_london" = $true
+    "$RemotePath/models/futures_london_named" = $true
+    "$RemotePath/config" = $true
+    "$RemotePath/config/coffee_robusta" = $true
+    "$RemotePath/src/models" = $true
+    "$RemotePath/src/monitoring" = $true
+    "$RemotePath/src/validation" = $true
+    "$RemotePath/src/data_collection" = $true
+    "$RemotePath/src/api" = $true
+    "$RemotePath" = $true
+}
+
+# --- Mode de publication explicite sur le VPS ---
+# docker-compose.yml refuse de demarrer sans PREDICTION_RELEASE_MODE : le site public sert le
+# manifeste actif, jamais un mode retombe par defaut.
+# grep : 0 ligne presente, 1 absente, 2 fichier illisible. SSH coupe = 255 ou delai depasse :
+# on retente, le VPS peut etre lent (voir le test SSH a 90 s).
+$modeCheck = $null
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+        $modeCheck = Invoke-ProcessWithTimeout -FilePath "ssh.exe" `
+            -ArgumentList ($SshArgs + @($SshTarget, "grep -qx 'PREDICTION_RELEASE_MODE=active' $RemotePath/.env")) `
+            -TimeoutSec 120
+    } catch {
+        $modeCheck = $null
+        Write-Host ('[AVERTISSEMENT] Controle du mode : ' + $_.Exception.Message + ' (essai ' + $attempt + '/3)')
+    }
+    if ($null -ne $modeCheck -and $modeCheck -ne 255) { break }
+    if ($attempt -lt 3) { Start-Sleep -Seconds (10 * $attempt) }
+}
+if ($modeCheck -eq 1 -or $modeCheck -eq 2) {
+    Write-Host "[ERREUR] $RemotePath/.env ne contient pas la ligne PREDICTION_RELEASE_MODE=active."
+    Write-Host "         Ajoutez-la sur le VPS avant de deployer (rien n'a ete envoye)."
+    exit 3
+}
+if ($modeCheck -ne 0) {
+    Write-Host "[ERREUR] SSH vers le VPS coupe ou trop lent pendant le controle du mode (3 essais)."
+    Write-Host "         Rien n'a ete envoye. Relancez deploy_models.bat plus tard."
+    exit 5
+}
 
 # --- Upload models ---
 Write-Host '[INFO] Upload modeles cacao...'
@@ -318,6 +379,7 @@ $modelCodeFiles = @(
     @{ Local = "src\models\multi_step_predictor.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\served_forecast.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\release_manifest.py"; Remote = "$RemotePath/src/models/" },
+    @{ Local = "src\models\release_calendar.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\revision_command.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\horizon_schedule.py"; Remote = "$RemotePath/src/models/" },
     @{ Local = "src\models\prediction_journal.py"; Remote = "$RemotePath/src/models/" },
@@ -328,8 +390,16 @@ $modelCodeFiles = @(
     @{ Local = "src\validation\acceptance.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "src\validation\served_backtest.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "src\data_collection\cocoa_weather.py"; Remote = "$RemotePath/src/data_collection/" },
+    @{ Local = "src\data_collection\cocoa_roll.py"; Remote = "$RemotePath/src/data_collection/" },
+    # Série cacao sans saut : l'API la lit à chaque préparation des prix.
+    @{ Local = "data\cocoa_roll_series.csv"; Remote = "$RemotePath/data/" },
     @{ Local = "src\monitoring\performance_monitor.py"; Remote = "$RemotePath/src/monitoring/" },
+    # /health lit la fraicheur ; les alertes partent par webhook ou SMTP.
+    @{ Local = "src\monitoring\freshness.py"; Remote = "$RemotePath/src/monitoring/" },
+    @{ Local = "src\monitoring\alert_system.py"; Remote = "$RemotePath/src/monitoring/" },
     @{ Local = "src\validation\report_loader.py"; Remote = "$RemotePath/src/validation/" },
+    # Importe par src/api/revision_jobs.py : sans lui le VPS calcule /revision-value avec l'ancienne version.
+    @{ Local = "src\validation\revision_value.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "docker-compose.yml"; Remote = "$RemotePath/" }
 )
 foreach ($item in $modelCodeFiles) {
@@ -365,6 +435,7 @@ foreach ($item in $configFiles) {
 # --- Upload API modules (nouveaux endpoints dashboard) ---
 $apiFiles = @(
     @{ Local = "src\api\app.py"; Remote = "$RemotePath/src/api/" },
+    @{ Local = "src\api\revision_jobs.py"; Remote = "$RemotePath/src/api/" },
     @{ Local = "src\api\models.py"; Remote = "$RemotePath/src/api/" },
     @{ Local = "src\api\cache.py"; Remote = "$RemotePath/src/api/" }
 )
@@ -444,6 +515,12 @@ if (-not $SkipHealth) {
             $markets = ($health.markets_loaded -join ", ")
             if ($health.status -eq "healthy" -and $health.services.price_predictor) {
                 Write-Host ('[OK] status=' + $health.status + '  markets=' + $markets + '  predictor=' + $health.services.price_predictor)
+                $servedMode = $health.release_mode
+                $servedCocoa = $health.serving.cocoa.model_version
+                if ($servedMode -ne "active" -or $servedCocoa -ne $cocoaRelease.version) {
+                    Write-Host ('[ERREUR] Le VPS sert mode=' + $servedMode + ' lot=' + $servedCocoa + ', attendu active / ' + $cocoaRelease.version)
+                    exit 4
+                }
                 $healthOk = $true
                 break
             }

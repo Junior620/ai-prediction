@@ -95,6 +95,71 @@ DEFAULT_XGB_PARAMS: Dict[str, Any] = {
     "random_state": 42,
 }
 
+# Variables sans échelle pour les modèles directs : un niveau en £ ou une date
+# laisse les arbres mémoriser un épisode (2024 à 4 000 £, « juillet »).
+FEATURE_COLS_RELATIVE = [
+    "price_lag_1_rel",
+    "price_lag_3_rel",
+    "price_lag_7_rel",
+    "price_lag_14_rel",
+    "price_lag_30_rel",
+    "price_ma_7_rel",
+    "price_ma_14_rel",
+    "price_ma_30_rel",
+    "price_ma_60_rel",
+    "price_std_7_rel",
+    "price_std_30_rel",
+    "price_change_1d",
+    "price_change_7d",
+    "price_change_30d",
+    "rsi_14",
+    "hl_range_pct",
+    "realized_vol_7",
+    "realized_vol_30",
+    "volume_ratio_30",
+    "volume_change_1d",
+    "oi_change_1d",
+    "oi_change_7d",
+    "month",
+    "day_of_week",
+]
+
+# Arbres peu profonds et régularisés : avec six ans de données, une
+# profondeur 8 apprend le bruit d'une seule année.
+SHALLOW_XGB_PARAMS: Dict[str, Any] = {
+    **DEFAULT_XGB_PARAMS,
+    "n_estimators": 150,
+    "max_depth": 3,
+    "min_child_weight": 20,
+    "reg_lambda": 10.0,
+}
+
+# Recette des modèles directs par marché. Un marché absent garde l'ancienne
+# recette (variation en £, variables du lot, paramètres par défaut).
+DIRECT_RECIPES: Dict[str, Dict[str, Any]] = {
+    "cocoa": {
+        "target": "log_return",
+        "feature_cols": FEATURE_COLS_RELATIVE,
+        "xgb_params": SHALLOW_XGB_PARAMS,
+    },
+}
+
+
+def direct_recipe(market_id: str, feature_cols: Sequence[str]) -> Dict[str, Any]:
+    """Cible, variables et paramètres des modèles directs de ce marché."""
+    recipe = DIRECT_RECIPES.get(market_id)
+    if recipe is None:
+        return {
+            "target": "close_delta",
+            "feature_cols": list(feature_cols),
+            "xgb_params": dict(DEFAULT_XGB_PARAMS),
+        }
+    return {
+        "target": recipe["target"],
+        "feature_cols": list(recipe["feature_cols"]),
+        "xgb_params": dict(recipe["xgb_params"]),
+    }
+
 
 def resolve_feature_cols(
     include_ohlcv: bool = False,
@@ -323,6 +388,13 @@ def build_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     out["price_change_1d"] = out["price"].pct_change(1)
     out["price_change_7d"] = out["price"].pct_change(7)
     out["price_change_30d"] = out["price"].pct_change(30)
+
+    price = out["price"].replace(0, np.nan)
+    for col in ("price_lag_1", "price_lag_3", "price_lag_7", "price_lag_14", "price_lag_30",
+                "price_ma_7", "price_ma_14", "price_ma_30", "price_ma_60"):
+        out[f"{col}_rel"] = out[col] / price - 1.0
+    out["price_std_7_rel"] = out["price_std_7"] / price
+    out["price_std_30_rel"] = out["price_std_30"] / price
 
     out["year"] = out["date"].dt.year
     out["month"] = out["date"].dt.month
@@ -586,6 +658,36 @@ def session_anomalies(frame: pd.DataFrame) -> list[str]:
     )
 
 
+def session_inventory(frame: pd.DataFrame, start: str, end: str) -> dict:
+    """Closed dates and missing sessions. The frame itself is not changed."""
+    present = set()
+    if frame is not None and len(frame) and "date" in frame.columns:
+        present = {
+            pd.Timestamp(day).strftime("%Y-%m-%d")
+            for day in pd.to_datetime(frame["date"], errors="coerce").dropna()
+        }
+    window_start = pd.Timestamp(start).normalize()
+    window_end = pd.Timestamp(end).normalize()
+    expected: list[str] = []
+    cursor = window_start
+    while cursor <= window_end:
+        if not is_closed_collection_date(cursor):
+            expected.append(cursor.strftime("%Y-%m-%d"))
+        cursor += pd.Timedelta(days=1)
+    closed = session_anomalies(frame)
+    return {
+        "rows": 0 if frame is None else int(len(frame)),
+        "closed_dates": closed,
+        "window_start": window_start.strftime("%Y-%m-%d"),
+        "window_end": window_end.strftime("%Y-%m-%d"),
+        "expected_sessions": expected,
+        "missing_sessions": [day for day in expected if day not in present],
+        "closed_dates_in_window": [
+            day for day in closed if window_start.strftime("%Y-%m-%d") <= day <= window_end.strftime("%Y-%m-%d")
+        ],
+    }
+
+
 def trading_sessions(frame: pd.DataFrame) -> pd.DataFrame:
     """Cotation sessions only. Closed collection rows stay in the source file."""
     if frame is None or len(frame) == 0 or "date" not in frame.columns:
@@ -615,15 +717,33 @@ def prepare_market_frame(
     *,
     market_id: str,
     ledger_path: Optional[Path] = None,
+    roll_series_path: Optional[Path] = None,
 ) -> pd.DataFrame:
     """One cleaning path for training, the journal command and the API.
 
     Closed dates stay. ``trading_sessions`` is the separate study calendar.
+    Cocoa prices come from the series without contract jumps
+    (``src/data_collection/cocoa_roll.py``).
     """
     cleaned = clean_price_dataframe(frame)
     if market_id == "cocoa":
         cleaned = apply_oi_receipts(cleaned, ledger_path)
+        cleaned = _apply_cocoa_roll(cleaned, roll_series_path)
     return cleaned
+
+
+def _apply_cocoa_roll(frame: pd.DataFrame, roll_series_path: Optional[Path]) -> pd.DataFrame:
+    from loguru import logger
+
+    from src.data_collection.cocoa_roll import SERIES_PATH, apply_roll_series, load_series
+
+    path = Path(roll_series_path) if roll_series_path is not None else SERIES_PATH
+    series = load_series(path)
+    if series is None:
+        # Sans la série, les sauts entre échéances de C.v.0 restent dans les prix.
+        logger.error(f"Série cacao sans saut absente ({path}) : prix C.v.0 bruts utilisés")
+        return frame
+    return apply_roll_series(frame, series, is_closed=is_closed_collection_date)
 
 
 def model_inputs(
@@ -631,9 +751,12 @@ def model_inputs(
     *,
     market_id: str,
     ledger_path: Optional[Path] = None,
+    roll_series_path: Optional[Path] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Raw prepared snapshot, then the filled frame the model actually reads."""
-    raw = prepare_market_frame(frame, market_id=market_id, ledger_path=ledger_path)
+    raw = prepare_market_frame(
+        frame, market_id=market_id, ledger_path=ledger_path, roll_series_path=roll_series_path
+    )
     return raw, fill_missing_ohlcv(raw)
 
 
@@ -658,16 +781,36 @@ def consumed_snapshot_rows(frame: pd.DataFrame) -> list[dict]:
     return rows
 
 
+_HOLIDAY_CACHE: Optional[tuple] = None
+_RULE_CACHE: Dict[tuple, Any] = {}
+
+
 def exchange_holidays(extra: Optional[Sequence] = None) -> list:
     """Venue closures. A test can pass extra dates without editing the file."""
+    global _HOLIDAY_CACHE
     path = Path(__file__).resolve().parents[2] / "config" / "exchange_holidays.json"
+    stamp = path.stat().st_mtime_ns if path.exists() else None
+    if extra is None and _HOLIDAY_CACHE is not None and _HOLIDAY_CACHE[0] == stamp:
+        return list(_HOLIDAY_CACHE[1])
     closed: list = []
     if path.exists():
         payload = json.loads(path.read_text(encoding="utf-8"))
         closed.extend(payload.get("dates") or [])
     if extra:
         closed.extend(extra)
-    return [pd.Timestamp(day).normalize() for day in closed]
+    result = [pd.Timestamp(day).normalize() for day in closed]
+    if extra is None:
+        _HOLIDAY_CACHE = (stamp, result)
+    return list(result)
+
+
+def _business_rule(closed: Sequence):
+    key = tuple(pd.Timestamp(day).value for day in closed)
+    rule = _RULE_CACHE.get(key)
+    if rule is None:
+        rule = CustomBusinessDay(holidays=list(closed)) if closed else BusinessDay()
+        _RULE_CACHE[key] = rule
+    return rule
 
 
 def future_business_date(
@@ -677,7 +820,7 @@ def future_business_date(
 ) -> datetime:
     """Origin plus horizon sessions, skipping weekends and listed closures."""
     closed = exchange_holidays(holidays)
-    rule = CustomBusinessDay(holidays=closed) if closed else BusinessDay()
+    rule = _business_rule(closed)
     return (pd.to_datetime(origin_date) + int(horizon) * rule).to_pydatetime()
 
 

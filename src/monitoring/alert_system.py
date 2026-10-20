@@ -153,43 +153,37 @@ class AlertSystem:
     
     def _send_email_alert(self, alert_payload: Dict[str, Any]) -> bool:
         """
-        Send alert via email.
-        
-        Note: This is a placeholder implementation. In production, you would:
-        - Use an SMTP library (smtplib) to send emails
-        - Or use an email service API (SendGrid, AWS SES, etc.)
-        
-        Args:
-            alert_payload: Alert data to send
-        
-        Returns:
-            True if email was sent successfully
+        Send alert via SMTP (STARTTLS). Returns False when SMTP is not configured:
+        an alert that was not sent is never reported as sent.
         """
+        import smtplib
+        from email.message import EmailMessage
+
         try:
             email_to = self.settings.alert_email_to
             email_from = self.settings.alert_email_from
-            
-            if not email_to or not email_from:
-                logger.warning("Email alert configuration incomplete")
+            host = getattr(self.settings, "alert_smtp_host", None)
+
+            if not email_to or not email_from or not host:
+                logger.warning("Email alert configuration incomplete (ALERT_EMAIL_TO/FROM, ALERT_SMTP_HOST)")
                 return False
-            
-            # Build email content
-            subject = f"[{alert_payload['severity']}] {alert_payload['alert_type']}"
-            body = self._format_email_body(alert_payload)
-            
-            # TODO: Implement actual email sending
-            # For now, just log that we would send an email
-            logger.info(
-                f"Email alert would be sent to {email_to}",
-                extra={
-                    "subject": subject,
-                    "to": email_to,
-                    "from": email_from
-                }
-            )
-            
+
+            message = EmailMessage()
+            message["Subject"] = f"[{alert_payload['severity']}] {alert_payload['alert_type']}"
+            message["From"] = email_from
+            message["To"] = email_to
+            message.set_content(self._format_email_body(alert_payload))
+
+            port = int(getattr(self.settings, "alert_smtp_port", 587) or 587)
+            with smtplib.SMTP(host, port, timeout=15) as smtp:
+                smtp.starttls()
+                user = getattr(self.settings, "alert_smtp_user", None)
+                if user:
+                    smtp.login(user, getattr(self.settings, "alert_smtp_password", None) or "")
+                smtp.send_message(message)
+            logger.info(f"Email alert sent to {email_to}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to send email alert: {e}")
             return False

@@ -131,7 +131,7 @@ def fetch_investing_futures(
     try:
         response = cffi_requests.get(
             url,
-            impersonate="chrome131",
+            impersonate="chrome146",
             timeout=timeout,
             headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

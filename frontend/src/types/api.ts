@@ -27,6 +27,8 @@ export interface PredictionItem {
   latest_gap_pct?: number | null;
   revision_notice?: 'inversion' | 'revision' | null;
   has_revision?: boolean | null;
+  latest_sessions_remaining?: number | null;
+  revision_matches_today?: boolean | null;
   latest_unavailable?: boolean | null;
   initial?: ForecastView | null;
   latest?: ForecastView | null;
@@ -42,9 +44,16 @@ export interface PredictionItem {
     status?: ForecastStatus;
     label?: string;
     band_label?: string;
+    /** Horizon non validé : le prix publié est le cours inchangé. */
+    served_as_close?: boolean;
+    /** Prix du modèle, affiché à côté du cours quand il n'est pas validé. */
+    candidate_price?: number | null;
+    candidate_label?: string;
     garch_annualized_volatility?: number | null;
     high_volatility_regime?: boolean;
     warning?: string;
+    /** Prévision suspendue (série incomplète) : la raison affichée à la place du prix. */
+    unavailable_reason?: string;
   };
 }
 
@@ -70,6 +79,9 @@ export interface RevisionDelayStep {
   expected: number;
   available: number;
   abstentions: number;
+  missing_emissions?: number;
+  missing_realizations?: number;
+  session_jumps?: number;
   availability_rate?: number | null;
   mean_initial_error?: number | null;
   mean_revised_error?: number | null;
@@ -108,6 +120,8 @@ export interface RevisionValueResponse {
   market: string;
   as_of?: string | null;
   note?: string | null;
+  service_calendar?: string | null;
+  study_calendar?: string | null;
   horizons: RevisionValueHorizon[];
 }
 
@@ -274,6 +288,21 @@ export interface MarketInfo {
   tradingview_alert_symbol?: string | null;
   available: boolean;
   model_version?: string | null;
+  release_mode?: 'active' | 'experimental' | string;
+  validated_horizons?: number[];
+  train_end_date?: string | null;
+  freshness?: MarketFreshness | null;
+}
+
+export interface MarketFreshness {
+  status: 'ok' | 'stale';
+  last_session: string | null;
+  expected_last_session: string;
+  stale_sessions: number | null;
+  coverage_30d: number | null;
+  reason: string | null;
+  banner: string | null;
+  roll_series_end?: string | null;
 }
 
 export interface MarketsResponse {

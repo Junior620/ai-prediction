@@ -10,17 +10,32 @@ REM 4. Charge ce lot experimental et verifie l'API avant le robusta.
 REM 5. Repete la sequence pour le robusta, avec N-HiTS.
 REM 6. Diagnostics secondaires. Les etudes historiques longues restent hors de cette commande.
 REM 7. Transfere le manifeste actif vers le VPS. Le lot experimental du soir reste local.
+REM
+REM Usage : update_system.bat [--unattended]
+REM   --unattended : aucune pause (tache planifiee).
+REM Codes de sortie :
+REM   0 succes complet
+REM   1 echec reel (instantane, serie sans saut, entrainement, journal, manifeste)
+REM   2 source indisponible ou base en retard sur la veille ouvree
+REM   3 quarantaine (prix sans date de seance ou jour ferme, rien d'ecrit)
+REM   4 succes partiel (API non confirmee, robusta non mis a jour, VPS non deploye)
 REM ================================================================================
 
 set PYTHONIOENCODING=utf-8
+set UNATTENDED=0
+if /i "%~1"=="--unattended" set UNATTENDED=1
+set FINAL=0
+set SOURCE_STALE=0
+set QUARANTINE_SEEN=0
+set PARTIAL=0
 
 if not defined API_TOKEN (
     for /f "usebackq eol=# tokens=1,* delims==" %%a in (`findstr /b /c:"API_TOKEN=" "%~dp0.env" 2^>nul`) do set "API_TOKEN=%%b"
 )
 if not defined API_TOKEN (
     echo [ERREUR] API_TOKEN absent. Ajoutez API_TOKEN=... dans .env ^(generate_jwt_token.py^).
-    pause
-    exit /b 1
+    set FINAL=1
+    goto :finish
 )
 
 echo.
@@ -33,8 +48,8 @@ docker info >nul 2>&1
 if errorlevel 1 (
     echo [ERREUR] Docker n'est pas en cours d'execution.
     echo Veuillez demarrer Docker Desktop et reessayer.
-    pause
-    exit /b 1
+    set FINAL=1
+    goto :finish
 )
 
 echo [INFO] Docker est operationnel
@@ -48,14 +63,18 @@ echo CACAO 1/4: COLLECTE
 echo ================================================================================
 echo.
 
-echo [INFO] Cacao — ICE London (Playwright + fallbacks)...
+echo [INFO] Cacao — ICE London (Databento puis Playwright)...
 call venv_py311\Scripts\python.exe collect_ice_london_cocoa.py
-if errorlevel 1 (
+if errorlevel 2 (
+    echo [AVERTISSEMENT] Cacao: source indisponible ou base en retard. Le calcul continue sur la base existante.
+    set SOURCE_STALE=1
+) else if errorlevel 1 (
     echo [ERREUR] Echec collecte cacao ICE London
-    pause
-    exit /b 1
+    set FINAL=1
+    goto :finish
+) else (
+    echo [OK] Prix cacao ICE London collecte
 )
-echo [OK] Prix cacao ICE London collecte
 echo.
 
 echo [INFO] Contrats a terme Londres mois nommes (DEC26, MAR27...)...
@@ -109,12 +128,28 @@ if errorlevel 1 (
 )
 echo.
 
+echo [INFO] Serie cacao sans saut de contrat (Databento C.c.0-2, quelques centimes)...
+call venv_py311\Scripts\python.exe scripts\build_cocoa_roll_series.py
+if errorlevel 1 (
+    echo [AVERTISSEMENT] Serie sans saut non rafraichie depuis Databento. Reconstruction depuis le brut local.
+    call venv_py311\Scripts\python.exe scripts\build_cocoa_roll_series.py --offline
+)
+echo.
+
 echo [INFO] Gel des donnees cacao. La collecte ne sera plus relancee avant le journal.
 call venv_py311\Scripts\python.exe scripts\freeze_market_snapshot.py --market cocoa --output data\freeze\cocoa_prices.csv
 if errorlevel 1 (
     echo [ERREUR] Instantane cacao non fige
-    pause
-    exit /b 1
+    set FINAL=1
+    goto :finish
+)
+
+REM Une seance figee au-dela de la serie sans saut garderait un prix brut d'une autre echeance.
+call venv_py311\Scripts\python.exe scripts\check_roll_series.py --snapshot data\freeze\cocoa_prices.csv
+if errorlevel 1 (
+    echo [ERREUR] Serie sans saut en retard sur l'instantane. Le lot n'est pas entraine.
+    set FINAL=1
+    goto :finish
 )
 
 echo ================================================================================
@@ -122,13 +157,13 @@ echo CACAO 2/4: ENTRAINEMENT DU LOT NOMME
 echo ================================================================================
 echo.
 
-call venv_py311\Scripts\python.exe train_hybrid_improved.py --market cocoa --snapshot data\freeze\cocoa_prices.csv
+call venv_py311\Scripts\python.exe train_hybrid_improved.py --market cocoa --snapshot data\freeze\cocoa_prices.csv --calendar trading_sessions
 if errorlevel 1 (
     echo [ERREUR] Echec reentrainement cacao. Le nouveau modele n'est pas annonce.
     echo [INFO] Lot encore charge:
     call venv_py311\Scripts\python.exe -c "import json; from pathlib import Path; p=Path('config/experimental_release_cocoa.json'); print(json.loads(p.read_text(encoding='utf-8')).get('version') if p.exists() else 'aucun')"
-    pause
-    exit /b 1
+    set FINAL=1
+    goto :finish
 )
 echo [OK] Hybride cacao reentraine. N-HiTS cacao non entraine: poids nuls.
 echo.
@@ -142,15 +177,15 @@ call venv_py311\Scripts\python.exe scripts\journal_forecast_revisions.py --marke
 if errorlevel 1 (
     echo [ERREUR] Journal cacao non ecrit. Relancer cette commande reprend le meme identifiant.
     echo [INFO] Le nouveau lot n'est pas annonce.
-    pause
-    exit /b 1
+    set FINAL=1
+    goto :finish
 )
 
 call venv_py311\Scripts\python.exe scripts\write_experimental_release.py --market cocoa
 if errorlevel 1 (
     echo [ERREUR] Manifeste experimental cacao non ecrit. Le dernier dossier n'est pas utilise.
-    pause
-    exit /b 1
+    set FINAL=1
+    goto :finish
 )
 
 echo ================================================================================
@@ -178,6 +213,7 @@ if !API_READY! equ 1 (
     echo [AVERTISSEMENT] API cacao non prete. Le lot n'est pas annonce comme consultable.
     set COCOA_PARTIAL=1
 )
+if !COCOA_PARTIAL! equ 1 set PARTIAL=1
 echo.
 
 REM ================================================================================
@@ -191,17 +227,26 @@ echo.
 set ROBUSTA_OK=1
 set ROBUSTA_COLLECT_TRY=0
 :robusta_collect_retry
-echo [INFO] Cafe robusta — Investing.com (RCU6)...
+echo [INFO] Cafe robusta — Investing.com (contrat detecte sur la page)...
 call venv_py311\Scripts\python.exe collect_coffee_robusta_price.py
-if errorlevel 1 (
+if errorlevel 4 (
+    echo [QUARANTAINE] Robusta non date ou jour ferme — pas de nouvelle tentative, date du jour non utilisee
+    set QUARANTINE_SEEN=1
+    set ROBUSTA_OK=0
+) else if errorlevel 2 (
     set /a ROBUSTA_COLLECT_TRY+=1
     if !ROBUSTA_COLLECT_TRY! lss 3 (
-        echo [AVERTISSEMENT] Collecte robusta echouee ^(!ROBUSTA_COLLECT_TRY!/3^). Nouvelle tentative dans 45 s...
+        echo [AVERTISSEMENT] Source robusta indisponible ^(!ROBUSTA_COLLECT_TRY!/3^). Nouvelle tentative dans 45 s...
         timeout /t 45 /nobreak >nul
         goto robusta_collect_retry
     )
-    echo [AVERTISSEMENT] Echec collecte robusta apres 3 tentatives — le cacao reste consultable
+    echo [AVERTISSEMENT] Source robusta indisponible apres 3 tentatives — le cacao reste consultable
+    set SOURCE_STALE=1
     set ROBUSTA_OK=0
+) else if errorlevel 1 (
+    echo [AVERTISSEMENT] Echec collecte robusta — le cacao reste consultable
+    set ROBUSTA_OK=0
+    set PARTIAL=1
 )
 if !ROBUSTA_OK! equ 1 (
     call venv_py311\Scripts\python.exe scripts\freeze_market_snapshot.py --market coffee_robusta --output data\freeze\coffee_robusta_prices.csv
@@ -215,7 +260,7 @@ if !ROBUSTA_OK! equ 1 (
     echo ================================================================================
     echo ROBUSTA 2/4: ENTRAINEMENT
     echo ================================================================================
-    call venv_py311\Scripts\python.exe train_hybrid_improved.py --market coffee_robusta --snapshot data\freeze\coffee_robusta_prices.csv
+    call venv_py311\Scripts\python.exe train_hybrid_improved.py --market coffee_robusta --snapshot data\freeze\coffee_robusta_prices.csv --calendar keep_closed_rows
     if errorlevel 1 (
         echo [AVERTISSEMENT] Echec reentrainement robusta. Le nouveau modele n'est pas annonce.
         echo [INFO] Lot robusta encore charge:
@@ -279,6 +324,7 @@ if !ROBUSTA_OK! equ 1 (
 ) else (
     echo [AVERTISSEMENT] Robusta non mis a jour. Le cacao reste le lot charge si l'API a deja ete recreee.
 )
+if !ROBUSTA_OK! equ 0 set PARTIAL=1
 
 echo.
 echo ================================================================================
@@ -339,27 +385,29 @@ echo [INFO] Marches disponibles: GET http://localhost:8000/api/v1/markets
 echo [INFO] Suivi: GET http://localhost:8000/api/v1/forecast-tracking
 echo [INFO] Dashboard: http://localhost:3000 (cacao)  /  http://localhost:3000/coffee (robusta)
 echo.
-echo ================================================================================
-if !COCOA_PARTIAL! equ 1 (
-    echo   MISE A JOUR PARTIELLE — le cacao n'est pas confirme comme consultable
-) else if !ROBUSTA_OK! equ 0 (
-    echo   MISE A JOUR PARTIELLE — cacao consulte, robusta non confirme
-) else (
-    echo   MISE A JOUR TERMINEE
-)
-echo ================================================================================
 echo [INFO] Transfert du manifeste actif vers le VPS. Le lot experimental du soir reste local.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0deploy_models.ps1"
 if errorlevel 1 (
     echo [AVERTISSEMENT] Deploy VPS echoue. L'API locale est a jour, le VPS non.
     echo                Verifie SSH / .env.deploy puis lance: deploy_models.bat
+    set PARTIAL=1
 ) else (
     echo [OK] VPS mis a jour
 )
 echo [INFO] Les etudes historiques longues ne font pas partie de cette commande.
-echo ================================================================================
-pause
-goto :eof
+
+echo [INFO] Fraicheur des prix (veille ouvree attendue)...
+call venv_py311\Scripts\python.exe -m src.monitoring.freshness cocoa coffee_robusta
+if errorlevel 2 set SOURCE_STALE=1
+
+if !SOURCE_STALE! equ 1 (
+    set FINAL=2
+) else if !QUARANTINE_SEEN! equ 1 (
+    set FINAL=3
+) else if !PARTIAL! equ 1 (
+    set FINAL=4
+)
+goto :finish
 
 :wait_for_api
 echo [INFO] Attente du demarrage de l'API (jusqu'a 10 minutes apres recreate)...
@@ -368,10 +416,11 @@ set API_READY=0
 timeout /t 20 /nobreak >nul
 for /L %%i in (1,1,60) do (
     if !API_READY! equ 0 (
-        powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'http://localhost:8000/health' -UseBasicParsing -TimeoutSec 10 | Out-Null; exit 0 } catch { if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 503) { exit 0 } else { exit 1 } }" >nul 2>&1
+        REM Seul un 200 compte : un 503 signale un service degrade.
+        powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'http://localhost:8000/health' -UseBasicParsing -TimeoutSec 10 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
         if !errorlevel! equ 0 (
             set API_READY=1
-            echo [OK] API demarree. /health repond.
+            echo [OK] API demarree. /health repond 200.
         ) else (
             echo [INFO] API pas encore prete... (%%i/60^)
             timeout /t 10 /nobreak >nul
@@ -382,3 +431,15 @@ if !API_READY! equ 0 (
     echo [AVERTISSEMENT] API non prete apres 10 minutes. Consultez: docker logs cocoa-api --tail 80
 )
 exit /b 0
+
+:finish
+echo ================================================================================
+if !FINAL! equ 0 echo   MISE A JOUR TERMINEE
+if !FINAL! equ 1 echo   ECHEC — voir le message [ERREUR] ci-dessus
+if !FINAL! equ 2 echo   MISE A JOUR AVEC DONNEES EN RETARD — source indisponible
+if !FINAL! equ 3 echo   MISE A JOUR AVEC QUARANTAINE — un prix non date n'a pas ete ecrit
+if !FINAL! equ 4 echo   MISE A JOUR PARTIELLE — voir les [AVERTISSEMENT] ci-dessus
+echo   Code de sortie: !FINAL!
+echo ================================================================================
+if !UNATTENDED! equ 0 pause
+exit /b !FINAL!

@@ -44,7 +44,6 @@ export function PredictionHistoryPanel({
               <th className="text-right py-2 font-medium">Horizon</th>
               <th className="text-right py-2 font-medium">Prédiction</th>
               <th className="text-right py-2 font-medium">Intervalle</th>
-              <th className="text-left py-2 font-medium pl-3">Modèle</th>
             </tr>
           </thead>
           <tbody>
@@ -68,9 +67,6 @@ export function PredictionHistoryPanel({
                     {lo != null && hi != null
                       ? `${formatPrice(lo, priceCurrency)} – ${formatPrice(hi, priceCurrency)}`
                       : '—'}
-                  </td>
-                  <td className="py-2 text-slate-600 pl-3 truncate max-w-[140px]">
-                    {row.model_version || '—'}
                   </td>
                 </tr>
               );

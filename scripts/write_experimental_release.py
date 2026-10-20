@@ -78,12 +78,23 @@ def keep_evening_nhits(relative: str | None, active_relative: str | None) -> str
     return cleaned
 
 
-def write_market(market: str, models_dir: Path, weights: str, margins: str, stamp: str) -> int:
+def release_descriptor(
+    market: str,
+    stamp: str,
+    weights: str,
+    margins: str,
+    models_dir: Path,
+) -> dict:
+    """One descriptor for the manifest, the journal and the service."""
     found = named_candidate(market, stamp)
     if found is None:
-        print(f"[ERREUR] Lot nommé incomplet pour {market}: {stamp}")
-        return 1
+        raise ValueError(f"Lot nommé incomplet pour {market}: {stamp}")
     version, artifacts, trained = found
+    improved_meta = json.loads((ROOT / artifacts["improved_info"]).read_text(encoding="utf-8"))
+    if "calendar" in improved_meta:
+        calendar = str(improved_meta.get("calendar") or "keep_closed_rows")
+    else:
+        calendar = "keep_closed_rows"
     if _nhits_required(weights):
         pointer = models_dir / "NHITS_LOT.json"
         relative = None
@@ -108,12 +119,22 @@ def write_market(market: str, models_dir: Path, weights: str, margins: str, stam
         "artifacts": artifacts,
         "direct_horizons": trained,
         "horizons": {key: {"validated": False} for key in ("1", "7", "14", "30")},
+        "calendar": calendar,
     }
+    return payload
+
+
+def write_market(market: str, models_dir: Path, weights: str, margins: str, stamp: str) -> int:
+    try:
+        payload = release_descriptor(market, stamp, weights, margins, models_dir)
+    except ValueError as exc:
+        print(f"[ERREUR] {exc}")
+        return 1
     path = ROOT / "config" / f"experimental_release_{market}.json"
     previous = ROOT / "config" / f"previous_experimental_release_{market}.json"
     if path.exists():
         old = json.loads(path.read_text(encoding="utf-8"))
-        if old.get("version") != version:
+        if old.get("version") != payload["version"]:
             previous.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
             print(f"[OK] Lot précédent conservé: {old.get('version')}")
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -121,8 +142,8 @@ def write_market(market: str, models_dir: Path, weights: str, margins: str, stam
         print("[ERREUR] Le manifeste expérimental ne peut pas être validé")
         return 1
     print(
-        f"[OK] {path.name} -> {version} nhits={artifacts.get('nhits', 'absent')} "
-        f"horizons={trained} evaluation_report=absent"
+        f"[OK] {path.name} -> {payload['version']} nhits={payload['artifacts'].get('nhits', 'absent')} "
+        f"horizons={payload['direct_horizons']} evaluation_report=absent"
     )
     return 0
 

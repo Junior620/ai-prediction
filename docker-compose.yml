@@ -56,7 +56,9 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DATABENTO_API_KEY=${DATABENTO_API_KEY}
       - TRADINGVIEW_WEBHOOK_SECRET=${TRADINGVIEW_WEBHOOK_SECRET:-}
-      - PREDICTION_RELEASE_MODE=${PREDICTION_RELEASE_MODE:-active}
+      # Pas de valeur par defaut : un docker compose up sans le mode echoue au lieu de basculer en silence.
+      # .env local : experimental (lot du soir) ; .env du VPS : active.
+      - PREDICTION_RELEASE_MODE=${PREDICTION_RELEASE_MODE:?PREDICTION_RELEASE_MODE manquant - ajouter active ou experimental dans .env}
       - HF_HUB_DISABLE_XET=1
       - REDIS_HOST=redis
       - REDIS_PORT=6379

@@ -10,7 +10,7 @@ This module implements the REST API with the following endpoints:
 Implements Requirements 10.1-10.5, 12.3, 12.4, 13.1, 13.4, 13.5
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 import uuid
 import sys
@@ -448,7 +448,7 @@ def _journal_tracked_horizons() -> None:
     import threading
 
     from src.models.horizon_schedule import TRACKED_HORIZONS
-    from src.models.revision_command import frame_fingerprint, procedure_for
+    from src.models.revision_command import procedure_for
 
     def _run() -> None:
         for market_id in ("cocoa", "coffee_robusta"):
@@ -466,14 +466,15 @@ def _journal_tracked_horizons() -> None:
                     None,
                     release_mode=str(getattr(predictor, "release_mode", "active")),
                 )
-                frame = getattr(predictor, "_historical_data", None)
-                token = frame_fingerprint(frame) if frame is not None else ""
+                token = str(getattr(predictor, "_served_fingerprint", None) or "")
+                source = str(getattr(predictor, "_data_fingerprint", None) or "")
                 procedure = procedure_for(
                     release, getattr(predictor, "max_abs_change_pct", {}) or {}
                 )
                 from src.models.market_registry import get_market_config
 
                 cfg = get_market_config(market_id)
+                _withhold_if_incomplete(predictions, market_id, cfg.price_table)
                 from src.models.revision_command import train_bounds
 
                 _journal_forecasts(
@@ -484,6 +485,7 @@ def _journal_tracked_horizons() -> None:
                     train_end_date=train_bounds(release).get("train_end_date"),
                     procedure_fingerprint=procedure,
                     data_fingerprint=token,
+                    source_fingerprint=source,
                 )
                 logger.info(f"Journal de suivi écrit pour {cfg.api_markets[0]}")
             except Exception as exc:
@@ -544,22 +546,24 @@ def _journal_forecasts(
     release_mode: str,
     procedure_fingerprint: str = "",
     data_fingerprint: str = "",
+    source_fingerprint: str = "",
     train_end_date: Optional[str] = None,
 ) -> None:
     from src.models.prediction_journal import JournalLockError, append_forecast
+    from src.models.served_forecast import model_price, served_journal_bounds
 
     for item in items:
         parts = dict(getattr(item, "components", None) or {})
         status = str(getattr(item, "status", None) or parts.get("status") or "unavailable")
-        interval = getattr(item, "confidence_interval", None) or []
-        lower = float(interval[0]) if len(interval) == 2 and interval[0] is not None else parts.get("candidate_lower")
-        upper = float(interval[1]) if len(interval) == 2 and interval[1] is not None else parts.get("candidate_upper")
+        bounds = served_journal_bounds(item)
+        lower = bounds["lower"]
+        upper = bounds["upper"]
         if status == "unavailable":
             lower = None
             upper = None
             price = None
         else:
-            price = None if item.price is None else float(item.price)
+            price = model_price(item)
         try:
             append_forecast(
                 market=market,
@@ -575,7 +579,11 @@ def _journal_forecasts(
                 status=status,
                 procedure_fingerprint=procedure_fingerprint,
                 data_fingerprint=data_fingerprint,
+                source_fingerprint=source_fingerprint,
                 train_end_date=train_end_date,
+                rejected_lower=bounds["rejected_lower"],
+                rejected_upper=bounds["rejected_upper"],
+                served_as_close=bool(parts.get("served_as_close")),
             )
         except JournalLockError as exc:
             logger.error(f"Journal non écrit, la commande peut être relancée: {exc}")
@@ -585,20 +593,41 @@ def _journal_forecasts(
             _mark_journal_unavailable(exc)
 
 
+def _has_scored_news(articles, hours: int = 24) -> bool:
+    """At least one article with a sentiment score inside the aggregation window."""
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    for article in articles or []:
+        published = getattr(article, "published_at", None)
+        if getattr(article, "sentiment_score", None) is None or published is None:
+            continue
+        if published.tzinfo is not None:
+            published = published.astimezone(timezone.utc).replace(tzinfo=None)
+        if published >= cutoff:
+            return True
+    return False
+
+
 def _latest_price_date(price_table: str) -> Optional[str]:
-    """Newest session date in the market table, or None if it cannot be read."""
+    """Newest trading session in the market table, or None if it cannot be read.
+
+    A row dated on a closed day (Saturday scrape) is not a session.
+    """
     if supabase_client is None:
         return None
+    from src.models.hybrid_features import is_closed_collection_date
+
     try:
         response = (
             supabase_client.table(price_table)
             .select("date")
             .order("date", desc=True)
-            .limit(1)
+            .limit(10)
             .execute()
         )
-        if response.data:
-            return str(response.data[0]["date"])[:10]
+        for row in response.data or []:
+            day = str(row["date"])[:10]
+            if not is_closed_collection_date(day):
+                return day
     except Exception as exc:
         logger.warning(f"Lecture de la dernière séance impossible: {exc}")
     return None
@@ -795,14 +824,109 @@ async def root():
     }
 
 
+_FRESHNESS_CACHE: dict = {}
+_FRESHNESS_TTL_SECONDS = 300
+
+
+def _market_freshness(market_id: str, price_table: str) -> Optional[dict]:
+    """Last session vs the previous ICE business day, read from Supabase (cached 5 min).
+
+    Computed here rather than read from data/status so the VPS reports the same thing.
+    """
+    import time
+
+    from src.models.hybrid_features import is_closed_collection_date
+    from src.monitoring.freshness import banner, freshness_report, london_today, session_coverage
+
+    now = time.monotonic()
+    cached = _FRESHNESS_CACHE.get(market_id)
+    if cached and now - cached[0] < _FRESHNESS_TTL_SECONDS:
+        return cached[1]
+    if supabase_client is None:
+        return None
+    # /health et /predict ne doivent jamais tomber à cause de ce contrôle.
+    try:
+        rows = list(
+            supabase_client.table(price_table).select("date").order("date", desc=True).limit(60).execute().data
+            or []
+        )
+        sessions = [str(r["date"])[:10] for r in rows if not is_closed_collection_date(str(r["date"])[:10])]
+        coverage = session_coverage(sessions, london_today()) if sessions else 0.0
+        report = freshness_report(market_id, sessions[0] if sessions else None, coverage=coverage)
+        report["banner"] = banner(report)
+        if market_id == "cocoa":
+            from src.data_collection.cocoa_roll import load_series
+
+            series = load_series()
+            report["roll_series_end"] = None if series is None else f"{series['date'].max():%Y-%m-%d}"
+    except Exception as exc:
+        logger.warning(f"Fraîcheur {market_id} illisible: {exc}")
+        return None
+    _FRESHNESS_CACHE[market_id] = (now, report)
+    return report
+
+
+def _withhold_if_incomplete(items, market_id: str, price_table: str) -> Optional[str]:
+    """Too few sessions over 30 days (robusta since July): no horizon is published.
+
+    Lags are counted in rows, targets in sessions; with half the sessions missing
+    the model reads a different market. Returns the reason, or None.
+    """
+    from src.monitoring.freshness import MIN_COVERAGE
+
+    report = _market_freshness(market_id, price_table)
+    coverage = None if not report else report.get("coverage_30d")
+    if coverage is None or coverage >= MIN_COVERAGE:
+        return None
+    reason = f"Séances présentes sur 30 jours : {coverage:.0%}. Prévision suspendue tant que la série est incomplète."
+    for item in items:
+        parts = dict(getattr(item, "components", None) or {})
+        parts.update(status="unavailable", served_as_close=False, unavailable_reason=reason)
+        item.price = None
+        item.confidence_interval = None
+        try:
+            item.status = "unavailable"
+        except Exception:
+            pass
+        item.components = parts
+    return reason
+
+
+def _serving_status(market_id: str) -> dict:
+    """Mode, lot and validated horizons actually loaded for this market."""
+    from src.models.release_manifest import horizon_is_validated, release_mode
+    from src.models.revision_command import train_bounds
+
+    predictor = predictors.get(market_id)
+    release = (getattr(predictor, "active_release", None) or {}) if predictor else {}
+    return {
+        "release_mode": str(getattr(predictor, "release_mode", None) or release_mode()),
+        "model_version": getattr(predictor, "model_version", None) if predictor else None,
+        "validated_horizons": [h for h in (1, 7, 14, 30) if release and horizon_is_validated(release, h)],
+        "train_end_date": train_bounds(release).get("train_end_date") if release else None,
+    }
+
+
 @app.get("/health")
 async def health_check():
     """
     Health check endpoint.
+
+    Stale prices do not make the service unhealthy: they are reported under
+    ``freshness`` and shown as a banner on the dashboard.
     """
+    from src.models.release_manifest import release_mode
+
+    serving = {}
+    for market_id, cfg in load_all_markets().items():
+        serving[market_id] = {
+            **_serving_status(market_id),
+            "freshness": _market_freshness(market_id, cfg.price_table),
+        }
     health_status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
+        "release_mode": release_mode(),
         "services": {
             "redis": redis_cache.health_check() if redis_cache else False,
             "supabase": supabase_client is not None,
@@ -811,6 +935,7 @@ async def health_check():
         },
         "markets_loaded": sorted(predictors.keys()),
         "journal_schema_ok": bool(getattr(app.state, "journal_schema_ok", False)),
+        "serving": serving,
     }
     
     # Determine overall health
@@ -843,7 +968,8 @@ async def list_markets():
             "tradingview_embed_label": cfg.tradingview_embed_label,
             "tradingview_alert_symbol": cfg.tradingview_alert_symbol,
             "available": predictor is not None,
-            "model_version": predictor.model_version if predictor else None,
+            **_serving_status(market_id),
+            "freshness": _market_freshness(market_id, cfg.price_table),
         })
     return {"markets": markets}
 
@@ -1390,7 +1516,9 @@ async def predict_price(
             detail=f"Prediction service is not available for market '{request.market}'"
         )
     
-    fingerprint = _session_fingerprint(market_cfg.price_table)
+    market_predictor._fetch_historical_data()
+    fingerprint = str(market_predictor._served_fingerprint or "")
+    source_fingerprint = str(market_predictor._data_fingerprint or "")
     market_predictor._remote_fingerprint = fingerprint
     identity = "|".join(
         [
@@ -1425,6 +1553,9 @@ async def predict_price(
                     getattr(market_predictor, "active_release", None),
                     cached_prediction.current_price,
                     release_mode=str(getattr(market_predictor, "release_mode", "active")),
+                )
+                _withhold_if_incomplete(
+                    cached_prediction.predictions, market_cfg.market_id, market_cfg.price_table
                 )
                 return cached_prediction
     
@@ -1493,7 +1624,9 @@ async def predict_price(
         
         # Calculate aggregated sentiment score
         sentiment_score = None
-        if request.include_sentiment and recent_news:
+        # Sans article noté dans la fenêtre de 24 h, aggregate_sentiment renverrait 0.0 :
+        # « Neutre 0.00 » passerait pour une mesure. On renvoie None (« N/A »).
+        if request.include_sentiment and _has_scored_news(recent_news):
             try:
                 sentiment_score = market_predictor.nlp_analyzer.aggregate_sentiment(
                     recent_news
@@ -1513,12 +1646,19 @@ async def predict_price(
                 .limit(60)
                 .execute()
             )
-            if hist_response.data:
-                current_price = hist_response.data[0]["price"]
-                current_date = hist_response.data[0]["date"]
+            from src.models.hybrid_features import is_closed_collection_date
+
+            # Une ligne datée d'un jour fermé n'est pas une séance (prix d'une autre date).
+            session_rows = [
+                row for row in (hist_response.data or [])
+                if not is_closed_collection_date(str(row["date"])[:10])
+            ]
+            if session_rows:
+                current_price = session_rows[0]["price"]
+                current_date = session_rows[0]["date"]
                 historical_prices = [
                     {"date": row["date"], "price": row["price"]}
-                    for row in reversed(hist_response.data)
+                    for row in reversed(session_rows)
                 ]
         except Exception as e:
             logger.warning(f"Failed to fetch historical prices: {e}")
@@ -1536,12 +1676,11 @@ async def predict_price(
             current_price,
             release_mode=str(getattr(market_predictor, "release_mode", "active")),
         )
-        from src.models.revision_command import frame_fingerprint, procedure_for, train_bounds
+        _withhold_if_incomplete(prediction_items, market_cfg.market_id, market_cfg.price_table)
+        from src.models.revision_command import procedure_for, train_bounds
 
-        _stored = getattr(market_predictor, "_historical_data", None)
-        loaded_fingerprint = (
-            getattr(market_predictor, "_data_fingerprint", None)
-            or (frame_fingerprint(_stored) if _stored is not None else fingerprint)
+        loaded_fingerprint = str(
+            getattr(market_predictor, "_served_fingerprint", None) or fingerprint
         )
         _journal_forecasts(
             prediction_items,
@@ -1553,6 +1692,9 @@ async def predict_price(
                 getattr(market_predictor, "max_abs_change_pct", {}) or {},
             ),
             data_fingerprint=loaded_fingerprint,
+            source_fingerprint=str(
+                getattr(market_predictor, "_data_fingerprint", None) or source_fingerprint
+            ),
             train_end_date=train_bounds(getattr(market_predictor, "active_release", None)).get(
                 "train_end_date"
             ),
@@ -1590,6 +1732,8 @@ async def predict_price(
             item.reference_price = held.get("reference_price")
             item.initial_horizon = held.get("initial_horizon")
             item.sessions_remaining = held.get("sessions_remaining")
+            item.latest_sessions_remaining = held.get("latest_sessions_remaining")
+            item.revision_matches_today = held.get("revision_matches_today")
             item.latest_price = held.get("latest_price")
             item.latest_date = held.get("latest_date")
             item.latest_gap = held.get("latest_gap")
@@ -1619,6 +1763,8 @@ async def predict_price(
                 item.target_date = held["target_date"]
 
         # Create response
+        from src.models.release_calendar import require_calendar
+
         response = PredictionResponse(
             predictions=prediction_items,
             model_version=market_predictor.model_version,
@@ -1626,7 +1772,8 @@ async def predict_price(
             market=request.market,
             current_price=current_price,
             current_date=current_date,
-            historical_prices=historical_prices
+            historical_prices=historical_prices,
+            service_calendar=require_calendar(getattr(market_predictor, "active_release", None)),
         )
         
         # Cache the response
@@ -1722,12 +1869,12 @@ async def revision_value(
 ) -> RevisionValueResponse:
     """Historical gain of the latest same-target estimate over the opening forecast."""
     del user
-    from src.validation.revision_value import revision_value_for_market
+    from src.api.revision_jobs import revision_value_off_loop
 
     market_cfg = resolve_api_market(market)
     if market_cfg is None:
         raise HTTPException(status_code=422, detail=f"Marché inconnu: {market}")
-    payload = revision_value_for_market(market_cfg.market_id)
+    payload = await revision_value_off_loop(market_cfg.market_id)
     payload = dict(payload)
     payload["market"] = market
     return RevisionValueResponse(**payload)

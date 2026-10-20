@@ -27,12 +27,10 @@ from src.models.hybrid_features import clean_price_dataframe
 from src.models.market_registry import get_market_config
 from src.models.prediction_journal import JournalLockError
 from src.models.revision_command import (
-    frame_fingerprint,
     journal_served,
     load_named_predictor,
     procedure_for,
 )
-from scripts.write_experimental_release import named_candidate
 
 def _read_release(path: Path) -> dict | None:
     if not path.exists():
@@ -41,39 +39,20 @@ def _read_release(path: Path) -> dict | None:
 
 
 def _release_from_stamp(market: str, stamp: str, weights: str, margins: str) -> dict:
-    found = named_candidate(market, stamp)
-    if found is None:
-        raise SystemExit(f"[ERREUR] Lot nommé incomplet: {market} {stamp}")
-    version, artifacts, trained = found
-    artifacts = dict(artifacts)
-    artifacts["ensemble_weights"] = weights
-    artifacts["conformal_intervals"] = margins
-    from scripts.write_experimental_release import _nhits_required
+    from scripts.write_experimental_release import release_descriptor
 
-    if _nhits_required(weights):
-        pointer = ROOT / "models" / ("coffee_robusta" if market == "coffee_robusta" else "") / "NHITS_LOT.json"
-        if market == "cocoa":
-            pointer = ROOT / "models" / "NHITS_LOT.json"
-        if pointer.exists():
-            relative = str(json.loads(pointer.read_text(encoding="utf-8")).get("relative") or "").replace("\\", "/")
-            if relative:
-                artifacts["nhits"] = relative
-    return {
-        "market": market,
-        "version": version,
-        "release_mode": "experimental",
-        "validated": False,
-        "artifacts": artifacts,
-        "direct_horizons": trained,
-        "horizons": {key: {"validated": False} for key in ("1", "7", "14", "30")},
-    }
+    models_dir = ROOT / "models" if market == "cocoa" else ROOT / "models" / "coffee_robusta"
+    try:
+        return release_descriptor(market, stamp, weights, margins, models_dir)
+    except ValueError as exc:
+        raise SystemExit(f"[ERREUR] {exc}") from exc
 
 
 def _served_price(item) -> float | None:
-    status = str(getattr(item, "status", None) or (item.components or {}).get("status") or "")
-    if status == "unavailable" or item.price is None:
-        return None
-    return float(item.price)
+    """Model price of the previous lot, also when the close was published."""
+    from src.models.served_forecast import model_price
+
+    return model_price(item)
 
 
 def main() -> int:
@@ -111,7 +90,6 @@ def main() -> int:
     if frame.empty:
         print("[ERREUR] Instantané vide")
         return 1
-    token = frame_fingerprint(frame)
     procedure = procedure_for(release, pred_cfg.get("max_abs_change_pct") or {})
     predictor = load_named_predictor(release, market_cfg, pred_cfg)
     predictor.bind_frame(frame)
@@ -124,7 +102,8 @@ def main() -> int:
             market=api_market,
             release=release,
             procedure=procedure,
-            data_token=token,
+            data_token=str(predictor._served_fingerprint or ""),
+            source_token=str(predictor._data_fingerprint or ""),
         )
     except JournalLockError as exc:
         print(f"[ERREUR] {exc}")
@@ -155,7 +134,8 @@ def main() -> int:
             market=api_market,
             release=release,
             procedure=procedure,
-            data_token=token,
+            data_token=str(predictor._served_fingerprint or ""),
+            source_token=str(predictor._data_fingerprint or ""),
             diagnostic=True,
             previous_version=str(previous.get("version")),
             previous_prices=previous_prices,

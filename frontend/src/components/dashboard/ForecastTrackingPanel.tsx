@@ -78,6 +78,15 @@ export function ForecastTrackingPanel({
   const latest = data?.latest;
   const sameDirection =
     !data?.direction || data.direction === data.direction_vs_emission_spot;
+  const visibleChoices = (() => {
+    const grouped = new Map<string, NonNullable<ForecastTrackingResponse['initials']>[number]>();
+    for (const item of data?.initials ?? []) {
+      const key = `${item.origin_date}|${item.target_date}|${item.horizon ?? ''}`;
+      const current = grouped.get(key);
+      if (!current || item.forecast_id === selected) grouped.set(key, item);
+    }
+    return [...grouped.values()];
+  })();
 
   return (
     <div className="glass-card px-4 py-3 text-sm text-slate-300">
@@ -146,7 +155,7 @@ export function ForecastTrackingPanel({
             </button>
           </form>
           <div className="flex flex-wrap gap-2">
-            {(data?.initials ?? []).map(item => (
+            {visibleChoices.map(item => (
               <button
                 key={item.forecast_id || `${item.origin_date}-${item.target_date}`}
                 type="button"
@@ -194,19 +203,6 @@ export function ForecastTrackingPanel({
                 <p className="text-amber-200/90">
                   Le sens contre le cours du jour de l&apos;émission ({DIRECTION[data?.direction_vs_emission_spot || ''] || 'Indisponible'})
                   diffère du sens contre le cours de départ. La succession des objectifs ne s&apos;est pas retournée.
-                </p>
-              )}
-              <p>
-                Version initiale {initial.model_version || '—'} · version actuelle{' '}
-                {latest?.model_version || '—'}
-              </p>
-              {data?.model_comparison && (
-                <p>
-                  Changement de lot :{' '}
-                  {data.model_comparison.available
-                    ? `${data.model_comparison.previous_model_version} ${money(data.model_comparison.previous_price, currency)} → ${money(data.model_comparison.new_price, currency)}`
-                    : 'comparaison indisponible'}
-                  . {data.model_comparison.note}
                 </p>
               )}
               {data?.mature && (

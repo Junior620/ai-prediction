@@ -12,7 +12,7 @@ import type {
   ValidationMetricsResponse,
 } from '@/types/api';
 import {
-  AlertTriangle, BarChart2, Layers, Shield, Target,
+  AlertTriangle, Layers, Target,
 } from 'lucide-react';
 
 interface AnalysisPanelProps {
@@ -53,7 +53,12 @@ export function AnalysisPanel({
 }: AnalysisPanelProps) {
   const pred7 = predictions.find(p => p.horizon === 7);
   const pred30 = predictions.find(p => p.horizon === 30) ?? predictions[predictions.length - 1];
-  const change7 = pred7 && pred7.price != null && currentPrice ? ((pred7.price - currentPrice) / currentPrice) * 100 : 0;
+  const pred7Validated =
+    (pred7?.status ?? pred7?.components?.status) === 'validated' && !pred7?.components?.served_as_close;
+  const change7 =
+    pred7Validated && pred7 && pred7.price != null && currentPrice
+      ? ((pred7.price - currentPrice) / currentPrice) * 100
+      : null;
 
   const factors = buildInfluentialFactors({
     changePct7d: change7,
@@ -68,12 +73,6 @@ export function AnalysisPanel({
   const pred30Status = pred30?.status ?? pred30?.components?.status;
   const pred30Usable = pred30 && pred30.price != null && pred30Status !== 'unavailable' ? pred30 : undefined;
   const scenarios = buildScenarios(pred30Usable, currentPrice);
-
-  const m7 = validation?.xgb_metrics?.find(m => m.horizon === 7)
-    ?? validation?.xgb_metrics?.[0];
-  const m1 = validation?.xgb_metrics?.find(m => m.horizon === 1);
-  const m14 = validation?.xgb_metrics?.find(m => m.horizon === 14);
-  const m30 = validation?.xgb_metrics?.find(m => m.horizon === 30);
 
   return (
     <div className="space-y-5">
@@ -132,67 +131,6 @@ export function AnalysisPanel({
               Borne basse, centre et borne haute. Pas de pourcentage.
             </p>
           </>
-        )}
-      </section>
-
-      {/* Performance modèle */}
-      <section className="glass-card p-5">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-4">
-          <BarChart2 className="w-4 h-4 text-sky-400" />
-          Performance du modèle
-        </h3>
-        {validation ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase">MAPE J+1</p>
-              <p className="text-lg font-bold text-white mt-1">
-                {m1?.mape != null ? `${m1.mape.toFixed(1)}%` : '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase">MAPE J+7</p>
-              <p className="text-lg font-bold text-white mt-1">
-                {m7?.mape != null ? `${m7.mape.toFixed(1)}%` : '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase">MAPE J+14</p>
-              <p className="text-lg font-bold text-white mt-1">
-                {m14?.mape != null ? `${m14.mape.toFixed(1)}%` : '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase">MAPE J+30</p>
-              <p className="text-lg font-bold text-white mt-1">
-                {m30?.mape != null ? `${m30.mape.toFixed(1)}%` : '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase">Hit rate J+7</p>
-              <p className="text-lg font-bold text-white mt-1">
-                {m7?.directional_accuracy != null
-                  ? `${Math.round(m7.directional_accuracy * 100)}%`
-                  : '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase">Origines WF</p>
-              <p className="text-lg font-bold text-white mt-1">
-                {validation.n_origins ?? '—'}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-slate-500 flex items-center gap-2">
-            <Shield className="w-4 h-4" />
-            Métriques walk-forward non disponibles — lancez le backtest pour les afficher.
-          </p>
-        )}
-        {validation?.report_timestamp && (
-          <p className="text-[10px] text-slate-600 mt-3">
-            Rapport : {new Date(validation.report_timestamp).toLocaleDateString('fr-FR')}
-            · validation {validation.validation_type}
-          </p>
         )}
       </section>
 

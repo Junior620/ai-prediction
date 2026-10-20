@@ -15,7 +15,7 @@ from src.models.horizon_schedule import TRACKED_HORIZONS, schedule_table
 from src.models.improved_price_predictor import ImprovedPricePredictor
 from src.models.prediction_journal import JournalLockError, append_forecast
 from src.models.release_manifest import artifact_path, data_fingerprint, procedure_fingerprint
-from src.models.served_forecast import publish_or_close
+from src.models.served_forecast import model_price, publish_or_close
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,6 +30,25 @@ def frame_fingerprint(frame: pd.DataFrame) -> str:
     from src.models.hybrid_features import consumed_snapshot_rows
 
     return data_fingerprint(consumed_snapshot_rows(frame))
+
+
+def input_fingerprints(frame: pd.DataFrame, release: dict | None = None) -> dict[str, str]:
+    """Source rows, then the filled rows the model actually reads."""
+    from src.models.hybrid_features import (
+        consumed_snapshot_rows,
+        fill_missing_ohlcv,
+        trading_sessions,
+    )
+    from src.models.release_calendar import require_calendar
+
+    prepared = frame
+    if require_calendar(release or {}) == "trading_sessions":
+        prepared = trading_sessions(frame)
+    filled = fill_missing_ohlcv(prepared)
+    return {
+        "source": data_fingerprint(consumed_snapshot_rows(prepared)),
+        "consumed": data_fingerprint(consumed_snapshot_rows(filled)),
+    }
 
 
 def train_bounds(release: Optional[dict]) -> dict:
@@ -55,10 +74,11 @@ def procedure_for(release: dict, caps: dict) -> str:
         weights = payload.get("by_horizon") or {}
     except (KeyError, OSError, json.JSONDecodeError):
         weights = {}
-    from src.models.hybrid_features import OHLCV_FILL, SERVICE_CALENDAR
+    from src.models.hybrid_features import OHLCV_FILL
+    from src.models.release_calendar import require_calendar
 
     parameters = schedule_table(weights, caps)
-    parameters["calendar"] = SERVICE_CALENDAR
+    parameters["calendar"] = require_calendar(release)
     parameters["ohlcv_fill"] = OHLCV_FILL
     return procedure_fingerprint(
         artifact_paths=dict(release.get("artifacts") or {}),
@@ -134,6 +154,7 @@ def journal_served(
     release: dict,
     procedure: str,
     data_token: str,
+    source_token: str = "",
     diagnostic: bool = False,
     previous_version: Optional[str] = None,
     previous_prices: Optional[dict] = None,
@@ -150,7 +171,7 @@ def journal_served(
         if status != "unavailable" and len(interval) == 2:
             lower = float(interval[0]) if interval[0] is not None else None
             upper = float(interval[1]) if interval[1] is not None else None
-        price = None if status == "unavailable" or item.price is None else float(item.price)
+        price = None if status == "unavailable" else model_price(item)
         old_price = None
         comparison = None
         if diagnostic:
@@ -174,11 +195,13 @@ def journal_served(
                 status=status,
                 procedure_fingerprint=procedure,
                 data_fingerprint=data_token,
+                source_fingerprint=source_token,
                 train_end_date=train_bounds(release).get("train_end_date"),
                 diagnostic=diagnostic,
                 previous_model_version=previous_version,
                 previous_price=old_price,
                 comparison=comparison,
+                served_as_close=bool(parts.get("served_as_close")),
                 path=path,
             )
         except JournalLockError:
