@@ -1,0 +1,17 @@
+# /etc/cron.d/prediction-pipeline : traitement du soir du projet prediction (scripts/vps/pipeline.sh).
+# Installé seulement après accord ; ne touche pas la crontab de root (cron /opt/samen).
+#
+# Le cron d'Ubuntu ignore CRON_TZ (No-multiple-timezones.patch) : heures du VPS, Europe/Berlin.
+# 00:30 Berlin = 22:30 UTC l'été, 23:30 UTC l'hiver : toujours après 22:05 UTC (séance publiée
+# par Databento) et toujours le même jour UTC que la séance.
+#   mar-sam 00:30 : séances du lundi au vendredi ;
+#   dim 00:30     : samedi 22:30/23:30 UTC, passage du samedi (la politique entraîne).
+# Rattrapage 07:30 Berlin : seulement si le passage de la nuit a fini en code 2 à cause du cacao.
+# Codes : 0 succès, 1 échec, 2 retard ou séance incomplète, 3 quarantaine, 4 partiel ;
+# alerte par webhook ou SMTP (.env : ALERT_WEBHOOK_URL ou ALERT_EMAIL_*) et syslog
+# (journalctl -t prediction-pipeline). Logs : /opt/prediction/logs/pipeline/.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+30 0 * * 0,2-6 root /opt/prediction/scripts/vps/pipeline.sh
+30 7 * * 0,2-6 root /opt/prediction/scripts/vps/pipeline.sh --catch-up

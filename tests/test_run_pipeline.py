@@ -1,6 +1,7 @@
 """Orchestrateur : étapes, codes de sortie, garde d'entraînement, production jamais touchée."""
 
 import json
+import sys
 from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ TUESDAY = datetime(2026, 10, 20, 6, 0, tzinfo=timezone.utc)
 SATURDAY = datetime(2026, 10, 24, 6, 0, tzinfo=timezone.utc)
 IN_PLACE = {"cocoa": "20261019_052744", "coffee_robusta": "20261019_053000"}
 NEW = {"cocoa": "20261024_061500", "coffee_robusta": "20261024_062000"}
+ACTIVE = {"cocoa": "improved_20261006_213603", "coffee_robusta": "improved_20261006_220101"}
 
 
 def _write(path: Path, payload) -> None:
@@ -31,7 +33,7 @@ def repo(tmp_path):
     """Un dépôt minimal : lots en place, instantanés, fraîcheur, série sans saut, journal vide."""
     for market in rp.MARKETS:
         _write(tmp_path / "config" / f"experimental_release_{market}.json", {"version": f"improved_{IN_PLACE[market]}"})
-        _write(tmp_path / "config" / f"active_release_{market}.json", {"version": "improved_20261006_213603"})
+        _write(tmp_path / "config" / f"active_release_{market}.json", {"market": market, "version": ACTIVE[market]})
         _write(tmp_path / "models" / "candidates" / market / "TRAINED_LOT.json", {"stamp": IN_PLACE[market]})
         _write(tmp_path / "data" / "status" / f"freshness_{market}.json", {"status": "ok", "expected_last_session": "2026-10-19"})
         snapshot = tmp_path / rp.SNAPSHOT[market]
@@ -75,7 +77,7 @@ class FakeRunner:
         raise AssertionError(f"{needle} jamais lancé")
 
 
-def _pipeline(repo, runner, *, now=TUESDAY, probe=lambda: 200, **flags):
+def _pipeline(repo, runner, *, now=TUESDAY, probe=lambda: 200, public_health=None, alert=None, **flags):
     args = Namespace(
         mode=flags.get("mode", "daily"),
         retrain=flags.get("retrain", False),
@@ -83,10 +85,26 @@ def _pipeline(repo, runner, *, now=TUESDAY, probe=lambda: 200, **flags):
         preview_journal=flags.get("preview_journal", False),
         unattended=True,
         markets=flags.get("markets", list(rp.MARKETS)),
+        host=flags.get("host", "pc"),
     )
-    pipeline = rp.Pipeline(args, runner, now=now, sleep=lambda _: None, probe=probe, root=repo)
+    pipeline = rp.Pipeline(
+        args, runner, now=now, sleep=lambda _: None, probe=probe,
+        public_health=public_health or (lambda: _health()), alert=alert, root=repo,
+    )
     pipeline._api_token = lambda: "test-token"
     return pipeline
+
+
+def _health(mode="active", versions=None, status="ok", last="2026-10-19", roll="2026-10-19"):
+    """/health du VPS : mode, lot servi par marché, fraîcheur du cacao."""
+    versions = versions or ACTIVE
+    serving = {market: {"release_mode": mode, "model_version": versions[market]} for market in rp.MARKETS}
+    serving["cocoa"]["freshness"] = {"status": status, "last_session": last, "roll_series_end": roll}
+    return {"release_mode": mode, "status": "healthy", "serving": serving}
+
+
+def _writer(repo, host):
+    _write(repo / "config" / "config.yaml", f"pipeline:\n  journal_writer: {host}\n")
 
 
 def test_an_ordinary_day_recomputes_forecasts_with_the_lot_in_place(repo):
@@ -285,3 +303,177 @@ def test_data_only_deploy_sends_series_without_restart():
     assert "docker compose restart" not in block and "Send-RepoFile" not in block
     # Le bloc sort avant tout envoi de modèle, de code ou de manifeste.
     assert start < deploy.index("Send-RepoFile $cocoaRelease.artifacts.prophet")
+
+
+# ---------------------------------------------------------------------- lot C : VPS
+VPS_SCRIPTS = ROOT / "scripts" / "vps"
+
+
+def _no_docker_and_no_experimental_mode(runner):
+    for _, cmd, env in runner.calls:
+        text = " ".join(cmd)
+        assert not cmd[0].startswith("docker") and "compose" not in text, text
+        assert "deploy_models.ps1" not in text and "powershell" not in text, text
+        assert "PREDICTION_RELEASE_MODE" not in env, text
+
+
+def test_vps_runs_every_step_in_its_container_and_leaves_the_public_api_alone(repo):
+    _writer(repo, "vps")
+    runner = FakeRunner(repo)
+    asked = []
+    code = _pipeline(repo, runner, host="vps", public_health=lambda: asked.append(1) or _health()).execute()
+    assert code == rp.EXIT_OK
+    _no_docker_and_no_experimental_mode(runner)
+    journal = runner.calls[runner.index("journal_forecast_revisions.py --market coffee_robusta")][1]
+    assert journal[0] == sys.executable and journal[1] == "scripts/journal_forecast_revisions.py"
+    assert runner.commands("verify_served_forecast.py") == []
+    assert runner.commands("flushdb()") and asked
+    assert runner.index("evaluate_predictions.py") < runner.index("flushdb()") < runner.index("src.monitoring.freshness")
+    assert len(runner.commands("write_experimental_release.py")) == 2
+
+
+def test_vps_saturday_trains_in_its_container_and_never_writes_production_manifests(repo):
+    _writer(repo, "vps")
+    active = {p: p.read_bytes() for p in (repo / "config").glob("active_release_*.json")}
+    real = {p: p.stat().st_mtime_ns for p in (ROOT / "config").glob("active_release_*.json")}
+    runner = FakeRunner(repo)
+    code = _pipeline(repo, runner, now=SATURDAY, host="vps").execute()
+    assert code == rp.EXIT_OK
+    _no_docker_and_no_experimental_mode(runner)
+    assert len(runner.commands("train_hybrid_improved.py")) == 2
+    nhits = runner.calls[runner.index("train_nhits.py")][1]
+    assert nhits[:3] == [sys.executable, "-u", "train_nhits.py"]
+    assert runner.commands("write_experimental_release.py --market cocoa")[0].endswith(f"--stamp {NEW['cocoa']}")
+    assert len(runner.commands("run_walk_forward_validation.py")) == 2
+    assert {p: p.read_bytes() for p in (repo / "config").glob("active_release_*.json")} == active
+    assert {p: p.stat().st_mtime_ns for p in (ROOT / "config").glob("active_release_*.json")} == real
+    assert all("active_release" not in " ".join(cmd) for _, cmd, _ in runner.calls)
+
+
+def test_only_the_journal_writer_runs_for_real(repo, capsys):
+    runner = FakeRunner(repo)
+    assert rp.journal_writer(repo) == "pc"  # pas de config.yaml : le PC, le VPS refuse
+    assert _pipeline(repo, runner, host="vps").execute() == rp.EXIT_FAILED
+    assert runner.calls == []
+    _writer(repo, "vps")
+    assert _pipeline(repo, runner, host="pc").execute() == rp.EXIT_FAILED
+    assert runner.calls == []
+    assert "pipeline.journal_writer" in capsys.readouterr().out
+    # Le dry-run reste permis et le dit.
+    dry = rp.Runner(dry_run=True)
+    assert _pipeline(repo, dry, host="pc", dry_run=True).execute() == rp.EXIT_OK
+    assert "serait refusé" in capsys.readouterr().out and dry.calls
+
+
+def test_vps_dry_run_writes_nothing_and_lists_the_public_checks(repo, capsys):
+    before = sorted(p.relative_to(repo) for p in repo.rglob("*"))
+    for mode in ("daily", "weekly"):
+        dry = rp.Runner(dry_run=True)
+        pipeline = _pipeline(repo, dry, host="vps", dry_run=True, mode=mode, public_health=lambda: None)
+        assert pipeline.execute() == rp.EXIT_OK
+        assert not any(cmd[0].startswith("docker") or "deploy_models" in " ".join(cmd) for _, cmd in dry.calls)
+    assert sorted(p.relative_to(repo) for p in repo.rglob("*")) == before
+    out = capsys.readouterr().out
+    assert "mode active, lot actif" in out and "cache Redis" in out
+
+
+def test_public_api_outside_active_mode_is_a_failure(repo):
+    _writer(repo, "vps")
+    code = _pipeline(repo, FakeRunner(repo), host="vps", markets=["cocoa"],
+                     public_health=lambda: _health(mode="experimental")).execute()
+    assert code == rp.EXIT_FAILED
+    served = {**ACTIVE, "cocoa": f"improved_{IN_PLACE['cocoa']}"}
+    pipeline = _pipeline(repo, FakeRunner(repo), host="vps", markets=["cocoa"],
+                         public_health=lambda: _health(versions=served))
+    assert pipeline.execute() == rp.EXIT_FAILED
+    assert "l'API publique sert" in pipeline.outcome.failed[0]
+
+
+def test_public_api_late_or_unreachable_is_reported(repo):
+    _writer(repo, "vps")
+    answers = iter([None, _health(last="2026-10-16"), _health()])
+    assert _pipeline(repo, FakeRunner(repo), host="vps", public_health=lambda: next(answers)).execute() == rp.EXIT_OK
+    pipeline = _pipeline(repo, FakeRunner(repo), host="vps", public_health=lambda: None)
+    assert pipeline.execute() == rp.EXIT_PARTIAL
+    assert "injoignable" in pipeline.outcome.partial[0]
+    # Conteneur sans ./data monté : la série sans saut n'arrive pas (VPS du 20/10/2026).
+    pipeline = _pipeline(repo, FakeRunner(repo), host="vps", public_health=lambda: _health(roll=None))
+    assert pipeline.execute() == rp.EXIT_PARTIAL
+    assert "série sans saut" in pipeline.outcome.partial[0]
+
+
+def test_alert_and_last_run_follow_the_exit_code(repo):
+    _writer(repo, "vps")
+    sent = []
+    code = _pipeline(repo, FakeRunner(repo, {"collect_ice_london_cocoa.py": 2}), host="vps",
+                     alert=lambda c, o: sent.append((c, list(o.stale)))).execute()
+    assert code == rp.EXIT_STALE and sent and sent[0][0] == rp.EXIT_STALE
+    last = json.loads((repo / rp.LAST_RUN).read_text(encoding="utf-8"))
+    assert last["host"] == "vps" and last["code"] == rp.EXIT_STALE and last["stale"]
+    sent.clear()
+    assert _pipeline(repo, FakeRunner(repo), host="vps", alert=lambda c, o: sent.append(c)).execute() == rp.EXIT_OK
+    assert sent == []
+
+    def broken(code, outcome):
+        raise RuntimeError("webhook absent")
+
+    runner = FakeRunner(repo, {"check_roll_series.py": 1})
+    assert _pipeline(repo, runner, host="vps", alert=broken).execute() == rp.EXIT_FAILED
+
+
+def test_host_comes_from_the_flag_or_the_environment(monkeypatch):
+    monkeypatch.delenv("PIPELINE_HOST", raising=False)
+    assert rp.parse_args([]).host == "pc"
+    monkeypatch.setenv("PIPELINE_HOST", "vps")
+    assert rp.parse_args([]).host == "vps" and rp.parse_args(["--host", "pc"]).host == "pc"
+    monkeypatch.setenv("PIPELINE_HOST", "serveur")
+    with pytest.raises(SystemExit):
+        rp.parse_args([])
+
+
+def _code_lines(path):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return [line for line in lines if line.strip() and not line.lstrip().startswith("#")]
+
+
+def test_vps_wrapper_never_recreates_or_switches_the_public_api():
+    text = "\n".join(_code_lines(VPS_SCRIPTS / "pipeline.sh"))
+    for forbidden in ("compose up", "restart", "compose build", "--build", "PREDICTION_RELEASE_MODE=experimental", "active_release"):
+        assert forbidden not in text, forbidden
+    assert "unset PREDICTION_RELEASE_MODE" in text and "grep -qx 'PREDICTION_RELEASE_MODE=active' .env" in text
+    assert "docker compose run --rm --no-deps -T" in text and "--host vps" in text and "--alert" in text
+    assert "flock -n" in text and "docker image inspect" in text
+    # Le journal du traitement ne suit jamais celui de l'API publique (.env : PREDICTION_JOURNAL).
+    assert "-e PREDICTION_JOURNAL= " in text
+    assert b"\r" not in (VPS_SCRIPTS / "pipeline.sh").read_bytes()
+
+
+def test_cron_runs_after_databento_publishes_in_summer_and_winter():
+    from zoneinfo import ZoneInfo
+
+    berlin = ZoneInfo("Europe/Berlin")
+    entries = [line.split() for line in _code_lines(VPS_SCRIPTS / "prediction-pipeline.cron") if line[0].isdigit()]
+    assert entries and all(e[5] == "root" and e[6] == "/opt/prediction/scripts/vps/pipeline.sh" for e in entries)
+    main = [e for e in entries if len(e) == 7]
+    assert len(main) == 1 and any(e[7:] == ["--catch-up"] for e in entries)
+    minute, hour, _, _, days = main[0][:5]
+    assert days == "0,2-6"  # lendemain local des séances lun-ven, et samedi soir UTC
+    # Séance du lundi 19/01 (hiver) et du lundi 20/07 (été) : passage le mardi 00:30 à Berlin.
+    for session in (datetime(2026, 1, 19), datetime(2026, 7, 20)):
+        local = datetime(session.year, session.month, session.day + 1, int(hour), int(minute), tzinfo=berlin)
+        utc = local.astimezone(timezone.utc)
+        assert utc.date() == session.date() and (utc.hour, utc.minute) >= (22, 5)
+
+
+def test_vps_update_keeps_pipeline_manifests_and_refuses_unknown_content():
+    import re
+
+    script = (VPS_SCRIPTS / "update.sh").read_text(encoding="utf-8")
+    keep = re.compile(re.search(r"KEEP_RE='([^']+)'", script).group(1))
+    assert keep.match("config/experimental_release_cocoa.json")
+    assert keep.match("config/previous_experimental_release_coffee_robusta.json")
+    assert not keep.match("config/active_release_cocoa.json") and not keep.match("config/config.yaml")
+    code = "\n".join(_code_lines(VPS_SCRIPTS / "update.sh"))
+    assert "exit 3" in code and "tar czf" in code and "git checkout -q -f -B main" in code
+    # Ni build ni redémarrage : seulement affichés, à lancer après accord.
+    assert all(line.lstrip().startswith("echo") for line in code.splitlines() if "docker compose" in line)

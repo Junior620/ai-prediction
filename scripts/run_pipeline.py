@@ -14,9 +14,19 @@ données seules (ou complet après un entraînement), fraîcheur.
 Ce traitement n'écrit jamais ``config/active_release_*.json`` : un nouveau lot reste
 expérimental jusqu'à sa validation, et la promotion reste une décision manuelle.
 
+Deux hôtes (``--host``) :
+  pc  : PC Windows (update_system.bat). Docker depuis l'hôte, API locale en mode
+        experimental, puis deploy_models.ps1 vers le VPS.
+  vps : conteneur ponctuel de l'image de l'API (scripts/vps/pipeline.sh, cron). Chaque
+        étape tourne dans ce conteneur ; aucune commande docker. L'API publique garde son
+        conteneur, son mode active et son lot actif : on vide son cache et on le contrôle.
+Un seul hôte écrit le journal (config/config.yaml : pipeline.journal_writer) ; l'autre
+refuse le traitement réel. Le dry-run et l'aperçu restent permis partout.
+
 Usage :
     python scripts/run_pipeline.py [--mode daily|weekly] [--retrain] [--dry-run]
                                    [--preview-journal] [--unattended]
+                                   [--host pc|vps] [--alert]
 Codes de sortie : 0 succès, 1 échec réel, 2 source en retard ou séance incomplète,
 3 quarantaine, 4 succès partiel.
 """
@@ -51,6 +61,7 @@ EXIT_QUARANTINE = 3
 EXIT_PARTIAL = 4
 
 MARKETS = ("cocoa", "coffee_robusta")
+HOSTS = ("pc", "vps")
 LABEL = {"cocoa": "Cacao", "coffee_robusta": "Robusta"}
 SNAPSHOT = {
     "cocoa": "data/freeze/cocoa_prices.csv",
@@ -61,7 +72,18 @@ WALK_FORWARD_DIR = {
     "coffee_robusta": "reports/walk_forward/coffee_robusta/daily",
 }
 PREVIEW_DIR = "reports/pipeline"
+LAST_RUN = "data/status/pipeline_last_run.json"
 HEALTH_URL = "http://localhost:8000/health"
+# Depuis le conteneur ponctuel du VPS : réseau du projet compose, service « api ».
+PUBLIC_HEALTH_URL = "http://api:8000/health"
+PUBLIC_CHECK_TRIES = 6
+PUBLIC_CHECK_SECONDS = 60
+# Même effet que « redis-cli FLUSHDB » de deploy_models.ps1 -DataOnly.
+REDIS_FLUSH = (
+    "import os, redis; redis.Redis(host=os.getenv('REDIS_HOST', 'redis'), "
+    "port=int(os.getenv('REDIS_PORT', '6379')), db=int(os.getenv('REDIS_DB', '0'))).flushdb()"
+)
+# PC seulement : l'API locale sert le lot du soir. Jamais passé sur le VPS.
 DOCKER_ENV = {"PREDICTION_RELEASE_MODE": "experimental"}
 ROBUSTA_COLLECT_TRIES = 3
 ROBUSTA_RETRY_SECONDS = 45
@@ -118,6 +140,50 @@ def health_status(url: str = HEALTH_URL) -> Optional[int]:
         return None
 
 
+def health_payload(url: str = PUBLIC_HEALTH_URL) -> Optional[dict]:
+    """Corps de /health, même en 503 (service dégradé) ; None si injoignable."""
+    try:
+        with urllib.request.urlopen(url, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.loads(exc.read().decode("utf-8"))
+        except (ValueError, OSError):
+            return None
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return None
+
+
+def journal_writer(root: Path = ROOT) -> str:
+    """Hôte qui écrit le journal et les lots. Illisible : « pc », le VPS refuse alors."""
+    try:
+        import yaml
+
+        payload = yaml.safe_load((Path(root) / "config" / "config.yaml").read_text(encoding="utf-8")) or {}
+    except Exception:
+        return "pc"
+    return str((payload.get("pipeline") or {}).get("journal_writer") or "pc").strip().lower()
+
+
+def send_alert(code: int, outcome: "Outcome", args: argparse.Namespace) -> None:
+    """Webhook ou SMTP de .env (ALERT_WEBHOOK_URL, ALERT_EMAIL_*) ; sinon le journal seul."""
+    from src.monitoring.alert_system import AlertSeverity, AlertType, get_alert_system
+
+    severity = AlertSeverity.CRITICAL if code == EXIT_FAILED else AlertSeverity.ERROR
+    kind = AlertType.DATA_SOURCE_FAILURE if code in (EXIT_STALE, EXIT_QUARANTINE) else AlertType.SYSTEM_ERROR
+    items = outcome.failed + outcome.stale + outcome.quarantine + outcome.partial
+    message = f"Traitement {args.mode} ({getattr(args, 'host', 'pc')}) : code {code} — " + ("; ".join(items[:3]) or "voir le log")
+    details = {
+        "code": code,
+        "failed": outcome.failed,
+        "stale": outcome.stale,
+        "quarantine": outcome.quarantine,
+        "partial": outcome.partial,
+        "new_lots": outcome.new_lots,
+    }
+    get_alert_system().send_alert(severity, kind, message, details=details)
+
+
 def stamp_of(version: Optional[str]) -> str:
     text = str(version or "")
     return text.split("improved_", 1)[1] if text.startswith("improved_") else ""
@@ -141,6 +207,8 @@ class Pipeline:
         now: Optional[datetime] = None,
         sleep: Callable[[float], None] = time.sleep,
         probe: Callable[[], Optional[int]] = health_status,
+        public_health: Callable[[], Optional[dict]] = health_payload,
+        alert: Optional[Callable[[int, Outcome], None]] = None,
         root: Path = ROOT,
     ):
         self.args = args
@@ -148,7 +216,10 @@ class Pipeline:
         self.now = now or datetime.now(timezone.utc)
         self.sleep = sleep
         self.probe = probe
+        self.public_health = public_health
+        self.alert = alert
         self.root = Path(root)
+        self.host = getattr(args, "host", "pc")
         self.py = sys.executable
         self.outcome = Outcome()
         self.decisions: dict = {}
@@ -182,12 +253,23 @@ class Pipeline:
     def execute(self) -> int:
         if self.args.preview_journal:
             return self.preview()
-        if not self.args.dry_run and not self._api_token():
-            print("[ERREUR] API_TOKEN absent. Ajoutez API_TOKEN=... dans .env (generate_jwt_token.py).")
-            return EXIT_FAILED
-        if self.run("Docker opérationnel", ["docker", "info"]) != 0:
-            print("[ERREUR] Docker n'est pas en cours d'exécution.")
-            return EXIT_FAILED
+        writer = journal_writer(self.root)
+        if writer != self.host:
+            reason = f"journal écrit par « {writer} » (config/config.yaml : pipeline.journal_writer), pas par « {self.host} »"
+            if not self.args.dry_run:
+                print(f"[ERREUR] {reason} : rien n'est lancé.")
+                self.outcome.failed.append(reason)
+                return self.finish()
+            print(f"[AVERTISSEMENT] {reason} : en réel, ce traitement serait refusé.")
+        if self.host == "vps":
+            print("[INFO] VPS : chaque étape tourne dans ce conteneur ; l'API publique garde son conteneur et son mode active.")
+        else:
+            if not self.args.dry_run and not self._api_token():
+                print("[ERREUR] API_TOKEN absent. Ajoutez API_TOKEN=... dans .env (generate_jwt_token.py).")
+                return EXIT_FAILED
+            if self.run("Docker opérationnel", ["docker", "info"]) != 0:
+                print("[ERREUR] Docker n'est pas en cours d'exécution.")
+                return EXIT_FAILED
         for market in self.args.markets:
             self.market(market)
             if self.outcome.halted:
@@ -242,7 +324,8 @@ class Pipeline:
             return
         if new_lot:
             self.outcome.new_lots[market] = stamp
-        self.serve(market, recreate=new_lot)
+        if self.host == "pc":
+            self.serve(market, recreate=new_lot)
 
     def collect(self, market: str) -> bool:
         if market == "cocoa":
@@ -344,6 +427,8 @@ class Pipeline:
         if market != "coffee_robusta":
             return True
         nhits = ["python", "-u", "train_nhits.py", "--market", market, "--snapshot", snapshot]
+        if self.host == "vps":
+            return self.run("Robusta : N-HiTS (ce conteneur)", [self.py, *nhits[1:]]) == 0
         if self.run("Robusta : N-HiTS (Docker)", ["docker", "compose", "exec", "-T", "api", *nhits], env=DOCKER_ENV) == 0:
             return True
         retry = ["docker", "compose", "run", "--rm", "--no-deps", "api", *nhits]
@@ -353,7 +438,8 @@ class Pipeline:
         tail = ["--market", market, "--snapshot", SNAPSHOT[market], "--stamp", stamp]
         if preview:
             tail += ["--preview", "--preview-output", f"{PREVIEW_DIR}/preview_journal_{market}.json"]
-        if market == "coffee_robusta":
+        if market == "coffee_robusta" and self.host == "pc":
+            # Le N-HiTS (safetensors) ne se lit pas sous Windows ; le VPS est déjà dans l'image.
             mount = f"{self.root / 'scripts'}:/app/scripts:ro"
             return [
                 "docker", "compose", "run", "--rm", "--no-deps", "-v", mount, "api",
@@ -410,14 +496,81 @@ class Pipeline:
             self._optional("Cacao : courbe Londres mois nommés", [self.py, "train_futures_curve.py", "--source", "london_named"])
             self._optional("Nettoyage des anciens modèles (lots des manifestes protégés)", [self.py, "scripts/cleanup_old_models.py", "--keep", "5"])
         self._optional("Évaluation des prévisions échues", [self.py, "evaluate_predictions.py"])
-        self.deploy()
+        if self.host == "vps":
+            self.refresh_public_api()
+        else:
+            self.deploy()
         code = self.run("Fraîcheur des prix", [self.py, "-m", "src.monitoring.freshness", *self.args.markets])
         if code == 2:
             self.outcome.stale.append("fraîcheur : séance attendue manquante")
 
+    def refresh_public_api(self) -> None:
+        """VPS : l'API publique relit les données à chaque calcul ; seul son cache est vidé.
+
+        Jamais de ``docker compose up`` ni de redémarrage : son conteneur, son mode active et
+        son lot actif restent ceux du dernier déploiement.
+        """
+        if self.run("VPS : cache Redis des prévisions vidé", [self.py, "-c", REDIS_FLUSH]) != 0:
+            self.outcome.partial.append("cache Redis non vidé : l'API publique peut servir la séance d'hier")
+        self.check_public_api()
+
+    def check_public_api(self) -> None:
+        """Mode active et lot actif servis, puis dernière séance figée visible."""
+        if self.args.dry_run:
+            print(f"[ÉTAPE] Contrôle de {PUBLIC_HEALTH_URL} : mode active, lot actif, dernière séance figée")
+            return
+        from src.models.release_manifest import load_active_release
+
+        expected_day = str((_read_json(self.root / "data" / "freeze" / "cocoa_prices.json") or {}).get("max_date") or "")
+        behind: list[tuple[str, str]] = [("partial", "injoignable, données non confirmées")]
+        for attempt in range(1, PUBLIC_CHECK_TRIES + 1):
+            payload = self.public_health()
+            if payload is None:
+                print(f"[INFO] {PUBLIC_HEALTH_URL} injoignable ({attempt}/{PUBLIC_CHECK_TRIES})")
+                self.sleep(PUBLIC_CHECK_SECONDS)
+                continue
+            mode = payload.get("release_mode")
+            if mode != "active":
+                self.outcome.failed.append(f"API publique en mode {mode}, attendu active")
+                print(f"[ERREUR] API publique en mode {mode}, attendu active")
+                return
+            serving = payload.get("serving") or {}
+            wrong = []
+            for market in self.args.markets:
+                try:
+                    expected = load_active_release(market, self.root).get("version")
+                except (OSError, ValueError) as exc:
+                    wrong.append(f"{market} : manifeste actif illisible ({exc})")
+                    continue
+                served = (serving.get(market) or {}).get("model_version")
+                if served != expected:
+                    wrong.append(f"{market} : l'API publique sert {served}, lot actif {expected}")
+            if wrong:
+                for item in wrong:
+                    print(f"[ERREUR] {item}")
+                self.outcome.failed.extend(wrong)
+                return
+            # Séance lue dans Supabase ; série sans saut lue sur disque : un conteneur sans
+            # ./data monté ne la voit pas (cas du 20/10/2026, roll_series_end nul).
+            fresh = (serving.get("cocoa") or {}).get("freshness") or {}
+            last = str(fresh.get("last_session") or "")
+            roll_end = str(fresh.get("roll_series_end") or "")
+            behind = []
+            if fresh.get("status") != "ok" or (expected_day and last < expected_day):
+                behind.append(("stale", f"fraîcheur {fresh.get('status')}, dernière séance {last or '?'}, attendue {expected_day or '?'}"))
+            if expected_day and roll_end < expected_day:
+                behind.append(("partial", f"série sans saut au {roll_end or 'absente'}, attendue {expected_day} (./data monté ?)"))
+            if not behind:
+                print(f"[OK] API publique : mode active, lot actif, dernière séance {last}")
+                return
+            print(f"[INFO] API publique : {'; '.join(text for _, text in behind)} ({attempt}/{PUBLIC_CHECK_TRIES})")
+            self.sleep(PUBLIC_CHECK_SECONDS)
+        for kind, text in behind:
+            getattr(self.outcome, kind).append(f"API publique : {text}")
+
     def deploy(self) -> None:
         if os.name != "nt" and not self.args.dry_run:
-            print("[INFO] Déploiement VPS : hors Windows, prévu par git au lot C")
+            print("[INFO] Déploiement VPS : deploy_models.ps1 demande Windows, rien n'est envoyé")
             return
         base = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(self.root / "deploy_models.ps1")]
         if self.outcome.new_lots:
@@ -436,7 +589,7 @@ class Pipeline:
                 print(f"[ERREUR] {LABEL[market]} : aucun lot en place")
                 code = EXIT_FAILED
                 continue
-            env = DOCKER_ENV if market == "coffee_robusta" else None
+            env = DOCKER_ENV if market == "coffee_robusta" and self.host == "pc" else None
             label = f"{LABEL[market]} : aperçu du journal ({stamp}), rien n'est écrit"
             if self.run(label, self.journal_cmd(market, stamp, preview=True), env=env) != 0:
                 code = EXIT_FAILED
@@ -491,7 +644,37 @@ class Pipeline:
             print(f"  [nouveau lot expérimental] {market} {stamp} — non promu, validation manuelle")
         prefix = "[DRY-RUN] " if self.args.dry_run else ""
         print(f"  {prefix}{messages[code]}\n  Code de sortie : {code}\n{'=' * 80}")
+        if not self.args.dry_run:
+            self.record(code)
+            if self.alert is not None and code != EXIT_OK:
+                try:
+                    self.alert(code, self.outcome)
+                except Exception as exc:  # une alerte manquée ne change pas le code
+                    print(f"[AVERTISSEMENT] Alerte non envoyée : {exc}")
         return code
+
+    def record(self, code: int) -> None:
+        """Dernier passage de cet hôte : lu par le rattrapage et par l'autre hôte."""
+        path = self.root / LAST_RUN
+        payload = {
+            "host": self.host,
+            "mode": self.args.mode,
+            "code": code,
+            "started_at": self.now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "failed": self.outcome.failed,
+            "stale": self.outcome.stale,
+            "quarantine": self.outcome.quarantine,
+            "partial": self.outcome.partial,
+            "new_lots": self.outcome.new_lots,
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:
+            print(f"[AVERTISSEMENT] {LAST_RUN} non écrit : {exc}")
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
@@ -502,15 +685,24 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--preview-journal", action="store_true", help="Prévisions du lot en place, sans écriture")
     parser.add_argument("--unattended", action="store_true", help="Aucune pause (lu par update_system.bat)")
     parser.add_argument("--markets", nargs="+", choices=MARKETS, default=list(MARKETS))
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--host", choices=HOSTS, default=os.environ.get("PIPELINE_HOST") or "pc",
+        help="pc : PC Windows ; vps : conteneur ponctuel du VPS (scripts/vps/pipeline.sh)",
+    )
+    parser.add_argument("--alert", action="store_true", help="Alerte (webhook ou SMTP de .env) si le code n'est pas 0")
+    args = parser.parse_args(argv)
+    if args.host not in HOSTS:
+        parser.error(f"PIPELINE_HOST={args.host} : attendu {' ou '.join(HOSTS)}")
+    return args
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     print("=" * 80)
-    print(f"  TRAITEMENT {args.mode.upper()} — {', '.join(LABEL[m] for m in args.markets)}")
+    print(f"  TRAITEMENT {args.mode.upper()} ({args.host}) — {', '.join(LABEL[m] for m in args.markets)}")
     print("=" * 80)
-    return Pipeline(args, Runner(dry_run=args.dry_run)).execute()
+    alert = (lambda code, outcome: send_alert(code, outcome, args)) if args.alert else None
+    return Pipeline(args, Runner(dry_run=args.dry_run), alert=alert).execute()
 
 
 if __name__ == "__main__":
