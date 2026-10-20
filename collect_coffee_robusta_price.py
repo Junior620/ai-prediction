@@ -22,6 +22,36 @@ from src.data_collection.investing_price_collector import fetch_investing_price
 from src.models.market_registry import get_market_config
 
 QUARANTINE = Path("data/quarantine/coffee_robusta_sessions.jsonl")
+# Codes lus par update_system.bat (1 reste l'échec réel).
+EXIT_SOURCE_UNAVAILABLE = 2
+EXIT_QUARANTINE = 4
+
+
+def report_freshness(supabase, table: str) -> dict:
+    """Écrit data/status/freshness_coffee_robusta.json : retard et couverture sur 30 jours."""
+    from src.models.hybrid_features import is_closed_collection_date
+    from src.monitoring.freshness import freshness_report, london_today, session_coverage, write_report
+
+    try:
+        rows = supabase.table(table).select("date").order("date", desc=True).limit(60).execute().data or []
+    except Exception as exc:
+        rows = []
+        print(f"[WARN] Fraîcheur: lecture de la base impossible ({exc})")
+    sessions = [str(r["date"])[:10] for r in rows if not is_closed_collection_date(str(r["date"])[:10])]
+    coverage = session_coverage(sessions, london_today()) if sessions else 0.0
+    report = freshness_report(
+        "coffee_robusta", sessions[0] if sessions else None, source="investing", coverage=coverage
+    )
+    write_report(report)
+    if report["status"] != "ok":
+        print(f"[ALERTE] Robusta : {report['reason']} (dernière séance {report['last_session']})")
+        try:
+            from src.monitoring.alert_system import get_alert_system
+
+            get_alert_system().send_data_source_failure_alert("freshness_coffee_robusta", report["reason"], report)
+        except Exception:
+            pass
+    return report
 
 
 def decide_robusta_quote(data: dict | None) -> dict:
@@ -29,10 +59,16 @@ def decide_robusta_quote(data: dict | None) -> dict:
     if not data:
         return {"action": "failed", "reason": "collecte_vide"}
     session = str(data.get("session_date") or "")[:10]
-    if data.get("quarantine_reason") or len(session) != 10:
+    reason = data.get("quarantine_reason")
+    if not reason and len(session) == 10:
+        from src.models.hybrid_features import is_closed_collection_date
+
+        if is_closed_collection_date(session):
+            reason = "jour_ferme"
+    if reason or len(session) != 10:
         return {
             "action": "quarantine",
-            "reason": data.get("quarantine_reason") or "date_de_seance_absente",
+            "reason": reason or "date_de_seance_absente",
             "record": {
                 "market": "coffee_robusta",
                 "session_date": session or None,
@@ -77,13 +113,15 @@ def main() -> None:
     decision = decide_robusta_quote(data)
     if decision["action"] == "failed":
         print("[ERREUR] Impossible de récupérer le prix sur Investing.com")
-        raise SystemExit(1)
+        report_freshness(supabase, market.price_table)
+        raise SystemExit(EXIT_SOURCE_UNAVAILABLE)
     if decision["action"] == "quarantine":
         QUARANTINE.parent.mkdir(parents=True, exist_ok=True)
         with QUARANTINE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(decision["record"], ensure_ascii=False) + "\n")
         print(f"[QUARANTAINE] {decision['reason']} — aucune insertion, date du jour non utilisée")
-        raise SystemExit(1)
+        report_freshness(supabase, market.price_table)
+        raise SystemExit(EXIT_QUARANTINE)
 
     price = float(decision["price"])
     symbol = data["symbol"]
@@ -111,6 +149,9 @@ def main() -> None:
     if last_price:
         change = price - last_price
         print(f"\nVariation depuis {last_date}: {change:+,.2f} ({change / last_price * 100:+.2f}%)")
+    # Investing ne donne que le cours du jour : une séance manquée n'est jamais rattrapée.
+    # Le retard éventuel est lu en fin de traitement (python -m src.monitoring.freshness).
+    report_freshness(supabase, market.price_table)
     print("\n" + "=" * 80)
     print("COLLECTE ROBUSTA TERMINEE")
     print("=" * 80)

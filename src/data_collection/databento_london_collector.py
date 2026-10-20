@@ -74,6 +74,47 @@ def _make_client(api_key: Optional[str] = None):
     return db.Historical(key)
 
 
+# Le cacao Londres clôture à 16 h 50 heure de Londres, avant 17 h UTC. Une plage Databento
+# qui finit plus de 21 h après minuit couvre donc la journée entière.
+_DAY_COMPLETE_AFTER = pd.Timedelta(hours=21)
+
+
+def daily_end_exclusive(client, dataset: str = DATASET, now: Optional[datetime] = None) -> str:
+    """Borne de fin exclusive pour ohlcv-1d : dernière journée complète publiée.
+
+    L'ancienne borne « aujourd'hui − 1 jour », exclusive, écartait toujours la séance
+    de la veille : du mardi au vendredi, la base avait une séance de retard.
+
+    Le compte n'a pas accès au-delà de la fin de plage publiée (ex. 2026-10-19T22:05) :
+    minuit du lendemain renvoie 422 dataset_unavailable_range. Dans ce cas la borne est
+    cette fin de plage moins une minute, au format ISO, et la barre du jour (datée de
+    minuit) reste incluse. Sinon c'est un minuit « YYYY-MM-DD ».
+    Si la plage disponible est illisible, on garde l'ancienne borne prudente.
+    """
+    today = pd.Timestamp(now or datetime.utcnow()).normalize()
+    fallback = (today - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    try:
+        payload = client.metadata.get_dataset_range(dataset=dataset)
+        schemas = payload.get("schema") or {}
+        raw_end = (schemas.get("ohlcv-1d") or {}).get("end") or payload.get("end")
+        available = pd.Timestamp(raw_end)
+    except Exception as exc:
+        logger.warning("Databento: plage disponible illisible (%s), borne prudente %s", exc, fallback)
+        return fallback
+    if available.tzinfo is not None:
+        available = available.tz_convert("UTC").tz_localize(None)
+    last_complete = (available - _DAY_COMPLETE_AFTER).normalize()
+    exclusive = min(last_complete + pd.Timedelta(days=1), today)
+    if exclusive >= available:
+        return (available - pd.Timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S")
+    return exclusive.strftime("%Y-%m-%d")
+
+
+def _inclusive(exclusive: str) -> str:
+    """Dernière journée dont la barre (datée de minuit) tombe avant la borne exclusive."""
+    return (pd.Timestamp(exclusive) - pd.Timedelta(microseconds=1)).strftime("%Y-%m-%d")
+
+
 def continuous_symbols(ranks: Sequence[int] = DEFAULT_RANKS) -> List[str]:
     return [f"C.v.{r}" for r in ranks]
 
@@ -254,16 +295,14 @@ def fetch_daily_bars(
     """
     Recupere les barres ohlcv-1d pour un ou plusieurs continuous symbols.
     end inclusif cote appelant ; Databento utilise end exclusif (end+1j),
-    borne automatiquement a aujourd'hui UTC.
+    borne a la derniere journee complete publiee (daily_end_exclusive).
     """
     result = DatabentoFetchResult()
     syms = list(symbols or [DEFAULT_CONTINUOUS])
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    # Historique Databento (sans licence live) : ~24h de delai
-    hist_limit = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
-    end = end or hist_limit
-    if end > hist_limit:
-        end = hist_limit
+    end = end or today
+    if end > today:
+        end = today
     if start > end:
         result.error = f"start_after_end:{start}>{end}"
         result.attempts.append({"strategy": "databento_ohlcv", "ok": False, "detail": result.error})
@@ -275,8 +314,9 @@ def fetch_daily_bars(
         result.attempts.append({"strategy": "databento_ohlcv", "ok": False, "detail": result.error})
         return result
 
-    # end Databento est exclusif ; borne au delai historique
-    end_exclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    # end Databento est exclusif ; borne a la derniere journee complete publiee
+    hist_limit = daily_end_exclusive(hist)
+    end_exclusive = (pd.Timestamp(min(end, _inclusive(hist_limit))) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     if end_exclusive > hist_limit:
         end_exclusive = hist_limit
     if start >= end_exclusive:
@@ -332,10 +372,10 @@ def fetch_open_interest(
         attempts.append({"strategy": "databento_oi", "ok": False, "detail": "missing_api_key"})
         return {}, attempts
 
-    hist_limit = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
-    end = end or hist_limit
-    if end > hist_limit:
-        end = hist_limit
+    hist_limit = daily_end_exclusive(hist)
+    end = end or _inclusive(hist_limit)
+    if end > _inclusive(hist_limit):
+        end = _inclusive(hist_limit)
     end_exclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     if end_exclusive > hist_limit:
         end_exclusive = hist_limit
@@ -692,11 +732,8 @@ def fetch_named_london_curve(
         attempts.append({"strategy": "databento_named", "ok": False, "detail": "missing_api_key"})
         return [], attempts
 
-    hist_limit = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
     start = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    end_exclusive = (pd.Timestamp(hist_limit) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    if end_exclusive > hist_limit:
-        end_exclusive = hist_limit
+    end_exclusive = daily_end_exclusive(hist)
 
     try:
         data = hist.timeseries.get_range(
@@ -767,11 +804,8 @@ def fetch_named_symbol_history(
     if hist is None:
         return pd.DataFrame()
 
-    hist_limit = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
     start = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    end_exclusive = (pd.Timestamp(hist_limit) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    if end_exclusive > hist_limit:
-        end_exclusive = hist_limit
+    end_exclusive = daily_end_exclusive(hist)
 
     try:
         data = hist.timeseries.get_range(

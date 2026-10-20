@@ -60,7 +60,11 @@ class Settings(BaseSettings):
     alert_email_to: Optional[str] = Field(default=None, env="ALERT_EMAIL_TO")
     alert_email_from: Optional[str] = Field(default=None, env="ALERT_EMAIL_FROM")
     alert_webhook_url: Optional[str] = Field(default=None, env="ALERT_WEBHOOK_URL")
-    
+    alert_smtp_host: Optional[str] = Field(default=None, env="ALERT_SMTP_HOST")
+    alert_smtp_port: int = Field(default=587, env="ALERT_SMTP_PORT")
+    alert_smtp_user: Optional[str] = Field(default=None, env="ALERT_SMTP_USER")
+    alert_smtp_password: Optional[str] = Field(default=None, env="ALERT_SMTP_PASSWORD")
+
     # Rate Limiting
     rate_limit_enabled: bool = Field(default=True)
     rate_limit_requests_per_minute: int = Field(default=60)

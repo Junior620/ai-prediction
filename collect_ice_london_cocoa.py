@@ -45,6 +45,36 @@ except ImportError:
 
 
 OHLCV_KEYS = ("open", "high", "low", "volume", "open_interest")
+# Code de sortie lu par update_system.bat : aucune source, ou base en retard sur la veille ouvrée.
+EXIT_SOURCE_UNAVAILABLE = 2
+
+
+def _report_freshness(supabase, table: str) -> Dict[str, Any]:
+    """Écrit data/status/freshness_cocoa.json et alerte si la veille ouvrée manque."""
+    from src.models.hybrid_features import is_closed_collection_date
+    from src.monitoring.freshness import freshness_report, write_report
+
+    try:
+        rows = (
+            supabase.table(table).select("date, source").order("date", desc=True).limit(40).execute().data
+            or []
+        )
+    except Exception as exc:
+        rows = []
+        print(f"[WARN] Fraicheur: lecture de la base impossible ({exc})")
+    sessions = [r for r in rows if not is_closed_collection_date(str(r["date"])[:10])]
+    last = str(sessions[0]["date"])[:10] if sessions else None
+    report = freshness_report("cocoa", last, source=sessions[0].get("source") if sessions else None)
+    write_report(report)
+    if report["status"] != "ok":
+        print(
+            f"[ALERTE] Base cacao en retard : derniere seance {report['last_session']}, "
+            f"attendue {report['expected_last_session']} ({report['reason']})"
+        )
+        _alert("freshness_cocoa", report["reason"] or "retard", report)
+    else:
+        print(f"[OK] Fraicheur: derniere seance {report['last_session']}")
+    return report
 
 
 def _result_from_databento_bar(bar) -> IceLondonResult:
@@ -101,6 +131,11 @@ def _merge_upsert_price(
             f"[QUARANTAINE] {result.quarantine_reason or 'date_de_seance_absente'} "
             f"prix {result.price:,.2f} non écrit"
         )
+    from src.models.hybrid_features import is_closed_collection_date
+
+    if is_closed_collection_date(result.date):
+        # Un samedi ou un jour férié n'est pas une séance : ce prix est celui d'une autre date.
+        return f"[QUARANTAINE] jour_ferme {result.date} prix {result.price:,.2f} non écrit"
     existing = _get_row(supabase, table, result.date)
     row: Dict[str, Any] = {
         "date": result.date,
@@ -413,11 +448,13 @@ def main() -> int:
         "open_interest": open_interest,
     }
 
+    freshness = _report_freshness(supabase, market.price_table)
+
     if final is None:
         write_collection_journal(journal)
         print("[ERREUR] Collecte ICE London echouee")
         _alert("ice_london", "Databento + Playwright ont echoue", {"url": ice_url})
-        return 1
+        return EXIT_SOURCE_UNAVAILABLE
 
     # Ecart anormal spot scrape vs derniere Databento
     if scrape_result and latest_front and scrape_result.date == latest_front.date:
@@ -436,6 +473,8 @@ def main() -> int:
     path = write_collection_journal(journal)
     print(f"\nJournal: {path}")
     print("=" * 80)
+    if freshness.get("status") != "ok":
+        return EXIT_SOURCE_UNAVAILABLE
     return 0
 
 
