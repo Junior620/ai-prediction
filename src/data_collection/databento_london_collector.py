@@ -74,7 +74,7 @@ def _make_client(api_key: Optional[str] = None):
     return db.Historical(key)
 
 
-# Le cacao Londres clôture à 16 h 50 heure de Londres, avant 17 h UTC. Une plage Databento
+# Le cacao Londres clôture à 16 h 55 heure de Londres, avant 17 h UTC. Une plage Databento
 # qui finit plus de 21 h après minuit couvre donc la journée entière.
 _DAY_COMPLETE_AFTER = pd.Timedelta(hours=21)
 
@@ -91,8 +91,19 @@ def daily_end_exclusive(client, dataset: str = DATASET, now: Optional[datetime] 
     minuit) reste incluse. Sinon c'est un minuit « YYYY-MM-DD ».
     Si la plage disponible est illisible, on garde l'ancienne borne prudente.
     """
-    today = pd.Timestamp(now or datetime.utcnow()).normalize()
+    return daily_bounds(client, dataset, now)["end_exclusive"]
+
+
+def daily_bounds(client, dataset: str = DATASET, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Ce que Databento a publié et la borne qu'on en tire, pour le journal de collecte.
+
+    ``last_complete_day`` est la dernière séance dont la barre quotidienne est définitive :
+    aucune journée plus récente n'est demandée, donc jamais entraînée.
+    """
+    now_ts = pd.Timestamp(now or datetime.utcnow())
+    today = now_ts.normalize()
     fallback = (today - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    fetched_at = now_ts.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         payload = client.metadata.get_dataset_range(dataset=dataset)
         schemas = payload.get("schema") or {}
@@ -100,14 +111,47 @@ def daily_end_exclusive(client, dataset: str = DATASET, now: Optional[datetime] 
         available = pd.Timestamp(raw_end)
     except Exception as exc:
         logger.warning("Databento: plage disponible illisible (%s), borne prudente %s", exc, fallback)
-        return fallback
+        return {
+            "available_end": None,
+            "end_exclusive": fallback,
+            "last_complete_day": _inclusive(fallback),
+            "fetched_at": fetched_at,
+            "source": "fallback",
+        }
     if available.tzinfo is not None:
         available = available.tz_convert("UTC").tz_localize(None)
     last_complete = (available - _DAY_COMPLETE_AFTER).normalize()
     exclusive = min(last_complete + pd.Timedelta(days=1), today)
     if exclusive >= available:
-        return (available - pd.Timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S")
-    return exclusive.strftime("%Y-%m-%d")
+        end_exclusive = (available - pd.Timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S")
+    else:
+        end_exclusive = exclusive.strftime("%Y-%m-%d")
+    return {
+        "available_end": available.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "end_exclusive": end_exclusive,
+        "last_complete_day": _inclusive(end_exclusive),
+        "fetched_at": fetched_at,
+        "source": "metadata",
+    }
+
+
+def open_interest_enabled() -> bool:
+    """Requêtes « statistics » (open interest) : coûteuses et vides pour le cacao Londres.
+
+    Activées seulement par ``data_collection.databento_open_interest: true`` dans
+    config/config.yaml, ou ``DATABENTO_OPEN_INTEREST=1`` pour un diagnostic ponctuel.
+    """
+    override = os.getenv("DATABENTO_OPEN_INTEREST")
+    if override is not None:
+        return override.strip().lower() in {"1", "true", "yes", "oui"}
+    path = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
+    try:
+        import yaml
+
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return False
+    return bool((payload.get("data_collection") or {}).get("databento_open_interest", False))
 
 
 def _inclusive(exclusive: str) -> str:
@@ -320,7 +364,8 @@ def fetch_daily_bars(
         return result
 
     # end Databento est exclusif ; borne a la derniere journee complete publiee
-    hist_limit = daily_end_exclusive(hist)
+    bounds = daily_bounds(hist)
+    hist_limit = bounds["end_exclusive"]
     end_exclusive = (pd.Timestamp(min(end, _inclusive(hist_limit))) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     if end_exclusive > hist_limit:
         end_exclusive = hist_limit
@@ -349,13 +394,26 @@ def fetch_daily_bars(
                 "rows": len(bars),
                 "start": start,
                 "end": end,
+                "end_exclusive": end_exclusive,
+                "available_end": bounds["available_end"],
+                "last_complete_day": bounds["last_complete_day"],
+                "last_bar_day": max((b.date for b in bars), default=None),
+                "fetched_at": bounds["fetched_at"],
             }
         )
     except Exception as exc:
         logger.exception("Databento ohlcv-1d failed: %s", exc)
         result.error = str(exc)
         result.attempts.append(
-            {"strategy": "databento_ohlcv", "ok": False, "detail": str(exc)}
+            {
+                "strategy": "databento_ohlcv",
+                "ok": False,
+                "detail": str(exc),
+                "end_exclusive": end_exclusive,
+                "available_end": bounds["available_end"],
+                "last_complete_day": bounds["last_complete_day"],
+                "fetched_at": bounds["fetched_at"],
+            }
         )
     return result
 
