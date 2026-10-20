@@ -12,9 +12,12 @@
 #   crlf     même contenu que le commit, aux fins de ligne Windows près (copie de deploy_models.ps1) ;
 #   ancien   version présente dans l'historique git : rien d'unique n'est perdu ;
 #   UNIQUE   contenu absent de git : refus (code 3), à examiner avant toute mise à jour.
-# Tout ce qui est remplacé part d'abord dans ../prediction-backups/. .env, data/, models/ et
-# logs/ ne sont pas suivis par git et ne sont pas touchés. Ni build ni redémarrage : les
-# commandes à lancer ensuite sont affichées, à lancer après accord.
+# Fichiers suivis par HEAD que la cible ne suit plus (88 modèles de mai à juillet pour bcab53e) :
+# git les effacerait. Ils sont mis de côté puis remis sur le disque quand la cible les ignore
+# (models/, data/...) ; les autres restent retirés, dans la sauvegarde.
+# Tout ce qui est remplacé ou retiré part d'abord dans ../prediction-backups/. .env et les
+# fichiers ignorés ne sont pas touchés. Ni build ni redémarrage : les commandes à lancer
+# ensuite sont affichées, à lancer après accord.
 
 set -euo pipefail
 export LC_ALL=C
@@ -71,11 +74,16 @@ echo "cible $(git log -1 --format='%h %cs %s' "$target")"
 
 # Fichiers suivis modifiés, et fichiers non suivis que le commit cible apporterait.
 list="$(mktemp)"
-trap 'rm -f "$list"' EXIT
+gone="$(mktemp)"
+trap 'rm -f "$list" "$gone"' EXIT
 {
   git diff --name-only HEAD
   comm -12 <(git ls-tree -r --name-only "$target" | sort) <(git ls-files --others | sort)
 } | sort -u >"$list"
+# Suivis par HEAD, plus par la cible, présents sur le disque : git les effacerait.
+git diff --name-only --diff-filter=D HEAD "$target" | while IFS= read -r file; do
+  [[ -e "$file" ]] && printf '%s\n' "$file"
+done >"$gone"
 
 keep=()
 unique=()
@@ -102,6 +110,8 @@ while IFS= read -r file; do
   echo "  $kind $file"
 done <"$list"
 echo "bilan : garde=${count[garde]} crlf=${count[crlf]} ancien=${count[ancien]} UNIQUE=${count[UNIQUE]} absent=${count[absent]}"
+echo "plus suivis par la cible : $(wc -l <"$gone") fichier(s), remis sur le disque si la cible les ignore :"
+cut -d/ -f1 "$gone" | sort | uniq -c | sed 's/^/  /'
 echo "image et compose (HEAD -> cible) :"
 git diff --stat "$head" "$target" -- requirements.txt Dockerfile docker-compose.yml .dockerignore | sed 's/^/  /'
 
@@ -118,19 +128,32 @@ fi
 stamp="$(date -u +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 archive="$BACKUP_DIR/update_${stamp}_${head:0:7}.tgz"
-tar czf "$archive" --ignore-failed-read -T "$list"
+cat "$list" "$gone" | tar czf "$archive" --ignore-failed-read -T -
 echo "[OK] sauvegarde $archive"
 saved="$BACKUP_DIR/keep_${stamp}"
-for file in "${keep[@]}"; do
+while IFS= read -r file; do
   mkdir -p "$saved/$(dirname "$file")"
   cp -p "$file" "$saved/$file"
-done
+done < <(printf '%s\n' "${keep[@]}" | sed '/^$/d'; cat "$gone")
 
 git checkout -q -f -B main "$target"
 for file in "${keep[@]}"; do
   cp -p "$saved/$file" "$file"
 done
+kept=0
+dropped=0
+while IFS= read -r file; do
+  if git check-ignore -q -- "$file"; then
+    mkdir -p "$(dirname "$file")"
+    cp -p "$saved/$file" "$file"
+    kept=$((kept + 1))
+  else
+    echo "  retiré (dans la sauvegarde) : $file"
+    dropped=$((dropped + 1))
+  fi
+done <"$gone"
 echo "[OK] $(git log -1 --format='%h %s')"
+echo "[OK] plus suivis : $kept remis sur le disque (ignorés), $dropped retirés"
 git status --short --untracked-files=no | sed 's/^/  reste modifié : /'
 
 echo "Ensuite, après accord :"

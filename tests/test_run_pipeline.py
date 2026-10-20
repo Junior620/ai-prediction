@@ -475,5 +475,8 @@ def test_vps_update_keeps_pipeline_manifests_and_refuses_unknown_content():
     assert not keep.match("config/active_release_cocoa.json") and not keep.match("config/config.yaml")
     code = "\n".join(_code_lines(VPS_SCRIPTS / "update.sh"))
     assert "exit 3" in code and "tar czf" in code and "git checkout -q -f -B main" in code
+    # Suivis par HEAD, plus par la cible (88 modèles de bcab53e) : remis sur le disque s'ils sont ignorés.
+    assert "--diff-filter=D HEAD" in code and "git check-ignore -q" in code
+    assert code.index("--diff-filter=D HEAD") < code.index("git checkout -q -f -B main") < code.index("git check-ignore -q")
     # Ni build ni redémarrage : seulement affichés, à lancer après accord.
     assert all(line.lstrip().startswith("echo") for line in code.splitlines() if "docker compose" in line)

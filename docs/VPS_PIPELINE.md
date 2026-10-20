@@ -14,9 +14,10 @@ attend l'accord du propriétaire.
 |---|---|---|
 | Dépôt | git sur `bcab53e` (26/08), ancêtre de `main`, 26 commits de retard. 25 fichiers suivis modifiés, 232 non suivis (179 modèles, 32 rapports, 15 `src/`, 5 `config/`, 1 `.env.bak-20261020`). | Mise à jour par git possible en avance rapide. |
 | Fichiers modifiés | 77 fichiers hors modèles comparés à `main`, retours chariot retirés. 72 sont identiques à `main` : ce sont des copies CRLF faites par `deploy_models.ps1`. Les 5 autres sont des versions plus anciennes présentes dans git : `config.yaml` (10/09), `horizon_schedule.py` (13/10), `hybrid_features.py`, `prediction_journal.py` et `revision_command.py` (20/10). | Aucun contenu propre au VPS : un `git checkout` ne perd rien. `update.sh` sauvegarde quand même. |
+| Modèles suivis | 88 fichiers de `models/` (lots de mai à juillet) sont suivis par `bcab53e`. `main` ne les suit plus. | Un `git checkout` simple les effacerait. `update.sh` les met de côté, puis les remet sur le disque, où ils deviennent ignorés. |
 | `.env.bak-20261020` | Non suivi. | Ignoré par `.env*` du `.gitignore` de `main`. |
 | Conteneur `cocoa-api` | Créé le 01/09 avec un ancien compose. Il monte `config`, `logs`, `models`, `reports`, `src` et `.env` (lecture seule). Il ne monte ni `data/`, ni `scripts/`, ni `train_nhits.py`. Aucune variable `PREDICTION_RELEASE_MODE` : le mode `active` vient de la valeur par défaut. | La série envoyée par `-DataOnly` n'atteint pas l'API (`/health` : `roll_series_end` nul). Le journal servi par l'API vit dans le conteneur (`/app/data/prediction_journal.jsonl`, 343 Ko) et disparaît à la recréation s'il n'est pas copié avant. |
-| Image `prediction-api:latest` | Construite le 30/07, contient `/app/.env`. Les dépendances de `main` (`databento`, `feedparser`, `langdetect`, `deep-translator`, `playwright`) ne sont pas garanties. | Reconstruction nécessaire avant le premier vrai passage, après accord. |
+| Image `prediction-api:latest` | Construite le 30/07, contient `/app/.env`. Vérifié le 20/10 : `databento`, `feedparser`, `langdetect`, `deep-translator` et `playwright` sont absents, et `neuralforecast` ne s'importe pas. | La collecte Databento échouerait : reconstruction nécessaire avant le premier vrai passage, après accord. |
 | Python hôte | 3.12, sans pandas, sans venv. | Tout tourne dans l'image de l'API. |
 | Outils | Docker 29.6, Compose 5.3, `flock`, `jq` et `logger` présents. 6 CPU, 11 Gio de RAM, 173 Go libres. | |
 | Heure | Fuseau Europe/Berlin. Le cron d'Ubuntu ignore `CRON_TZ`. | Horaires du cron en heure de Berlin (voir plus bas). Le `CRON_TZ=Africa/Douala` du cron `/opt/samen` est aussi ignoré : il tourne à 08:00 Berlin. Ce cron n'est pas touché. |
@@ -134,6 +135,14 @@ git show <sha>:scripts/vps/update.sh | bash -s -- <sha>
 ```
 
 Avant tout changement, les fichiers remplacés sont archivés dans `/opt/prediction-backups/`.
+
+Répétition faite le 20/10/2026 sur une copie de `/opt/prediction` dans `/tmp` (sans `.env`, `data/` ni `logs/`), vers `5fde694` :
+
+- bilan : 72 copies CRLF, 5 versions plus anciennes, 0 contenu propre au VPS ;
+- 88 modèles plus suivis, tous remis sur le disque ;
+- ensuite : aucun fichier suivi modifié, aucun fichier non suivi visible.
+
+La copie a ensuite été supprimée. `/opt/prediction` n'a pas été modifié.
 
 ### 2. Image et conteneur
 
