@@ -34,86 +34,6 @@ function sessionsLabel(count: number) {
   return count === 1 ? '1 séance restante' : `${count} séances restantes`;
 }
 
-const VERDICT = {
-  etabli: 'établi',
-  defavorable: 'défavorable',
-  incertain: 'encore incertain',
-} as const;
-
-const verdictClass = {
-  etabli: 'text-emerald-300',
-  defavorable: 'text-rose-300',
-  incertain: 'text-amber-200',
-} as const;
-
-function signed(value: number, fmt: (n: number) => string) {
-  return `${value > 0 ? '+' : ''}${fmt(value)}`;
-}
-
-function DelayMeasure({
-  revisionValue,
-  revisionAsOf,
-  sessionsRemaining,
-  openingHorizon,
-  fmt,
-}: {
-  revisionValue: RevisionValueHorizon;
-  revisionAsOf?: string | null;
-  sessionsRemaining?: number | null;
-  openingHorizon: number;
-  fmt: (n: number) => string;
-}) {
-  const delay = revisionValue.steps?.find(
-    step => step.comparison === 'initial_vs_remaining' && step.remaining === sessionsRemaining,
-  );
-  const level = Math.round(((delay?.interval_level ?? revisionValue.interval_level ?? 0.9) * 100));
-  return (
-    <div className="pt-1 space-y-1 text-slate-400">
-      {delay ? (
-        <>
-          <p className={`font-semibold ${verdictClass[delay.verdict]}`}>
-            Initiale J+{openingHorizon} contre révision à {sessionsLabel(delay.remaining)} : {VERDICT[delay.verdict]}.
-          </p>
-          <p>
-            {delay.available} paires sur {delay.expected}
-            {delay.availability_rate != null
-              ? ` · disponibilité ${(delay.availability_rate * 100).toFixed(0)} %`
-              : ''}
-            {delay.abstentions > 0 ? ` · ${delay.abstentions} prix manquants` : ''}.
-            {delay.mean_gain != null && (
-              <>
-                {' '}Erreur moyenne {fmt(delay.mean_initial_error ?? 0)} pour l&apos;initiale,{' '}
-                {fmt(delay.mean_revised_error ?? 0)} pour la révision
-                {delay.mean_spot_error != null
-                  ? `, ${fmt(delay.mean_spot_error)} pour le cours connu ce jour-là`
-                  : ''}
-                . Gain moyen {signed(delay.mean_gain, fmt)}
-                {delay.gain_low != null && delay.gain_high != null
-                  ? ` (intervalle à ${level} % : ${signed(delay.gain_low, fmt)} à ${signed(delay.gain_high, fmt)})`
-                  : ` (intervalle à ${level} % non calculé)`}
-                .
-              </>
-            )}
-          </p>
-        </>
-      ) : (
-        <p>
-          Pas de mesure historique pour ce délai
-          {sessionsRemaining == null ? '' : ` (${sessionsLabel(sessionsRemaining)})`}.
-        </p>
-      )}
-      <p>Le lot d&apos;aujourd&apos;hui n&apos;est pas jugé par ce rejeu.</p>
-      <p className="text-slate-500">
-        Initiale contre dernière estimation avant échéance : {VERDICT[revisionValue.verdict]}
-        {revisionValue.expiries > 0 && revisionValue.mean_gain != null
-          ? `. ${revisionValue.expiries} échéances${revisionAsOf ? ` notées au ${frenchDay(revisionAsOf)}` : ''}, gain moyen ${signed(revisionValue.mean_gain, fmt)}`
-          : ''}
-        .
-      </p>
-    </div>
-  );
-}
-
 interface PredictionHorizonCardProps {
   pred: PredictionItem;
   currentPrice: number;
@@ -131,10 +51,6 @@ export function PredictionHorizonCard({
   pred,
   currentPrice,
   priceCurrency = 'USD',
-  validation,
-  evaluatedPeriod,
-  revisionValue,
-  revisionAsOf,
 }: PredictionHorizonCardProps) {
   const price = pred.price;
   const frozen = pred.horizon === 7 || pred.horizon === 14 || pred.horizon === 30;
@@ -150,15 +66,18 @@ export function PredictionHorizonCard({
   const uncertainty = interval && price != null
     ? uncertaintyLevel(interval, currentPrice || price)
     : 'low';
-  const periodLabel = evaluatedPeriod?.origin_start
-    ? `${evaluatedPeriod.origin_start} → ${evaluatedPeriod.target_end || evaluatedPeriod.origin_end}`
-    : null;
   const usdGbp = useUsdGbpRate();
   const isGbp = priceCurrency === 'GBP';
   const fmt = (n: number) => formatPrice(n, priceCurrency);
   const status = pred.status ?? pred.components?.status ?? 'experimental';
   const unavailable = status === 'unavailable' || price == null;
   const experimental = status !== 'validated';
+  const servedAsClose = Boolean(pred.components?.served_as_close);
+  // Un écart ou un signal n'a de sens que sur un horizon qui bat le cours inchangé.
+  // Servi au cours inchangé, l'écart à l'initiale ne mesure que le mouvement déjà passé.
+  const showSignal = status === 'validated' && !servedAsClose;
+  const modelPrice = servedAsClose ? pred.components?.candidate_price ?? null : null;
+  const modelPct = modelPrice != null && basis ? ((modelPrice - basis) / basis) * 100 : null;
   const openingHorizon = pred.initial_horizon ?? pred.horizon;
   const commitmentLabel = frozen && pred.target_date
     ? [
@@ -178,7 +97,9 @@ export function PredictionHorizonCard({
           <span className="text-xs font-bold text-slate-500">—</span>
         </div>
         <p className="text-xl font-black text-slate-400">Indisponible</p>
-        <p className="text-[11px] text-slate-500 mt-3">Pas de prix ni d'intervalle pour cet horizon.</p>
+        <p className="text-[11px] text-slate-500 mt-3">
+          {pred.components?.unavailable_reason ?? "Pas de prix ni d'intervalle pour cet horizon."}
+        </p>
       </div>
     );
   }
@@ -197,13 +118,18 @@ export function PredictionHorizonCard({
             </span>
           )}
         </div>
-        <span className={`text-xs font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {up ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          {formatPercentage(pct)}
-        </span>
+        {showSignal && (
+          <span className={`text-xs font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {up ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            {formatPercentage(pct)}
+          </span>
+        )}
       </div>
 
       <p className="text-xl font-black text-white font-mono-price">{fmt(price as number)}</p>
+      {servedAsClose && (
+        <p className="text-[11px] text-slate-400">Cours inchangé, retenu comme prévision</p>
+      )}
       {!isGbp && (
         <p className="text-[11px] text-slate-400 font-mono-price mb-3">
           ≈ {formatPriceGbp(price as number, usdGbp)} / t
@@ -211,16 +137,29 @@ export function PredictionHorizonCard({
       )}
       {isGbp && <div className="mb-3" />}
 
+      {modelPrice != null && (
+        <details className="text-[11px] text-slate-500 mb-3">
+          <summary className="cursor-pointer select-none">Atelier : prix du modèle (non validé)</summary>
+          <p className="mt-1">
+            {pred.components?.candidate_label ?? 'Prix du modèle — non validé'} :{' '}
+            <span className="font-mono-price text-slate-400">{fmt(modelPrice)}</span>
+            {modelPct != null && ` (${formatPercentage(modelPct)})`}. À ne pas utiliser pour décider.
+          </p>
+        </details>
+      )}
+
       {frozen && pred.target_date && (
         <div className="text-[11px] text-slate-300 mb-3 space-y-1">
-          {(pred.initial?.model_version || pred.latest?.model_version) && (
-            <p className="text-slate-500">
-              {pred.initial?.model_version ? `Initiale ${pred.initial.model_version}` : 'Initiale'}
-              {pred.latest?.model_version ? ` · révision ${pred.latest.model_version}` : ''}
-            </p>
-          )}
           {pred.latest_unavailable ? (
             <p>Dernière estimation indisponible.</p>
+          ) : pred.has_revision && pred.revision_matches_today === false ? (
+            <p>
+              Révision du jour indisponible. Dernière estimation du {frenchDay(pred.latest_date)}
+              {pred.latest_price == null ? '' : ` : ${fmt(pred.latest_price)}`}
+              {pred.latest_sessions_remaining == null
+                ? ''
+                : `, calculée à ${sessionsLabel(pred.latest_sessions_remaining)}`}.
+            </p>
           ) : !pred.has_revision || pred.latest_price == null ? (
             <p>Pas encore de révision pour cette échéance.</p>
           ) : (
@@ -245,22 +184,15 @@ export function PredictionHorizonCard({
               Révision importante : l&apos;écart avec l&apos;initiale dépasse 1,5 %.
             </p>
           )}
-          {revisionValue && (
-            <DelayMeasure
-              revisionValue={revisionValue}
-              revisionAsOf={revisionAsOf}
-              sessionsRemaining={pred.sessions_remaining}
-              openingHorizon={openingHorizon}
-              fmt={fmt}
-            />
-          )}
         </div>
       )}
 
       <div className="flex flex-wrap gap-1.5 mb-3">
         {experimental && (
           <span className="text-[10px] font-bold px-2 py-0.5 rounded border text-sky-200 bg-sky-500/15 border-sky-500/30">
-            Prévision expérimentale — non validée
+            {servedAsClose
+              ? 'Le modèle ne bat pas encore le cours inchangé'
+              : 'Prévision expérimentale — non validée'}
           </span>
         )}
         {pred.components?.warning && (
@@ -268,35 +200,21 @@ export function PredictionHorizonCard({
             {String(pred.components.warning)}
           </span>
         )}
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${sigStyle.class}`}>
-          Signal : {sigStyle.label}
-        </span>
-      </div>
-
-      <p className="text-[10px] text-slate-400 mb-1">
-        {validation?.mape != null ? (
-          <>
-            Erreur walk-forward MAPE{' '}
-            <span className="text-slate-200 font-semibold">{validation.mape.toFixed(1)}%</span>
-          </>
+        {showSignal ? (
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${sigStyle.class}`}>
+            Signal : {sigStyle.label}
+          </span>
         ) : (
-          'Erreur walk-forward non disponible'
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded border text-slate-300 bg-slate-500/10 border-slate-500/30">
+            Pas de signal — le modèle ne bat pas le cours inchangé
+          </span>
         )}
-        {validation?.mae != null && (
-          <>
-            {' · '}MAE{' '}
-            <span className="text-slate-200 font-semibold">{fmt(validation.mae)}</span>
-          </>
-        )}
-      </p>
-      {periodLabel && (
-        <p className="text-[10px] text-slate-500 mb-1">Période évaluée : {periodLabel}</p>
-      )}
+      </div>
 
       {interval && (
         <p className="text-[10px] text-slate-500 mt-auto">
           {experimental
-            ? 'Bande expérimentale — couverture non démontrée'
+            ? 'Fourchette'
             : `IC ${Math.round((pred.confidence_level ?? 0.9) * 100)}%`}
           {' : '}
           {fmt(lo)} – {fmt(hi)}

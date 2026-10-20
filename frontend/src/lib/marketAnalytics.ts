@@ -71,7 +71,8 @@ export interface InfluentialFactor {
 }
 
 export function buildInfluentialFactors(opts: {
-  changePct7d: number;
+  /** Null quand J+7 n'est pas validé : le prix servi est alors le cours inchangé. */
+  changePct7d: number | null;
   garchVol?: number | null;
   highVolRegime?: boolean;
   sentiment?: number | null;
@@ -80,7 +81,9 @@ export function buildInfluentialFactors(opts: {
 }): InfluentialFactor[] {
   const factors: InfluentialFactor[] = [];
 
-  if (opts.changePct7d < -5) {
+  if (opts.changePct7d == null) {
+    // Pas de facteur inventé : « Neutre » ferait passer le cours inchangé pour une mesure.
+  } else if (opts.changePct7d < -5) {
     factors.push({ factor: 'Momentum court terme', impact: 'Baissier fort', tone: 'bearish' });
   } else if (opts.changePct7d > 5) {
     factors.push({ factor: 'Momentum court terme', impact: 'Haussier', tone: 'bullish' });

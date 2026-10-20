@@ -65,20 +65,23 @@ export function MarketKPIBar({
         change24h == null ? 'text-slate-400' :
         change24h >= 0 ? 'text-emerald-400' : 'text-rose-400',
     },
-    {
-      label: 'Volatilité',
-      value: garchVol != null ? `${Number(garchVol).toFixed(1)}%` : '—',
-      sub: highVol ? 'Régime volatil' : 'GARCH annualisée',
-      icon: Activity,
-      valueClass: highVol ? 'text-rose-400' : 'text-emerald-400',
-    },
+    // GARCH est désactivé pour le cacao : pas de tuile plutôt qu'un « — » présenté comme une mesure.
+    ...(garchVol != null
+      ? [{
+          label: 'Volatilité',
+          value: `${Number(garchVol).toFixed(1)}%`,
+          sub: highVol ? 'Régime volatil' : 'GARCH annualisée',
+          icon: Activity,
+          valueClass: highVol ? 'text-rose-400' : 'text-emerald-400',
+        }]
+      : []),
     ...(includeSentiment
       ? [{
           label: 'Sentiment',
           value: getSentimentLabel(data.sentiment_score),
           sub: data.sentiment_score != null
             ? `Score ${data.sentiment_score.toFixed(2)}`
-            : 'News cacao',
+            : 'Pas de news notée sur 24 h',
           icon: Brain,
           valueClass:
             data.sentiment_score == null ? 'text-slate-400' :
