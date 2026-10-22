@@ -26,6 +26,12 @@ load_dotenv()
 parser = argparse.ArgumentParser(description="Entrainement N-HiTS")
 parser.add_argument("--market", default="cocoa", help="Marche (cocoa, coffee_robusta)")
 parser.add_argument("--snapshot", default="", help="CSV figé, le même que XGBoost et le journal")
+parser.add_argument(
+    "--calendar",
+    default="keep_closed_rows",
+    choices=("keep_closed_rows", "trading_sessions"),
+    help="Même préparation que XGBoost (série sans saut puis calendrier du lot).",
+)
 args = parser.parse_args()
 
 from src.models.market_registry import get_market_config
@@ -44,11 +50,14 @@ print("=" * 80)
 # 1. RECUPERER LES DONNEES
 # ============================================================================
 print("")
-from src.models.hybrid_features import clean_price_dataframe
+from src.models.hybrid_features import clean_price_dataframe, prepare_market_frame, trading_sessions
 
 if args.snapshot:
-    print("[1/5] Instantane figé %s" % args.snapshot)
-    df = clean_price_dataframe(pd.read_csv(args.snapshot), min_date="2020-01-01")
+    print("[1/5] Instantane figé %s (%s)" % (args.snapshot, args.calendar))
+    # Le service prépare les prix ainsi (série sans saut) : N-HiTS doit apprendre sur la même série.
+    df = prepare_market_frame(pd.read_csv(args.snapshot), market_id=args.market)
+    if args.calendar == "trading_sessions":
+        df = trading_sessions(df)
 else:
     print("[1/5] Recuperation des donnees depuis Supabase...")
     supabase = create_client(

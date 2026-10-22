@@ -1,4 +1,4 @@
-"""Bloque l'entraînement cacao si la série sans saut ne couvre pas l'instantané figé.
+"""Bloque l'entraînement si la série sans saut ne couvre pas l'instantané figé (cacao, robusta).
 
 Après la fin de la série, ``apply_roll_series`` garde les prix bruts : une
 ligne d'une autre échéance (scrape ICE = échéance de tête) se glisserait alors
@@ -7,6 +7,7 @@ postérieure à la fin de la série.
 
 Usage:
     python scripts/check_roll_series.py --snapshot data/freeze/cocoa_prices.csv
+    python scripts/check_roll_series.py --market coffee_robusta --snapshot data/freeze/coffee_robusta_prices.csv
 Code de sortie : 0 si la série couvre l'instantané, 1 sinon.
 """
 
@@ -22,7 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.data_collection.cocoa_roll import SERIES_PATH, load_series  # noqa: E402
+from src.data_collection.robusta_roll import SERIES_PATH as ROBUSTA_SERIES_PATH  # noqa: E402
 from src.models.hybrid_features import is_closed_collection_date  # noqa: E402
+
+SERIES = {"cocoa": SERIES_PATH, "coffee_robusta": ROBUSTA_SERIES_PATH}
 
 
 def uncovered_sessions(snapshot: pd.DataFrame, series: pd.DataFrame | None) -> list[str]:
@@ -38,10 +42,11 @@ def uncovered_sessions(snapshot: pd.DataFrame, series: pd.DataFrame | None) -> l
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot", required=True)
-    parser.add_argument("--series", default=str(SERIES_PATH))
+    parser.add_argument("--market", choices=tuple(SERIES), default="cocoa")
+    parser.add_argument("--series", default=None, help="Par défaut, la série du marché")
     args = parser.parse_args()
     snapshot = pd.read_csv(args.snapshot)
-    series = load_series(Path(args.series))
+    series = load_series(Path(args.series) if args.series else SERIES[args.market])
     missing = uncovered_sessions(snapshot, series)
     if missing:
         end = "absente" if series is None or series.empty else f"{series['date'].max():%Y-%m-%d}"

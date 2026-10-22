@@ -723,13 +723,15 @@ def prepare_market_frame(
     """One cleaning path for training, the journal command and the API.
 
     Closed dates stay. ``trading_sessions`` is the separate study calendar.
-    Cocoa prices come from the series without contract jumps
-    (``src/data_collection/cocoa_roll.py``).
+    Cocoa and robusta prices come from their series without contract jumps
+    (``src/data_collection/cocoa_roll.py``, ``src/data_collection/robusta_roll.py``).
     """
     cleaned = clean_price_dataframe(frame)
     if market_id == "cocoa":
         cleaned = apply_oi_receipts(cleaned, ledger_path)
         cleaned = _apply_cocoa_roll(cleaned, roll_series_path)
+    elif market_id == "coffee_robusta":
+        cleaned = _apply_robusta_roll(cleaned, roll_series_path)
     return cleaned
 
 
@@ -745,6 +747,26 @@ def _apply_cocoa_roll(frame: pd.DataFrame, roll_series_path: Optional[Path]) -> 
         logger.error(f"Série cacao sans saut absente ({path}) : prix C.v.0 bruts utilisés")
         return frame
     return apply_roll_series(frame, series, is_closed=is_closed_collection_date)
+
+
+_MISSING_ROBUSTA_SERIES: set[str] = set()
+
+
+def _apply_robusta_roll(frame: pd.DataFrame, roll_series_path: Optional[Path]) -> pd.DataFrame:
+    from loguru import logger
+
+    from src.data_collection.cocoa_roll import apply_roll_series, load_series
+    from src.data_collection.robusta_roll import REFRESH_HINT, SERIES_PATH
+
+    path = Path(roll_series_path) if roll_series_path is not None else SERIES_PATH
+    series = load_series(path)
+    if series is None:
+        # Avant l'historique Databento (ou sur un hôte sans la série) : prix de la table, une alerte par chemin.
+        if str(path) not in _MISSING_ROBUSTA_SERIES:
+            _MISSING_ROBUSTA_SERIES.add(str(path))
+            logger.warning(f"Série robusta sans saut absente ({path}) : prix de la table utilisés")
+        return frame
+    return apply_roll_series(frame, series, is_closed=is_closed_collection_date, refresh_hint=REFRESH_HINT)
 
 
 def model_inputs(

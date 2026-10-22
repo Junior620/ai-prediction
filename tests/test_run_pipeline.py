@@ -122,8 +122,13 @@ def test_saturday_trains_then_reloads_and_deploys_in_full(repo):
     code = _pipeline(repo, runner, now=SATURDAY).execute()
     assert code == rp.EXIT_OK
     train = runner.commands("train_hybrid_improved.py")
-    assert "--calendar trading_sessions" in train[0] and "--calendar keep_closed_rows" in train[1]
-    assert runner.index("check_roll_series.py") < runner.index("train_hybrid_improved.py --market cocoa")
+    # Lot B : le robusta passe aussi en trading_sessions, N-HiTS compris.
+    assert "--calendar trading_sessions" in train[0] and "--calendar trading_sessions" in train[1]
+    assert all("--calendar trading_sessions" in cmd for cmd in runner.commands("train_nhits.py"))
+    assert runner.index("check_roll_series.py --market cocoa") < runner.index("train_hybrid_improved.py --market cocoa")
+    assert runner.index("check_roll_series.py --market coffee_robusta") < runner.index(
+        "train_hybrid_improved.py --market coffee_robusta"
+    )
     journal = runner.commands("journal_forecast_revisions.py")
     assert f"--stamp {NEW['cocoa']}" in journal[0]
     assert runner.commands("write_experimental_release.py --market cocoa")[0].endswith(f"--stamp {NEW['cocoa']}")
@@ -193,6 +198,41 @@ def test_robusta_quarantine_and_retries_never_remove_cocoa(repo):
     runner = FakeRunner(repo, {"collect_coffee_robusta_price.py": [2, 0]})
     assert _pipeline(repo, runner).execute() == rp.EXIT_OK
     assert len(runner.commands("journal_forecast_revisions.py")) == 2
+
+
+def test_robusta_freezes_at_the_day_databento_published(repo):
+    # Mardi 23:30 UTC : l'horloge dirait mardi, Databento n'a publié que lundi.
+    late = datetime(2026, 10, 20, 23, 30, tzinfo=timezone.utc)
+    _write(repo / "logs" / f"databento_robusta_collection_{late.astimezone():%Y%m%d}.json",
+           [{"attempts": [{"strategy": "databento_robusta_ohlcv", "last_complete_day": "2026-10-19"}]}])
+    runner = FakeRunner(repo)
+    _pipeline(repo, runner, now=late, markets=["coffee_robusta"]).execute()
+    assert runner.commands("freeze_market_snapshot.py")[0].endswith("--until 2026-10-19")
+
+
+def test_a_robusta_series_behind_its_snapshot_stops_robusta_only(repo):
+    runner = FakeRunner(repo, {"check_roll_series.py --market coffee_robusta": 1})
+    code = _pipeline(repo, runner, now=SATURDAY).execute()
+    assert code == rp.EXIT_PARTIAL
+    assert [c for c in runner.commands("train_hybrid_improved.py")] == [
+        c for c in runner.commands("train_hybrid_improved.py --market cocoa")
+    ]
+    journal = runner.commands("journal_forecast_revisions.py")
+    assert len(journal) == 1 and "--market cocoa" in journal[0]
+
+
+def test_robusta_shock_is_measured_on_its_series_without_jumps(repo):
+    days = pd.bdate_range("2025-01-01", "2026-10-19")
+    roll = pd.DataFrame({"date": days.strftime("%Y-%m-%d"), "price": 3500.0})
+    roll.loc[roll.index[-1], "price"] = 4200.0  # +18 % sur la dernière séance
+    roll.to_csv(repo / "data" / "robusta_roll_series.csv", index=False)
+    _write(repo / "config" / "experimental_release_coffee_robusta.json", {"version": "improved_20261013_045834"})
+    pipeline = _pipeline(repo, FakeRunner(repo), markets=["coffee_robusta"])
+    pipeline.execute()
+    decision = pipeline.decisions["coffee_robusta"]
+    assert decision.shock["evaluated"] is True
+    assert decision.shock["return_shocks"] == ["2026-10-19"]
+    assert decision.retrain and any("choc de marché" in reason for reason in decision.reasons)
 
 
 def test_health_503_is_not_ready(repo):
