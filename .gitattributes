@@ -1,0 +1,4 @@
+# Scripts lancés sur le VPS : fins de ligne LF même depuis une copie Windows
+# (sinon bash échoue sur le retour chariot).
+*.sh text eol=lf
+scripts/vps/* text eol=lf
