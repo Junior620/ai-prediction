@@ -71,6 +71,15 @@ WALK_FORWARD_DIR = {
     "cocoa": "reports/walk_forward/daily",
     "coffee_robusta": "reports/walk_forward/coffee_robusta/daily",
 }
+ROLL_SERIES = {
+    "cocoa": "data/cocoa_roll_series.csv",
+    "coffee_robusta": "data/robusta_roll_series.csv",
+}
+# Journal de collecte Databento : il donne la dernière journée complète publiée.
+COLLECTION_JOURNAL = {
+    "cocoa": "databento_collection",
+    "coffee_robusta": "databento_robusta_collection",
+}
 PREVIEW_DIR = "reports/pipeline"
 LAST_RUN = "data/status/pipeline_last_run.json"
 HEALTH_URL = "http://localhost:8000/health"
@@ -234,19 +243,18 @@ class Pipeline:
         return str(payload.get("stamp") or "")
 
     def last_complete_day(self, market: str) -> str:
-        """Plage Databento lue par la collecte cacao ; sinon la règle d'horloge (21 h UTC)."""
+        """Plage Databento lue par la collecte du marché ; sinon la règle d'horloge (21 h UTC)."""
         from src.models.retrain_policy import clock_last_complete_day
 
-        if market == "cocoa":
-            # Même date locale que write_collection_journal.
-            path = self.root / "logs" / f"databento_collection_{self.now.astimezone():%Y%m%d}.json"
-            entries = _read_json(path)
-            if isinstance(entries, dict):
-                entries = [entries]
-            for entry in reversed(entries or []):
-                for attempt in reversed(entry.get("attempts") or []):
-                    if attempt.get("last_complete_day"):
-                        return str(attempt["last_complete_day"])
+        # Même date locale que write_collection_journal.
+        path = self.root / "logs" / f"{COLLECTION_JOURNAL[market]}_{self.now.astimezone():%Y%m%d}.json"
+        entries = _read_json(path)
+        if isinstance(entries, dict):
+            entries = [entries]
+        for entry in reversed(entries or []):
+            for attempt in reversed(entry.get("attempts") or []):
+                if attempt.get("last_complete_day"):
+                    return str(attempt["last_complete_day"])
         return clock_last_complete_day(self.now)
 
     # ------------------------------------------------------------------ déroulé
@@ -288,11 +296,10 @@ class Pipeline:
         if self.run(f"{label} : gel des données jusqu'au {until}", freeze) != 0:
             self._fail(market, "instantané non figé")
             return
-        if market == "cocoa":
-            check = [self.py, "scripts/check_roll_series.py", "--snapshot", snapshot]
-            if self.run("Cacao : la série sans saut couvre l'instantané", check) != 0:
-                self._fail(market, "série sans saut en retard sur l'instantané, rien n'est entraîné")
-                return
+        check = [self.py, "scripts/check_roll_series.py", "--market", market, "--snapshot", snapshot]
+        if self.run(f"{label} : la série sans saut couvre l'instantané", check) != 0:
+            self._fail(market, "série sans saut en retard sur l'instantané, rien n'est entraîné")
+            return
         decision = self.decide(market, until)
         in_place = stamp_of(self.lot_in_place(market))
         stamp = in_place
@@ -345,7 +352,7 @@ class Pipeline:
                 self._optional("Cacao : série sans saut depuis le brut local", [self.py, "scripts/build_cocoa_roll_series.py", "--offline"])
             return True
         for attempt in range(1, ROBUSTA_COLLECT_TRIES + 1):
-            code = self.run("Robusta : Investing.com", [self.py, "collect_coffee_robusta_price.py"])
+            code = self.run("Robusta : Databento RC.c.0..2 et série sans saut", [self.py, "collect_coffee_robusta_price.py"])
             if code == 0:
                 return True
             if code >= 4:
@@ -389,11 +396,9 @@ class Pipeline:
 
     def _adjusted_closes(self, market: str, until: str):
         """Clôtures de la série sans saut : un roulement n'y crée pas de rendement."""
-        if market != "cocoa":
-            return None
         import pandas as pd
 
-        path = self.root / "data" / "cocoa_roll_series.csv"
+        path = self.root / ROLL_SERIES[market]
         if not path.exists():
             return None
         frame = pd.read_csv(path, usecols=["date", "price"])
@@ -426,7 +431,10 @@ class Pipeline:
             return False
         if market != "coffee_robusta":
             return True
-        nhits = ["python", "-u", "train_nhits.py", "--market", market, "--snapshot", snapshot]
+        nhits = [
+            "python", "-u", "train_nhits.py", "--market", market,
+            "--snapshot", snapshot, "--calendar", MARKET_CALENDAR[market],
+        ]
         if self.host == "vps":
             return self.run("Robusta : N-HiTS (ce conteneur)", [self.py, *nhits[1:]]) == 0
         if self.run("Robusta : N-HiTS (Docker)", ["docker", "compose", "exec", "-T", "api", *nhits], env=DOCKER_ENV) == 0:
