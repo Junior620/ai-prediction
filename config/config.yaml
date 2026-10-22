@@ -67,7 +67,8 @@ markets:
   coffee_robusta:
     display_name: "Café Robusta (ICE London)"
     price_table: "coffee_robusta_prices"
-    source: "investing_com"
+    # Databento IFEU.IMPACT RC.c.0..2 depuis le lot B (Investing.com : HTTP 403 Cloudflare depuis le 14/10/2026).
+    source: "databento"
     investing_url: "https://www.investing.com/commodities/london-coffee"
     contract_symbol: "RCU6"  # front month (rollover auto-detected from page title)
     unit: "USD/T"
