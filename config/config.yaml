@@ -93,6 +93,13 @@ claude:
   max_tokens_standard: 1200
   max_tokens_advanced: 2500
 
+# Traitement quotidien (scripts/run_pipeline.py) : un seul hôte collecte, entraîne et écrit
+# data/prediction_journal.jsonl et les manifestes expérimentaux. L'autre refuse le traitement
+# réel (dry-run et aperçu permis). pc : update_system.bat ; vps : scripts/vps/pipeline.sh.
+# Changer d'hôte : voir docs/VPS_PIPELINE.md (amorçage des données, puis ce commit).
+pipeline:
+  journal_writer: pc
+
 # Data Collection Settings
 data_collection:
   frequency: "daily"  # hourly, daily, weekly
