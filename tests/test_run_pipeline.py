@@ -478,5 +478,6 @@ def test_vps_update_keeps_pipeline_manifests_and_refuses_unknown_content():
     # Suivis par HEAD, plus par la cible (88 modèles de bcab53e) : remis sur le disque s'ils sont ignorés.
     assert "--diff-filter=D HEAD" in code and "git check-ignore -q" in code
     assert code.index("--diff-filter=D HEAD") < code.index("git checkout -q -f -B main") < code.index("git check-ignore -q")
-    # Ni build ni redémarrage : seulement affichés, à lancer après accord.
+    # Ni build ni redémarrage : seulement affichés, à lancer après accord, sans toucher redis ni mlflow.
     assert all(line.lstrip().startswith("echo") for line in code.splitlines() if "docker compose" in line)
+    assert all("--no-deps" in line for line in code.splitlines() if "docker compose up" in line)

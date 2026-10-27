@@ -158,5 +158,5 @@ git status --short --untracked-files=no | sed 's/^/  reste modifié : /'
 
 echo "Ensuite, après accord :"
 echo "  - requirements.txt, Dockerfile ou .dockerignore changés : docker compose build api"
-echo "  - code, compose ou image changés : (unset PREDICTION_RELEASE_MODE; docker compose up -d api)"
+echo "  - code, compose ou image changés : (unset PREDICTION_RELEASE_MODE; docker compose up -d --no-deps api)"
 echo "    puis curl -s localhost:8000/health | jq '{release_mode, serving}' : mode active, lot actif"

@@ -53,7 +53,7 @@ scripts/vps/pipeline.sh
   - l'image est absente (compose la construirait en silence).
 
   Il retire `PREDICTION_RELEASE_MODE` du shell et force `PREDICTION_JOURNAL` à vide : le traitement écrit toujours `data/prediction_journal.jsonl`.
-- **Un seul hôte écrit.** `config/config.yaml`, `pipeline.journal_writer` (`pc` par défaut). L'autre hôte refuse le traitement réel (code 1). `--dry-run` et `--preview-journal` restent permis partout.
+- **Un seul hôte écrit.** `config/config.yaml`, `pipeline.journal_writer` (`pc` par défaut, `vps` depuis le 27/10/2026). L'autre hôte refuse le traitement réel (code 1). `--dry-run` et `--preview-journal` restent permis partout.
 
 ## Codes de sortie et alertes
 
@@ -148,13 +148,24 @@ La copie a ensuite été supprimée. `/opt/prediction` n'a pas été modifié.
 
 ```bash
 docker compose build api
-(unset PREDICTION_RELEASE_MODE; docker compose up -d api)
+(unset PREDICTION_RELEASE_MODE; docker compose up -d --no-deps api)
 ```
 
 Ensuite, vérifier :
 
 - `/health` : `release_mode` vaut `active`, les lots actifs sont servis, `roll_series_end` est la dernière séance ;
 - `/app/.env` est absent de la nouvelle image.
+
+Étapes 0 à 2 faites le 27/10/2026 :
+
+- **Git** : VPS sur `2b177a0`, sauvegarde `update_20261027_024711_bcab53e.tgz`.
+- **Image** : `08f605375729`, sans `/app/.env`. L'ancienne est gardée comme `prediction-api:pre-lotc-20261027`.
+- **`.env`** : ligne `PREDICTION_JOURNAL` ajoutée, ancien fichier dans `/opt/prediction-backups/env_before_journal_20261027`.
+- **API recréée** avec `--no-deps` :
+  - `/health` répond 200 en 30 s, en mode `active` sur les lots actifs ;
+  - `roll_series_end` vaut 21/10 ;
+  - `./data` et `./scripts` sont montés ;
+  - le journal public est lu et écrit dans `prediction_journal_public.jsonl`.
 
 ### 3. Décision de l'écrivain
 
@@ -170,6 +181,17 @@ Option A ou B, ci-dessus.
 3. Commiter `pipeline.journal_writer: vps`.
 4. Faire `git pull` sur le PC, puis lancer `update.sh` sur le VPS.
 
+Option A retenue. Copie faite le 27/10/2026 :
+
+- **Volume** : 171 fichiers (118 Mo), SHA-256 vérifiés 171/171.
+- **Copiés** : `data/`, sauf la série sans saut, identique des deux côtés. Le journal expérimental fait 2 360 lignes.
+- **Lots en place** :
+  - cacao : `20261020_055547` et `20261020_052744` ;
+  - robusta : `20261013_045834` et `20261010_093542`, avec leurs N-HiTS.
+- **Manifestes** : les deux manifestes cacao du PC.
+- **Fichiers remplacés** : les 3 fichiers du VPS remplacés sont dans `/opt/prediction-backups/seed_20261027/`.
+- **À noter** : il n'y a pas eu de dernier passage sur le PC, car ses données s'arrêtent au 22/10. Le premier passage du VPS rattrapera les séances suivantes.
+
 ### 5. Essais
 
 Lancer `scripts/vps/pipeline.sh --dry-run`, puis un passage réel à la main. Lire `logs/pipeline/`.
@@ -184,7 +206,7 @@ Le propriétaire ajoute le canal d'alerte dans le `.env` du VPS.
 
 ## Après la bascule
 
-- **Code.** Il passe par git : commit sur `main`, puis `scripts/vps/update.sh <sha>`, puis `up -d api` si le code servi change.
+- **Code.** Il passe par git : commit sur `main`, puis `scripts/vps/update.sh <sha>`, puis `up -d --no-deps api` si le code servi change.
 - **Fichiers gardés.** `update.sh` garde les manifestes expérimentaux écrits par le VPS. Il refuse (code 3) si un fichier contient un contenu absent de git.
-- **Promotion.** Elle reste manuelle : un commit de `config/active_release_*.json` qui nomme un lot présent sur le VPS, puis `update.sh` et `up -d api`.
+- **Promotion.** Elle reste manuelle : un commit de `config/active_release_*.json` qui nomme un lot présent sur le VPS, puis `update.sh` et `up -d --no-deps api`.
 - **`deploy_models.ps1`.** Il n'est plus utilisé : il recopierait du code CRLF et des modèles du PC.
