@@ -8,7 +8,8 @@
 #   git show <commit>:scripts/vps/update.sh | bash -s -- --dry-run <commit>
 #
 # Chaque fichier que git remplacerait est classé :
-#   garde    manifeste expérimental écrit par le traitement du VPS : remis tel quel après ;
+#   garde    écrit par le traitement du VPS (manifeste expérimental, freeze.json du walk-forward) :
+#            remis tel quel après ;
 #   crlf     même contenu que le commit, aux fins de ligne Windows près (copie de deploy_models.ps1) ;
 #   ancien   version présente dans l'historique git : rien d'unique n'est perdu ;
 #   UNIQUE   contenu absent de git : refus (code 3), à examiner avant toute mise à jour.
@@ -31,7 +32,8 @@ fi
 cd "$ROOT"
 [[ -d .git ]] || { echo "[ERREUR] $ROOT n'est pas un dépôt git" >&2; exit 1; }
 BACKUP_DIR="${BACKUP_DIR:-$(dirname "$ROOT")/prediction-backups}"
-KEEP_RE='^config/(previous_)?experimental_release_[a-z_]+\.json$'
+# Le walk-forward des jours d'entraînement réécrit son freeze.json (empreintes de l'instantané).
+KEEP_RE='^(config/(previous_)?experimental_release_[a-z_]+\.json|reports/walk_forward/([a-z_]+/)+freeze\.json)$'
 
 dry_run=0
 target=""
