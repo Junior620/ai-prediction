@@ -521,3 +521,5 @@ def test_vps_update_keeps_pipeline_manifests_and_refuses_unknown_content():
     # Ni build ni redémarrage : seulement affichés, à lancer après accord, sans toucher redis ni mlflow.
     assert all(line.lstrip().startswith("echo") for line in code.splitlines() if "docker compose" in line)
     assert all("--no-deps" in line for line in code.splitlines() if "docker compose up" in line)
+    # src/ et config/ sont montés : sans --force-recreate, compose garde le conteneur et l'ancien code.
+    assert all("--force-recreate" in line for line in code.splitlines() if "docker compose up" in line)
