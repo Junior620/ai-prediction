@@ -148,13 +148,24 @@ La copie a ensuite été supprimée. `/opt/prediction` n'a pas été modifié.
 
 ```bash
 docker compose build api
-(unset PREDICTION_RELEASE_MODE; docker compose up -d api)
+(unset PREDICTION_RELEASE_MODE; docker compose up -d --no-deps api)
 ```
 
 Ensuite, vérifier :
 
 - `/health` : `release_mode` vaut `active`, les lots actifs sont servis, `roll_series_end` est la dernière séance ;
 - `/app/.env` est absent de la nouvelle image.
+
+Étapes 0 à 2 faites le 27/10/2026 :
+
+- **Git** : VPS sur `2b177a0`, sauvegarde `update_20261027_024711_bcab53e.tgz`.
+- **Image** : `08f605375729`, sans `/app/.env`. L'ancienne est gardée comme `prediction-api:pre-lotc-20261027`.
+- **`.env`** : ligne `PREDICTION_JOURNAL` ajoutée, ancien fichier dans `/opt/prediction-backups/env_before_journal_20261027`.
+- **API recréée** avec `--no-deps` :
+  - `/health` répond 200 en 30 s, en mode `active` sur les lots actifs ;
+  - `roll_series_end` vaut 21/10 ;
+  - `./data` et `./scripts` sont montés ;
+  - le journal public est lu et écrit dans `prediction_journal_public.jsonl`.
 
 ### 3. Décision de l'écrivain
 
@@ -184,7 +195,7 @@ Le propriétaire ajoute le canal d'alerte dans le `.env` du VPS.
 
 ## Après la bascule
 
-- **Code.** Il passe par git : commit sur `main`, puis `scripts/vps/update.sh <sha>`, puis `up -d api` si le code servi change.
+- **Code.** Il passe par git : commit sur `main`, puis `scripts/vps/update.sh <sha>`, puis `up -d --no-deps api` si le code servi change.
 - **Fichiers gardés.** `update.sh` garde les manifestes expérimentaux écrits par le VPS. Il refuse (code 3) si un fichier contient un contenu absent de git.
-- **Promotion.** Elle reste manuelle : un commit de `config/active_release_*.json` qui nomme un lot présent sur le VPS, puis `update.sh` et `up -d api`.
+- **Promotion.** Elle reste manuelle : un commit de `config/active_release_*.json` qui nomme un lot présent sur le VPS, puis `update.sh` et `up -d --no-deps api`.
 - **`deploy_models.ps1`.** Il n'est plus utilisé : il recopierait du code CRLF et des modèles du PC.
