@@ -28,6 +28,16 @@ class AlertSeverity(Enum):
     CRITICAL = "CRITICAL"
 
 
+DISCORD_MAX_CONTENT = 2000
+
+
+def is_discord_webhook(url: Optional[str]) -> bool:
+    """Webhook Discord natif (pas son adaptateur Slack en ``/slack``)."""
+    text = str(url or "").split("?", 1)[0].rstrip("/")
+    native = "discord.com/api/webhooks/" in text or "discordapp.com/api/webhooks/" in text
+    return native and not text.endswith("/slack")
+
+
 class AlertType(Enum):
     """Types of alerts."""
     MODEL_FAILURE = "model_failure"
@@ -205,8 +215,11 @@ class AlertSystem:
                 logger.warning("Webhook URL not configured")
                 return False
             
-            # Format payload for webhook
-            webhook_payload = self._format_webhook_payload(alert_payload)
+            # Discord ignore les « blocks » Slack : on lui envoie son propre format.
+            if is_discord_webhook(webhook_url):
+                webhook_payload = self._format_discord_payload(alert_payload)
+            else:
+                webhook_payload = self._format_webhook_payload(alert_payload)
             
             # Send POST request to webhook
             response = requests.post(
@@ -330,7 +343,24 @@ This is an automated alert from the Cocoa Price Prediction System.
             })
         
         return payload
-    
+
+    def _format_discord_payload(self, alert_payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Message Discord lisible sur téléphone : gravité, type, message, détails."""
+        icons = {"INFO": "ℹ️", "WARNING": "⚠️", "ERROR": "❌", "CRITICAL": "🚨"}
+        severity = alert_payload["severity"]
+        lines = [
+            f"{icons.get(severity, '🔔')} **{severity}** — {alert_payload['alert_type']}",
+            str(alert_payload["message"]),
+        ]
+        for key, value in (alert_payload.get("details") or {}).items():
+            lines.append(f"• {key} : {value}")
+        lines.append(f"`{alert_payload['timestamp']} UTC`")
+        text = "\n".join(lines)
+        if len(text) > DISCORD_MAX_CONTENT:
+            text = text[: DISCORD_MAX_CONTENT - 1] + "…"
+        # Aucune mention @everyone ou @here, même si un message en contient.
+        return {"content": text, "allowed_mentions": {"parse": []}}
+
     def send_model_failure_alert(
         self,
         model_name: str,

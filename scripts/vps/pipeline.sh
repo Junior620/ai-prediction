@@ -6,6 +6,8 @@
 #   --catch-up  relance le cacao seulement si le dernier passage a fini en code 2 à cause
 #               du cacao (séance pas encore publiée par Databento) ; sinon ne fait rien.
 #   --dry-run   (passé à run_pipeline.py) liste les étapes ; le dernier code n'est pas noté.
+#   --test-alert  envoie une alerte de test par les deux chemins (ce script, puis
+#               run_pipeline.py dans un conteneur ponctuel) et sort ; rien d'autre n'est lancé.
 #
 # Jamais de « docker compose up », « restart » ni « build » : l'API publique garde son
 # conteneur, son mode active et son lot actif. Le mode vient de .env, jamais du shell.
@@ -20,6 +22,44 @@ LOG_DIR="$ROOT/logs/pipeline"
 STATUS="$ROOT/data/status/pipeline_last_run.json"
 IMAGE="$(basename "$ROOT")-api"
 mkdir -p "$LOG_DIR"
+
+# Webhook de .env (ALERT_WEBHOOK_URL), celui des alertes de run_pipeline.py. Discord reçoit son
+# format natif ; tout autre webhook, le champ « text » de Slack. L'URL n'est jamais écrite.
+# Codes : 0 envoyé, 1 webhook injoignable ou refusé, 2 aucun webhook dans .env.
+notify() {
+  local url body
+  url="$(grep -m1 '^ALERT_WEBHOOK_URL=' .env 2>/dev/null | cut -d= -f2- | tr -d "\"'\r")"
+  [[ -n "$url" ]] || return 2
+  case "$url" in
+    https://discord.com/api/webhooks/*/slack|https://discordapp.com/api/webhooks/*/slack)
+      body="$(jq -nc --arg t "$1" '{text: $t}')" ;;
+    https://discord.com/api/webhooks/*|https://discordapp.com/api/webhooks/*)
+      body="$(jq -nc --arg t "$1" '{content: $t, allowed_mentions: {parse: []}}')" ;;
+    *)
+      body="$(jq -nc --arg t "$1" '{text: $t}')" ;;
+  esac
+  curl -fsS -m 10 -H 'Content-Type: application/json' -d "$body" "$url" >/dev/null 2>&1 || return 1
+}
+
+if [[ "${1:-}" == "--test-alert" ]]; then
+  notify "🔔 Test d'alerte du VPS ($(date -u +%FT%TZ)) : chemin pipeline.sh"
+  case $? in
+    0) echo "[OK] alerte de test envoyée par pipeline.sh" ;;
+    2) echo "[ERREUR] aucune ligne ALERT_WEBHOOK_URL= dans .env" >&2; exit 1 ;;
+    *) echo "[ERREUR] webhook injoignable ou refusé (vérifier l'URL dans .env)" >&2; exit 1 ;;
+  esac
+  unset PREDICTION_RELEASE_MODE
+  if docker compose run --rm --no-deps -T -v "$ROOT:/app" api python -c 'import sys
+from src.monitoring.alert_system import AlertSeverity, AlertType, get_alert_system
+sent = get_alert_system().send_alert(AlertSeverity.ERROR, AlertType.SYSTEM_ERROR,
+    "Test d alerte du VPS : chemin run_pipeline.py", details={"origine": "pipeline.sh --test-alert"})
+sys.exit(0 if sent else 1)'; then
+    echo "[OK] alerte de test envoyée par run_pipeline.py (conteneur)"
+    exit 0
+  fi
+  echo "[ERREUR] alerte de test non envoyée depuis le conteneur" >&2
+  exit 1
+fi
 
 catch_up=0
 if [[ "${1:-}" == "--catch-up" ]]; then
@@ -44,6 +84,9 @@ LOG="$LOG_DIR/$(date -u +%Y%m%d_%H%M%S).log"
 alert() {
   echo "[ERREUR] $1" >>"$LOG"
   logger -t prediction-pipeline -p user.err "$1 (voir $LOG)"
+  notify "❌ VPS prediction-pipeline : $1 (journal $LOG)"
+  [[ $? -eq 1 ]] && logger -t prediction-pipeline -p user.warning "alerte webhook non envoyée"
+  return 0
 }
 
 exec 9>"$LOG_DIR/.lock"

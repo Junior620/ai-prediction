@@ -67,8 +67,10 @@ scripts/vps/pipeline.sh
 
 Où arrivent les alertes :
 
-- **Webhook ou SMTP**, par `src/monitoring/alert_system.py`. Il faut `ALERT_WEBHOOK_URL`, ou `ALERT_EMAIL_TO`, `ALERT_EMAIL_FROM` et `ALERT_SMTP_HOST` dans le `.env` du VPS. Aucun canal n'était configuré à l'audit du 19/10 : c'est au propriétaire de l'ajouter.
-- **Syslog** : `journalctl -t prediction-pipeline`. C'est le seul canal quand le conteneur ne démarre pas.
+- **Webhook ou SMTP**, par `src/monitoring/alert_system.py`. Il faut `ALERT_WEBHOOK_URL`, ou `ALERT_EMAIL_TO`, `ALERT_EMAIL_FROM` et `ALERT_SMTP_HOST` dans le `.env` du VPS. Un webhook Discord (`https://discord.com/api/webhooks/…`) reçoit son format natif ; les autres reçoivent le format Slack.
+- **Webhook aussi pour `pipeline.sh`** : verrou pris, `.env` sans mode `active`, image absente ou conteneur en échec. Ces cas ne passent pas par Python ; le script poste lui-même sur `ALERT_WEBHOOK_URL` (pas de SMTP).
+- **Syslog** : `journalctl -t prediction-pipeline`, toujours.
+- **Test** : `scripts/vps/pipeline.sh --test-alert` envoie un message par chacun des deux chemins et ne lance rien d'autre.
 
 Où lire le résultat :
 
@@ -205,7 +207,10 @@ Commande d'installation plus haut.
 
 ### 7. Alertes
 
-Le propriétaire ajoute le canal d'alerte dans le `.env` du VPS.
+Le propriétaire ajoute le canal d'alerte dans le `.env` du VPS, par exemple une ligne
+`ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<jeton>`. Le cron relit `.env` à chaque
+passage : rien à redémarrer. Vérifier ensuite avec `scripts/vps/pipeline.sh --test-alert` (deux
+messages attendus). L'API publique ne voit la ligne qu'à sa prochaine recréation.
 
 ## Après la bascule
 
