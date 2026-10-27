@@ -214,7 +214,9 @@ messages attendus). L'API publique ne voit la ligne qu'à sa prochaine recréati
 
 ## Après la bascule
 
-- **Code.** Il passe par git : commit sur `main`, puis `scripts/vps/update.sh <sha>`, puis `up -d --no-deps api` si le code servi change.
+- **Code.** Il passe par git : commit sur `main`, puis `scripts/vps/update.sh <sha>`, puis `up -d --no-deps --force-recreate api` si le code servi change.
+  - `src/` et `config/` sont montés dans le conteneur : quand seuls eux changent, compose ne voit rien et `up -d --no-deps api` répond `Running`. L'API garde alors l'ancien code en mémoire (constaté le 27/10/2026).
+  - `--force-recreate` recrée le conteneur ; `--no-deps` laisse redis et mlflow tels quels.
 - **Fichiers gardés.** `update.sh` garde les manifestes expérimentaux écrits par le VPS. Il refuse (code 3) si un fichier contient un contenu absent de git.
-- **Promotion.** Elle reste manuelle : un commit de `config/active_release_*.json` qui nomme un lot présent sur le VPS, puis `update.sh` et `up -d --no-deps api`.
+- **Promotion.** Elle reste manuelle : un commit de `config/active_release_*.json` qui nomme un lot présent sur le VPS, puis `update.sh` et `up -d --no-deps --force-recreate api` : le manifeste actif n'est lu qu'au démarrage.
 - **`deploy_models.ps1`.** Il n'est plus utilisé : il recopierait du code CRLF et des modèles du PC.
