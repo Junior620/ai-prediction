@@ -97,8 +97,9 @@ claude:
 # data/prediction_journal.jsonl et les manifestes expérimentaux. L'autre refuse le traitement
 # réel (dry-run et aperçu permis). pc : update_system.bat ; vps : scripts/vps/pipeline.sh.
 # Changer d'hôte : voir docs/VPS_PIPELINE.md (amorçage des données, puis ce commit).
+# vps depuis le 27/10/2026 : données du PC copiées sur le VPS ce jour-là (étape 4).
 pipeline:
-  journal_writer: pc
+  journal_writer: vps
 
 # Data Collection Settings
 data_collection:

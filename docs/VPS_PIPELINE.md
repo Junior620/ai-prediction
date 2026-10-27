@@ -53,7 +53,7 @@ scripts/vps/pipeline.sh
   - l'image est absente (compose la construirait en silence).
 
   Il retire `PREDICTION_RELEASE_MODE` du shell et force `PREDICTION_JOURNAL` à vide : le traitement écrit toujours `data/prediction_journal.jsonl`.
-- **Un seul hôte écrit.** `config/config.yaml`, `pipeline.journal_writer` (`pc` par défaut). L'autre hôte refuse le traitement réel (code 1). `--dry-run` et `--preview-journal` restent permis partout.
+- **Un seul hôte écrit.** `config/config.yaml`, `pipeline.journal_writer` (`pc` par défaut, `vps` depuis le 27/10/2026). L'autre hôte refuse le traitement réel (code 1). `--dry-run` et `--preview-journal` restent permis partout.
 
 ## Codes de sortie et alertes
 
@@ -180,6 +180,17 @@ Option A ou B, ci-dessus.
    - `config/experimental_release_*.json` et `previous_*`.
 3. Commiter `pipeline.journal_writer: vps`.
 4. Faire `git pull` sur le PC, puis lancer `update.sh` sur le VPS.
+
+Option A retenue. Copie faite le 27/10/2026 :
+
+- **Volume** : 171 fichiers (118 Mo), SHA-256 vérifiés 171/171.
+- **Copiés** : `data/`, sauf la série sans saut, identique des deux côtés. Le journal expérimental fait 2 360 lignes.
+- **Lots en place** :
+  - cacao : `20261020_055547` et `20261020_052744` ;
+  - robusta : `20261013_045834` et `20261010_093542`, avec leurs N-HiTS.
+- **Manifestes** : les deux manifestes cacao du PC.
+- **Fichiers remplacés** : les 3 fichiers du VPS remplacés sont dans `/opt/prediction-backups/seed_20261027/`.
+- **À noter** : il n'y a pas eu de dernier passage sur le PC, car ses données s'arrêtent au 22/10. Le premier passage du VPS rattrapera les séances suivantes.
 
 ### 5. Essais
 
