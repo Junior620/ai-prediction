@@ -75,9 +75,12 @@ Où lire le résultat :
 - `data/status/pipeline_last_run.json` : hôte, code, retards et nouveaux lots ;
 - `logs/pipeline/<date UTC>.log` : un fichier par passage, gardé 90 jours.
 
-Tant que le lot B n'est pas fait, le robusta est en retard : chaque passage finit en code 2 et
-envoie une alerte. Pour l'éviter jusqu'au lot B, on peut ajouter `--markets cocoa` à la ligne du
-cron. C'est au propriétaire de décider.
+Depuis le lot B, le robusta vient de Databento. La collecte ne demande que la dernière semaine
+(0,004 $) et a besoin du brut versionné `data/databento_robusta_calendar_raw.csv` (historique
+téléchargé une fois, 1,226 $). Sur l'hôte qui écrit le journal, ce fichier doit être amorcé
+depuis le PC, comme le reste de `data/`. Sans lui, le robusta finit en code 2
+(« historique absent ») et envoie une alerte. D'ici là, on peut ajouter `--markets cocoa` à
+la ligne du cron. C'est au propriétaire de décider.
 
 ## Cron proposé (non installé)
 

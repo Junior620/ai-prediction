@@ -32,7 +32,7 @@ class TestMarketRegistry:
     def test_coffee_robusta_config(self):
         cfg = get_market_config("coffee_robusta")
         assert cfg.price_table == "coffee_robusta_prices"
-        assert cfg.source == "investing_com"
+        assert cfg.source == "databento"
         assert cfg.investing_url == "https://www.investing.com/commodities/london-coffee"
         assert cfg.contract_symbol == "RCU6"
         assert cfg.tradingview_symbol == "ICEEUR:RC1!"

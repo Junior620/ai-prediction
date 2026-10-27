@@ -8,9 +8,11 @@ from typing import Any
 from src.models.hybrid_features import SERVICE_CALENDAR
 from src.models.release_manifest import artifact_path
 
+# Calendrier des nouveaux lots. Un lot déjà entraîné garde celui qu'il déclare (require_calendar).
+# Robusta : trading_sessions depuis le lot B (série Databento sans saut, plus de lignes de week-end).
 MARKET_CALENDAR = {
     "cocoa": "trading_sessions",
-    "coffee_robusta": "keep_closed_rows",
+    "coffee_robusta": "trading_sessions",
 }
 
 

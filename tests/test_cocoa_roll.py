@@ -120,7 +120,7 @@ def test_apply_drops_unquoted_sessions_keeps_closed_rows_and_later_rows():
     assert again["price"].tolist() == out["price"].tolist()
 
 
-def test_prepare_market_frame_uses_the_series_for_cocoa_only(tmp_path):
+def test_prepare_market_frame_uses_a_series_for_cocoa_and_robusta_only(tmp_path):
     from src.models.hybrid_features import prepare_market_frame
 
     path = tmp_path / "roll.csv"
@@ -128,8 +128,13 @@ def test_prepare_market_frame_uses_the_series_for_cocoa_only(tmp_path):
     frame = pd.DataFrame({"date": pd.to_datetime(["2026-10-08", "2026-10-09"]), "price": [50.0, 51.0]})
     cocoa = prepare_market_frame(frame, market_id="cocoa", ledger_path=tmp_path / "none.csv", roll_series_path=path)
     coffee = prepare_market_frame(frame, market_id="coffee_robusta", roll_series_path=path)
+    other = prepare_market_frame(frame, market_id="other", roll_series_path=path)
     assert cocoa["price"].tolist() == [100.0, 101.0]
-    assert coffee["price"].tolist() == [50.0, 51.0]
+    assert coffee["price"].tolist() == [100.0, 101.0]
+    assert other["price"].tolist() == [50.0, 51.0]
+    # Sans série robusta (avant l'historique), les prix de la table restent.
+    missing = prepare_market_frame(frame, market_id="coffee_robusta", roll_series_path=tmp_path / "absent.csv")
+    assert missing["price"].tolist() == [50.0, 51.0]
 
 
 def test_log_return_target_and_level():

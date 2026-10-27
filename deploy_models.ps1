@@ -446,6 +446,9 @@ $modelCodeFiles = @(
     @{ Local = "src\validation\served_backtest.py"; Remote = "$RemotePath/src/validation/" },
     @{ Local = "src\data_collection\cocoa_weather.py"; Remote = "$RemotePath/src/data_collection/" },
     @{ Local = "src\data_collection\cocoa_roll.py"; Remote = "$RemotePath/src/data_collection/" },
+    # Importes par hybrid_features pour le robusta : sans eux, la preparation robusta echoue.
+    @{ Local = "src\data_collection\robusta_roll.py"; Remote = "$RemotePath/src/data_collection/" },
+    @{ Local = "src\data_collection\versioned_store.py"; Remote = "$RemotePath/src/data_collection/" },
     # Série cacao sans saut : l'API la lit à chaque préparation des prix.
     @{ Local = "data\cocoa_roll_series.csv"; Remote = "$RemotePath/data/" },
     @{ Local = "src\monitoring\performance_monitor.py"; Remote = "$RemotePath/src/monitoring/" },

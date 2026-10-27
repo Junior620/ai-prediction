@@ -705,12 +705,13 @@ def bars_to_contract_rows(bars: List[DatabentoBar]) -> List[Dict[str, Any]]:
 def write_collection_journal(
     payload: Dict[str, Any],
     logs_dir: Optional[Path] = None,
+    prefix: str = "databento_collection",
 ) -> Path:
-    """Ecrit logs/databento_collection_YYYYMMDD.json."""
+    """Ecrit logs/databento_collection_YYYYMMDD.json (logs/<prefix>_YYYYMMDD.json)."""
     base = logs_dir or Path("logs")
     base.mkdir(parents=True, exist_ok=True)
     day = datetime.now().strftime("%Y%m%d")
-    path = base / f"databento_collection_{day}.json"
+    path = base / f"{prefix}_{day}.json"
     existing: List[Any] = []
     if path.exists():
         try:

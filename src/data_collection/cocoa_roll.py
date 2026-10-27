@@ -31,8 +31,14 @@ ON_EXCHANGE_PUBLISHER_ID = 57
 _ADJUSTED = ("price", "open", "high", "low")
 
 
-def fetch_calendar_bars(start: str, end: str, client=None, api_key: Optional[str] = None) -> pd.DataFrame:
-    """Barres ohlcv-1d C.c.0..2 avec l'identifiant du contrat. ``end`` exclusif."""
+def fetch_calendar_bars(
+    start: str,
+    end: str,
+    client=None,
+    api_key: Optional[str] = None,
+    symbols: tuple[str, ...] = CALENDAR_SYMBOLS,
+) -> pd.DataFrame:
+    """Barres ohlcv-1d C.c.0..2 (ou ``symbols``) avec l'identifiant du contrat. ``end`` exclusif."""
     if client is None:
         import os
 
@@ -44,7 +50,7 @@ def fetch_calendar_bars(start: str, end: str, client=None, api_key: Optional[str
         client = db.Historical(key)
     data = client.timeseries.get_range(
         dataset=DATASET,
-        symbols=list(CALENDAR_SYMBOLS),
+        symbols=list(symbols),
         schema="ohlcv-1d",
         stype_in="continuous",
         start=start,
@@ -142,6 +148,7 @@ def apply_roll_series(
     frame: pd.DataFrame,
     series: Optional[pd.DataFrame],
     is_closed: Optional[Callable[[pd.Timestamp], bool]] = None,
+    refresh_hint: str = "scripts/build_cocoa_roll_series.py",
 ) -> pd.DataFrame:
     """Remplace prix et OHLC par la série sans saut. Idempotent.
 
@@ -179,7 +186,7 @@ def apply_roll_series(
     out["roll_adjusted"] = known | carried
     pending = int((out["date"] > end).sum())
     if pending > 5:
-        logger.warning(f"Série sans saut en retard de {pending} séances : relancer scripts/build_cocoa_roll_series.py")
+        logger.warning(f"Série sans saut en retard de {pending} séances : relancer {refresh_hint}")
     return out.reset_index(drop=True)
 
 
