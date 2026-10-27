@@ -513,6 +513,11 @@ def test_vps_update_keeps_pipeline_manifests_and_refuses_unknown_content():
     assert keep.match("config/experimental_release_cocoa.json")
     assert keep.match("config/previous_experimental_release_coffee_robusta.json")
     assert not keep.match("config/active_release_cocoa.json") and not keep.match("config/config.yaml")
+    # Le walk-forward du VPS réécrit son freeze.json : update.sh refusait (UNIQUE) le 27/10.
+    assert keep.match("reports/walk_forward/daily/freeze.json")
+    assert keep.match("reports/walk_forward/coffee_robusta/daily/freeze.json")
+    assert not keep.match("reports/walk_forward/daily/summary.json")
+    assert not keep.match("reports/revision_stability/cocoa/freeze.json")
     code = "\n".join(_code_lines(VPS_SCRIPTS / "update.sh"))
     assert "exit 3" in code and "tar czf" in code and "git checkout -q -f -B main" in code
     # Suivis par HEAD, plus par la cible (88 modèles de bcab53e) : remis sur le disque s'ils sont ignorés.
