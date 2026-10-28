@@ -3,8 +3,9 @@
 # ponctuel de l'image de l'API (docker compose run --rm --no-deps api).
 #
 # Usage : scripts/vps/pipeline.sh [--catch-up] [arguments de run_pipeline.py]
-#   --catch-up  relance le cacao seulement si le dernier passage a fini en code 2 à cause
-#               du cacao (séance pas encore publiée par Databento) ; sinon ne fait rien.
+#   --catch-up  relance le cacao et/ou le robusta seulement si le dernier passage a fini en
+#               code 2 parce que leur séance manquait (pas encore publiée par Databento) ;
+#               sinon ne fait rien.
 #   --dry-run   (passé à run_pipeline.py) liste les étapes ; le dernier code n'est pas noté.
 #   --test-alert  envoie une alerte de test par les deux chemins (ce script, puis
 #               run_pipeline.py dans un conteneur ponctuel) et sort ; rien d'autre n'est lancé.
@@ -72,12 +73,16 @@ for arg in "$@"; do
 done
 
 if (( catch_up )); then
-  # jq lit le dernier passage écrit par run_pipeline.py ; rien à rattraper sinon.
-  if ! jq -e '.code == 2 and ([.stale[] | select(startswith("cocoa") or startswith("API publique"))] | length > 0)' \
-      "$STATUS" >/dev/null 2>&1; then
-    exit 0
-  fi
-  set -- --markets cocoa "$@"
+  # jq lit le dernier passage écrit par run_pipeline.py : on ne relance que le marché dont la
+  # séance manquait encore (les deux viennent de Databento) ; rien à rattraper sinon.
+  jq -e '.code == 2' "$STATUS" >/dev/null 2>&1 || exit 0
+  late=()
+  jq -e '[.stale[] | select(startswith("cocoa") or startswith("API publique"))] | length > 0' \
+    "$STATUS" >/dev/null 2>&1 && late+=(cocoa)
+  jq -e '[.stale[] | select(startswith("coffee_robusta"))] | length > 0' \
+    "$STATUS" >/dev/null 2>&1 && late+=(coffee_robusta)
+  (( ${#late[@]} )) || exit 0
+  set -- --markets "${late[@]}" "$@"
 fi
 
 LOG="$LOG_DIR/$(date -u +%Y%m%d_%H%M%S).log"
