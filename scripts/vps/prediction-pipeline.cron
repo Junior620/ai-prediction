@@ -1,17 +1,20 @@
-# /etc/cron.d/prediction-pipeline : traitement du soir du projet prediction (scripts/vps/pipeline.sh).
+# /etc/cron.d/prediction-pipeline : traitement du matin du projet prediction (scripts/vps/pipeline.sh).
 # Installé seulement après accord ; ne touche pas la crontab de root (cron /opt/samen).
 #
 # Le cron d'Ubuntu ignore CRON_TZ (No-multiple-timezones.patch) : heures du VPS, Europe/Berlin.
-# 00:30 Berlin = 22:30 UTC l'été, 23:30 UTC l'hiver : toujours après 22:05 UTC (séance publiée
-# par Databento) et toujours le même jour UTC que la séance.
-#   mar-sam 00:30 : séances du lundi au vendredi ;
-#   dim 00:30     : samedi 22:30/23:30 UTC, passage du samedi (la politique entraîne).
-# Rattrapage 07:30 Berlin : seulement si le passage de la nuit a fini en code 2 à cause du cacao.
+# Databento publie la séance de Londres dans la nuit, pas à la clôture : le 27/10/2026 à
+# 23:30 UTC, la séance du jour n'était pas encore là (fin de plage au 27/10 00:00). La borne
+# « jamais au-delà d'aujourd'hui (UTC) » écarte de toute façon la séance du jour même.
+# On traite donc le lendemain matin :
+#   mar-sam 06:30 Berlin (04:30 UTC l'été, 05:30 UTC l'hiver) : séances du lundi au vendredi ;
+#   le samedi matin est un samedi UTC : la politique entraîne le lot hebdomadaire.
+# Rattrapage 09:30 Berlin : seulement si le passage du matin a fini en code 2 parce qu'une
+# séance (cacao ou robusta) manquait encore.
 # Codes : 0 succès, 1 échec, 2 retard ou séance incomplète, 3 quarantaine, 4 partiel ;
 # alerte par webhook ou SMTP (.env : ALERT_WEBHOOK_URL ou ALERT_EMAIL_*) et syslog
 # (journalctl -t prediction-pipeline). Logs : /opt/prediction/logs/pipeline/.
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-30 0 * * 0,2-6 root /opt/prediction/scripts/vps/pipeline.sh
-30 7 * * 0,2-6 root /opt/prediction/scripts/vps/pipeline.sh --catch-up
+30 6 * * 2-6 root /opt/prediction/scripts/vps/pipeline.sh
+30 9 * * 2-6 root /opt/prediction/scripts/vps/pipeline.sh --catch-up

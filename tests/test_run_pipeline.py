@@ -488,21 +488,37 @@ def test_vps_wrapper_never_recreates_or_switches_the_public_api():
     assert b"\r" not in (VPS_SCRIPTS / "pipeline.sh").read_bytes()
 
 
-def test_cron_runs_after_databento_publishes_in_summer_and_winter():
+def test_cron_runs_the_morning_after_each_session_in_summer_and_winter():
+    from datetime import timedelta
     from zoneinfo import ZoneInfo
 
     berlin = ZoneInfo("Europe/Berlin")
     entries = [line.split() for line in _code_lines(VPS_SCRIPTS / "prediction-pipeline.cron") if line[0].isdigit()]
     assert entries and all(e[5] == "root" and e[6] == "/opt/prediction/scripts/vps/pipeline.sh" for e in entries)
     main = [e for e in entries if len(e) == 7]
-    assert len(main) == 1 and any(e[7:] == ["--catch-up"] for e in entries)
+    catch_up = [e for e in entries if e[7:] == ["--catch-up"]]
+    assert len(main) == 1 and len(catch_up) == 1
     minute, hour, _, _, days = main[0][:5]
-    assert days == "0,2-6"  # lendemain local des séances lun-ven, et samedi soir UTC
-    # Séance du lundi 19/01 (hiver) et du lundi 20/07 (été) : passage le mardi 00:30 à Berlin.
-    for session in (datetime(2026, 1, 19), datetime(2026, 7, 20)):
-        local = datetime(session.year, session.month, session.day + 1, int(hour), int(minute), tzinfo=berlin)
+    assert days == "2-6"  # mardi-samedi : lendemain des séances du lundi au vendredi
+    assert catch_up[0][4] == days and (int(catch_up[0][1]), int(catch_up[0][0])) > (int(hour), int(minute))
+    # Le 27/10/2026 à 23:30 UTC, Databento n'avait pas publié la séance du jour : un passage le
+    # même jour UTC ne la voit jamais (borne « jamais au-delà d'aujourd'hui »). Hiver et été.
+    for session in (datetime(2026, 1, 19), datetime(2026, 7, 20), datetime(2026, 10, 23), datetime(2026, 10, 30)):
+        run_day = session + timedelta(days=1)
+        local = datetime(run_day.year, run_day.month, run_day.day, int(hour), int(minute), tzinfo=berlin)
         utc = local.astimezone(timezone.utc)
-        assert utc.date() == session.date() and (utc.hour, utc.minute) >= (22, 5)
+        assert utc.date() == run_day.date() and utc.hour >= 4
+        # Le passage du vendredi tombe un samedi UTC : la politique entraîne le lot hebdomadaire.
+        if session.weekday() == 4:
+            assert utc.weekday() == 5
+
+
+def test_catch_up_reruns_each_late_market():
+    code = "\n".join(_code_lines(VPS_SCRIPTS / "pipeline.sh"))
+    block = code.split("if (( catch_up )); then", 1)[1].split("\nfi", 1)[0]
+    assert "jq -e '.code == 2'" in block
+    assert 'startswith("cocoa")' in block and 'startswith("coffee_robusta")' in block
+    assert 'set -- --markets "${late[@]}" "$@"' in block
 
 
 def test_vps_update_keeps_pipeline_manifests_and_refuses_unknown_content():

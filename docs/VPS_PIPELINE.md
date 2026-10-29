@@ -84,7 +84,7 @@ depuis le PC, comme le reste de `data/`. Sans lui, le robusta finit en code 2
 (« historique absent ») et envoie une alerte. D'ici là, on peut ajouter `--markets cocoa` à
 la ligne du cron. C'est au propriétaire de décider.
 
-## Cron proposé (non installé)
+## Cron (installé le 27/10/2026, déplacé au matin le 28/10/2026)
 
 `scripts/vps/prediction-pipeline.cron`, installé sous un nom sans point. Le cron ignore les noms
 avec un point dans `/etc/cron.d`.
@@ -95,17 +95,22 @@ install -o root -g root -m 644 scripts/vps/prediction-pipeline.cron /etc/cron.d/
 
 | Ligne (heure de Berlin) | UTC été | UTC hiver | Séance |
 |---|---|---|---|
-| `30 0 * * 0,2-6` | 22:30 la veille | 23:30 la veille | Lundi à vendredi. Le dimanche 00:30 correspond au samedi soir UTC, et la politique entraîne le samedi. |
-| `30 7 * * 0,2-6 … --catch-up` | 05:30 | 06:30 | Ne relance le cacao que si le passage de la nuit a fini en code 2 à cause du cacao. |
+| `30 6 * * 2-6` | 04:30 | 05:30 | La veille, du lundi au vendredi. Le samedi matin est un samedi UTC : la politique entraîne le lot hebdomadaire. |
+| `30 9 * * 2-6 … --catch-up` | 07:30 | 08:30 | Ne relance que le marché (cacao ou robusta) dont la séance manquait encore au passage du matin (code 2). |
 
-Le passage tombe toujours après 22:05 UTC (publication Databento) et le même jour UTC que la
-séance. Un test le vérifie en été et en hiver.
+Pourquoi le matin : Databento publie la séance de Londres dans la nuit, pas à la clôture. Le
+27/10/2026 à 23:30 UTC, la séance du jour n'était pas encore publiée (fin de plage au 27/10
+00:00). Et la borne « jamais au-delà d'aujourd'hui (UTC) » écarte de toute façon la séance du
+jour même. Le premier cron, à 00:30 Berlin, ne prenait donc jamais la séance qui venait de fermer :
+le site affichait « retard d'une séance » toute la journée. Un test vérifie l'horaire en été et en
+hiver. Il reste une fenêtre courte, de minuit (Londres) au passage du matin, où la séance de la
+veille est attendue mais pas encore traitée.
 
 ## Qui écrit `data/prediction_journal.jsonl` : décision à prendre
 
 | | A. Le VPS écrit (recommandé) | B. Le PC reste l'écrivain |
 |---|---|---|
-| Traitement | Le VPS tourne après 22:05 UTC, sans le PC allumé. | Le PC continue comme aujourd'hui. |
+| Traitement | Le VPS tourne chaque matin, sans le PC allumé. | Le PC continue comme aujourd'hui. |
 | Journal et lots | Écrits au même endroit que l'API publique. | Écrits sur le PC. |
 | Côté PC | Lecteur seul : `update_system.bat` refuse le traitement réel. Aperçu et dry-run restent permis. | Inchangé. |
 | Comment l'autre reçoit | Le PC rapatrie par `scp` (VPS vers PC, jamais l'inverse) : `data/prediction_journal.jsonl`, `data/status/`, `data/freeze/`, `config/experimental_release_*.json`, `reports/walk_forward/*/daily/`. Script à écrire après la décision. | Le VPS ne reçoit que `deploy_models.ps1`. |
