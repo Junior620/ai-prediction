@@ -84,7 +84,7 @@ depuis le PC, comme le reste de `data/`. Sans lui, le robusta finit en code 2
 (« historique absent ») et envoie une alerte. D'ici là, on peut ajouter `--markets cocoa` à
 la ligne du cron. C'est au propriétaire de décider.
 
-## Cron (installé le 27/10/2026, déplacé au matin le 28/10/2026)
+## Cron (installé le 27/10/2026, au matin le 29/10, à 04:30 Douala ensuite)
 
 `scripts/vps/prediction-pipeline.cron`, installé sous un nom sans point. Le cron ignore les noms
 avec un point dans `/etc/cron.d`.
@@ -93,10 +93,16 @@ avec un point dans `/etc/cron.d`.
 install -o root -g root -m 644 scripts/vps/prediction-pipeline.cron /etc/cron.d/prediction-pipeline
 ```
 
-| Ligne (heure de Berlin) | UTC été | UTC hiver | Séance |
-|---|---|---|---|
-| `30 6 * * 2-6` | 04:30 | 05:30 | La veille, du lundi au vendredi. Le samedi matin est un samedi UTC : la politique entraîne le lot hebdomadaire. |
-| `30 9 * * 2-6 … --catch-up` | 07:30 | 08:30 | Ne relance que le marché (cacao ou robusta) dont la séance manquait encore au passage du matin (code 2). |
+| Ligne (heure de Berlin) | Heure réelle | Séance |
+|---|---|---|
+| `30 4,5 * * 2-6 … --only-at-utc 03` | 03:30 UTC = 04:30 Douala, toute l'année | La veille, du lundi au vendredi. Le samedi matin est un samedi UTC : la politique entraîne le lot hebdomadaire. |
+| `30 6,7 * * 2-6 … --only-at-utc 05 --catch-up` | 05:30 UTC = 06:30 Douala | Ne relance que le marché (cacao ou robusta) dont la séance manquait encore au passage (code 2). |
+
+Douala reste à UTC+1 toute l'année, Berlin (l'heure du VPS) change d'heure : chaque horaire a
+deux lignes, été et hiver, et `--only-at-utc` ne laisse tourner que celle qui tombe à l'heure UTC
+visée. L'heure de 04:30 Douala a été choisie par le propriétaire le 30/10/2026. La publication
+Databento à 03:30 UTC n'est pas encore vérifiée (vue à 04:14 et 04:17 UTC) : si la séance manque,
+le passage finit en code 2, une alerte part, et le rattrapage de 06:30 Douala la reprend.
 
 Pourquoi le matin : Databento publie la séance de Londres dans la nuit, pas à la clôture. Le
 27/10/2026 à 23:30 UTC, la séance du jour n'était pas encore publiée (fin de plage au 27/10

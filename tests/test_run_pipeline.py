@@ -493,24 +493,40 @@ def test_cron_runs_the_morning_after_each_session_in_summer_and_winter():
     from zoneinfo import ZoneInfo
 
     berlin = ZoneInfo("Europe/Berlin")
+    douala = ZoneInfo("Africa/Douala")
     entries = [line.split() for line in _code_lines(VPS_SCRIPTS / "prediction-pipeline.cron") if line[0].isdigit()]
     assert entries and all(e[5] == "root" and e[6] == "/opt/prediction/scripts/vps/pipeline.sh" for e in entries)
-    main = [e for e in entries if len(e) == 7]
-    catch_up = [e for e in entries if e[7:] == ["--catch-up"]]
+    assert all(e[4] == "2-6" and e[7] == "--only-at-utc" for e in entries)  # mardi-samedi
+
+    def firing(entry, run_day):
+        """Heures UTC où cette ligne lance vraiment le traitement ce jour-là (garde --only-at-utc)."""
+        minute, hours, guard = int(entry[0]), [int(h) for h in entry[1].split(",")], entry[8]
+        times = [datetime(run_day.year, run_day.month, run_day.day, h, minute, tzinfo=berlin).astimezone(timezone.utc) for h in hours]
+        return [t for t in times if f"{t.hour:02d}" == guard]
+
+    main = [e for e in entries if e[9:] == []]
+    catch_up = [e for e in entries if e[9:] == ["--catch-up"]]
     assert len(main) == 1 and len(catch_up) == 1
-    minute, hour, _, _, days = main[0][:5]
-    assert days == "2-6"  # mardi-samedi : lendemain des séances du lundi au vendredi
-    assert catch_up[0][4] == days and (int(catch_up[0][1]), int(catch_up[0][0])) > (int(hour), int(minute))
     # Le 27/10/2026 à 23:30 UTC, Databento n'avait pas publié la séance du jour : un passage le
     # même jour UTC ne la voit jamais (borne « jamais au-delà d'aujourd'hui »). Hiver et été.
     for session in (datetime(2026, 1, 19), datetime(2026, 7, 20), datetime(2026, 10, 23), datetime(2026, 10, 30)):
         run_day = session + timedelta(days=1)
-        local = datetime(run_day.year, run_day.month, run_day.day, int(hour), int(minute), tzinfo=berlin)
-        utc = local.astimezone(timezone.utc)
-        assert utc.date() == run_day.date() and utc.hour >= 4
+        runs, catches = firing(main[0], run_day), firing(catch_up[0], run_day)
+        assert len(runs) == 1 and len(catches) == 1  # une seule ligne tourne, été comme hiver
+        # 04:30 à Douala (UTC+1 toute l'année), heure choisie par le propriétaire ; rattrapage 06:30.
+        assert runs[0].astimezone(douala).strftime("%H:%M") == "04:30"
+        assert catches[0].astimezone(douala).strftime("%H:%M") == "06:30"
+        assert runs[0].date() == run_day.date()
         # Le passage du vendredi tombe un samedi UTC : la politique entraîne le lot hebdomadaire.
         if session.weekday() == 4:
-            assert utc.weekday() == 5
+            assert runs[0].weekday() == 5
+
+
+def test_only_at_utc_guard_comes_before_catch_up():
+    code = "\n".join(_code_lines(VPS_SCRIPTS / "pipeline.sh"))
+    guard = code.index('if [[ "${1:-}" == "--only-at-utc" ]]')
+    assert guard < code.index('if [[ "${1:-}" == "--catch-up" ]]')
+    assert '[[ "$(date -u +%H)" ==' in code[guard:] and "exit 0" in code[guard:guard + 300]
 
 
 def test_catch_up_reruns_each_late_market():

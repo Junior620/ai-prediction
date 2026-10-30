@@ -2,19 +2,21 @@
 # Installé seulement après accord ; ne touche pas la crontab de root (cron /opt/samen).
 #
 # Le cron d'Ubuntu ignore CRON_TZ (No-multiple-timezones.patch) : heures du VPS, Europe/Berlin.
-# Databento publie la séance de Londres dans la nuit, pas à la clôture : le 27/10/2026 à
-# 23:30 UTC, la séance du jour n'était pas encore là (fin de plage au 27/10 00:00). La borne
-# « jamais au-delà d'aujourd'hui (UTC) » écarte de toute façon la séance du jour même.
-# On traite donc le lendemain matin :
-#   mar-sam 06:30 Berlin (04:30 UTC l'été, 05:30 UTC l'hiver) : séances du lundi au vendredi ;
-#   le samedi matin est un samedi UTC : la politique entraîne le lot hebdomadaire.
-# Rattrapage 09:30 Berlin : seulement si le passage du matin a fini en code 2 parce qu'une
-# séance (cacao ou robusta) manquait encore.
+# L'heure visée est celle de Douala (UTC+1 toute l'année), choisie par le propriétaire :
+#   passage   04:30 Douala = 03:30 UTC, mar-sam : séances du lundi au vendredi ;
+#   rattrapage 06:30 Douala = 05:30 UTC : seulement si le passage a fini en code 2 parce qu'une
+#              séance (cacao ou robusta) manquait encore.
+# Berlin change d'heure, Douala non : chaque horaire a deux lignes (hiver, été) et
+# --only-at-utc ne laisse tourner que celle qui tombe à la bonne heure UTC.
+# Databento publie la séance dans la nuit, pas à la clôture : absente le 27/10/2026 à 23:30 UTC,
+# présente à 04:14 et 04:17 UTC les matins observés. 03:30 UTC n'est pas encore vérifié : si la
+# séance manque, le passage finit en code 2 (alerte) et le rattrapage de 05:30 UTC la reprend.
+# Le samedi matin est un samedi UTC : la politique entraîne le lot hebdomadaire.
 # Codes : 0 succès, 1 échec, 2 retard ou séance incomplète, 3 quarantaine, 4 partiel ;
 # alerte par webhook ou SMTP (.env : ALERT_WEBHOOK_URL ou ALERT_EMAIL_*) et syslog
 # (journalctl -t prediction-pipeline). Logs : /opt/prediction/logs/pipeline/.
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-30 6 * * 2-6 root /opt/prediction/scripts/vps/pipeline.sh
-30 9 * * 2-6 root /opt/prediction/scripts/vps/pipeline.sh --catch-up
+30 4,5 * * 2-6 root /opt/prediction/scripts/vps/pipeline.sh --only-at-utc 03
+30 6,7 * * 2-6 root /opt/prediction/scripts/vps/pipeline.sh --only-at-utc 05 --catch-up
