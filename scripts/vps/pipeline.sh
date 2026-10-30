@@ -6,6 +6,7 @@
 #   --catch-up  relance le cacao et/ou le robusta seulement si le dernier passage a fini en
 #               code 2 parce que leur séance manquait (pas encore publiée par Databento) ;
 #               sinon ne fait rien.
+#   --only-at-utc HH  (en tête) ne fait rien si l'heure UTC n'est pas HH (cron été/hiver).
 #   --dry-run   (passé à run_pipeline.py) liste les étapes ; le dernier code n'est pas noté.
 #   --test-alert  envoie une alerte de test par les deux chemins (ce script, puis
 #               run_pipeline.py dans un conteneur ponctuel) et sort ; rien d'autre n'est lancé.
@@ -60,6 +61,13 @@ sys.exit(0 if sent else 1)'; then
   fi
   echo "[ERREUR] alerte de test non envoyée depuis le conteneur" >&2
   exit 1
+fi
+
+# --only-at-utc HH : le cron vise une heure UTC fixe (Douala, UTC+1 toute l'année) avec deux
+# lignes à l'heure de Berlin, été et hiver ; celle qui ne tombe pas à cette heure ne fait rien.
+if [[ "${1:-}" == "--only-at-utc" ]]; then
+  [[ "$(date -u +%H)" == "${2:?heure UTC attendue après --only-at-utc}" ]] || exit 0
+  shift 2
 fi
 
 catch_up=0
