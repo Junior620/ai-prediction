@@ -90,7 +90,8 @@ PUBLIC_CHECK_SECONDS = 60
 # Même effet que « redis-cli FLUSHDB » de deploy_models.ps1 -DataOnly.
 REDIS_FLUSH = (
     "import os, redis; redis.Redis(host=os.getenv('REDIS_HOST', 'redis'), "
-    "port=int(os.getenv('REDIS_PORT', '6379')), db=int(os.getenv('REDIS_DB', '0'))).flushdb()"
+    "port=int(os.getenv('REDIS_PORT', '6379')), db=int(os.getenv('REDIS_DB', '0')), "
+    "password=os.getenv('REDIS_PASSWORD') or None).flushdb()"
 )
 # PC seulement : l'API locale sert le lot du soir. Jamais passé sur le VPS.
 DOCKER_ENV = {"PREDICTION_RELEASE_MODE": "experimental"}

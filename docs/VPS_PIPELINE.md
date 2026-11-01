@@ -223,6 +223,40 @@ Le propriétaire ajoute le canal d'alerte dans le `.env` du VPS, par exemple une
 passage : rien à redémarrer. Vérifier ensuite avec `scripts/vps/pipeline.sh --test-alert` (deux
 messages attendus). L'API publique ne voit la ligne qu'à sa prochaine recréation.
 
+## Réseau : rien d'autre que SSH, HTTP et HTTPS sur Internet
+
+Docker publie ses ports en contournant `ufw` : un port de `docker-compose.yml` sans adresse est
+ouvert à tout Internet, même si `ufw` n'autorise que SSH. Du 29 au 31/10/2026, le Redis ouvert
+(6379, sans mot de passe) a été attaqué :
+- `SLAVEOF` vers une machine inconnue ;
+- une clé SSH étrangère écrite dans `dump.rdb` ;
+- un `requirepass` posé par l'attaquant.
+
+Ce dernier point a fait échouer le vidage du cache (code 4 le 31/10). MLflow (5000, sans
+authentification) a aussi été sondé.
+
+- Le 01/11, des règles `DOCKER-USER` (IPv4 et IPv6) ont coupé 6379 et 5000 depuis `eth0`. Elles ne
+  survivent pas à un redémarrage. Redis a été recréé vide, et les preuves sont dans
+  `/opt/prediction-backups/incident_redis_20261101/`. Aucune trace sur l'hôte : `authorized_keys`,
+  crontabs et `/etc/cron.d` sont intacts.
+- Depuis ce correctif, `redis` et `mlflow` n'écoutent que sur `127.0.0.1`. L'API les joint par le
+  réseau Docker, et nginx joint l'API par `127.0.0.1:8000`.
+- **Mot de passe Redis, en plus.** Le propriétaire met `REDIS_PASSWORD=<long et aléatoire>` dans
+  `.env`. Redis l'exige alors, et l'API comme le vidage du cache le lisent. Vide, Redis reste sans
+  mot de passe, mais n'est plus joignable que localement.
+- **Port 8000.** Il reste publié pour l'instant. À limiter à `127.0.0.1` une fois vérifié que Vercel
+  et TradingView passent par `https://api.market.ste-scpb.com`.
+
+Après la fusion, sur le VPS :
+
+```bash
+scripts/vps/update.sh --dry-run <sha> && scripts/vps/update.sh <sha>
+(unset PREDICTION_RELEASE_MODE; docker compose up -d --no-deps redis mlflow)
+```
+
+Puis, si `REDIS_PASSWORD` a été ajouté : `docker compose up -d --no-deps --force-recreate api`,
+car l'API ne lit `.env` qu'au démarrage.
+
 ## Après la bascule
 
 - **Code.** Il passe par git : commit sur `main`, puis `scripts/vps/update.sh <sha>`, puis `up -d --no-deps --force-recreate api` si le code servi change.
