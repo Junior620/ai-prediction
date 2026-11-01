@@ -4,15 +4,21 @@ services:
   redis:
     image: redis:7-alpine
     container_name: cocoa-redis
+    # Jamais sur Internet : Docker contourne ufw, et un Redis ouvert a été attaqué du 29 au
+    # 31/10/2026 (SLAVEOF, clé SSH dans le dump, requirepass posé par l'attaquant). L'API le
+    # joint par le réseau Docker ; 127.0.0.1 garde l'accès local au PC.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
-      - ./config/redis_config.conf:/usr/local/etc/redis/redis.conf
-    command: redis-server /usr/local/etc/redis/redis.conf
+      - ./config/redis_config.conf:/usr/local/etc/redis/redis.conf:ro
+    # Mot de passe seulement si REDIS_PASSWORD est rempli dans .env (l'API et le vidage le lisent).
+    command: ["sh", "-c", "exec redis-server /usr/local/etc/redis/redis.conf $${REDIS_PASSWORD:+--requirepass \"$$REDIS_PASSWORD\"}"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli $${REDIS_PASSWORD:+-a \"$$REDIS_PASSWORD\" --no-auth-warning} ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -20,8 +26,9 @@ services:
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.10.2
     container_name: cocoa-mlflow
+    # MLflow 2.10 n'a pas d'authentification et a été sondé depuis Internet le 30/10/2026.
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - mlruns:/mlflow/mlruns
       - mlartifacts:/mlflow/mlartifacts
