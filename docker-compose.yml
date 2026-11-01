@@ -54,7 +54,9 @@ services:
       dockerfile: Dockerfile
     container_name: cocoa-api
     ports:
-      - "8000:8000"
+      # nginx (VPS) et le tableau de bord local joignent l'API par 127.0.0.1 ; Vercel passe par
+      # https://api.market.ste-scpb.com (journaux nginx, agent « node », 01/11/2026).
+      - "127.0.0.1:8000:8000"
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
