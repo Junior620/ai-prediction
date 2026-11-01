@@ -244,8 +244,12 @@ authentification) a aussi été sondé.
 - **Mot de passe Redis, en plus.** Le propriétaire met `REDIS_PASSWORD=<long et aléatoire>` dans
   `.env`. Redis l'exige alors, et l'API comme le vidage du cache le lisent. Vide, Redis reste sans
   mot de passe, mais n'est plus joignable que localement.
-- **Port 8000.** Il reste publié pour l'instant. À limiter à `127.0.0.1` une fois vérifié que Vercel
-  et TradingView passent par `https://api.market.ste-scpb.com`.
+- **Port 8000.** L'API n'écoute plus que sur `127.0.0.1` : nginx la joint par `127.0.0.1:8000`.
+  Vercel passe par `https://api.market.ste-scpb.com` (journaux nginx, agent `node`, 01/11/2026), et
+  le webhook TradingView arrive sur Vercel. Le 01/11, une règle `DOCKER-USER` a coupé 8000 en
+  attendant ce correctif.
+- **Mot de passe Redis.** Posé le 01/11/2026 (aléatoire, 64 caractères hexadécimaux, jamais
+  affiché). L'ancien `.env` est dans `/opt/prediction-backups/`.
 
 Après la fusion, sur le VPS :
 

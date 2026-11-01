@@ -17,7 +17,7 @@ def test_redis_and_mlflow_listen_on_localhost_only():
     # Docker contourne ufw : un port publié sans adresse est ouvert à tout Internet.
     # Redis a été attaqué ainsi du 29 au 31/10/2026, MLflow sondé le 30/10.
     services = _services()
-    for name, port in (("redis", "6379"), ("mlflow", "5000")):
+    for name, port in (("redis", "6379"), ("mlflow", "5000"), ("api", "8000")):
         ports = services[name].get("ports") or []
         assert ports, name
         assert all(str(p).startswith("127.0.0.1:") and str(p).endswith(f":{port}") for p in ports), (name, ports)
