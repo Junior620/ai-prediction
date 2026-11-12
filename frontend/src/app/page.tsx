@@ -14,7 +14,7 @@ export default function Dashboard() {
         includeSentiment: true,
         unitLabel: 'GBP / tonne',
         priceCurrency: 'GBP',
-        priceSource: 'OHLCV + OI · feature set M3',
+        priceSource: 'cours et volumes quotidiens',
         activeNav: 'cacao',
         otherMarket: { href: '/coffee', label: 'Café Robusta' },
         showTracking: true,

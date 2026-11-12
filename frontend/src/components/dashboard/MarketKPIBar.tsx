@@ -78,10 +78,10 @@ export function MarketKPIBar({
     ...(includeSentiment
       ? [{
           label: 'Sentiment',
-          value: getSentimentLabel(data.sentiment_score),
+          value: data.sentiment_score != null ? getSentimentLabel(data.sentiment_score) : 'Non mesuré',
           sub: data.sentiment_score != null
             ? `Score ${data.sentiment_score.toFixed(2)}`
-            : 'Pas de news notée sur 24 h',
+            : 'Aucune actualité notée sur 24 h',
           icon: Brain,
           valueClass:
             data.sentiment_score == null ? 'text-slate-400' :
