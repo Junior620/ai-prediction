@@ -78,7 +78,11 @@ export function buildInfluentialFactors(opts: {
   sentiment?: number | null;
   brief?: MarketBriefContent | null;
   pred?: PredictionItem;
+  priceCurrency?: 'USD' | 'GBP';
+  /** Faux tant qu'aucun horizon n'est validé : rien de tiré des prix du modèle ni du signal du brief. */
+  modelValidated?: boolean;
 }): InfluentialFactor[] {
+  const unit = opts.priceCurrency === 'GBP' ? '£' : '$';
   const factors: InfluentialFactor[] = [];
 
   if (opts.changePct7d == null) {
@@ -113,14 +117,14 @@ export function buildInfluentialFactors(opts: {
   const support = opts.brief?.key_levels?.support;
   const resistance = opts.brief?.key_levels?.resistance;
   if (support != null) {
-    factors.push({ factor: `Support ${Math.round(support).toLocaleString('fr-FR')} $`, impact: 'Zone clé', tone: 'bullish' });
+    factors.push({ factor: `Support ${Math.round(support).toLocaleString('fr-FR')} ${unit}`, impact: 'Zone clé', tone: 'bullish' });
   }
   if (resistance != null) {
-    factors.push({ factor: `Résistance ${Math.round(resistance).toLocaleString('fr-FR')} $`, impact: 'Seuil critique', tone: 'bearish' });
+    factors.push({ factor: `Résistance ${Math.round(resistance).toLocaleString('fr-FR')} ${unit}`, impact: 'Seuil critique', tone: 'bearish' });
   }
 
   const comps = opts.pred?.components;
-  if (comps?.prophet != null && comps?.baseline != null) {
+  if (opts.modelValidated && comps?.prophet != null && comps?.baseline != null) {
     const spread = Math.abs(comps.prophet - comps.baseline) / (comps.baseline || 1);
     if (spread > 0.08) {
       factors.push({
@@ -131,7 +135,9 @@ export function buildInfluentialFactors(opts: {
     }
   }
 
-  if (opts.brief?.signal === 'SELL' && opts.brief.trend === 'bearish') {
+  if (!opts.modelValidated) {
+    // Le signal du brief découle des prix du modèle non validés : pas de biais affiché.
+  } else if (opts.brief?.signal === 'SELL' && opts.brief.trend === 'bearish') {
     factors.push({ factor: 'Brief IA (Sonnet)', impact: 'Biais baissier confirmé', tone: 'bearish' });
   } else if (opts.brief?.signal === 'BUY') {
     factors.push({ factor: 'Brief IA (Sonnet)', impact: 'Biais haussier', tone: 'bullish' });

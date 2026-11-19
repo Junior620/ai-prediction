@@ -43,3 +43,33 @@ def test_freshness_banner_and_served_lot_are_shown():
     dashboard = _read(ROOT / "frontend" / "src" / "components" / "SimplifiedMarketDashboard.tsx")
     assert "marketInfo?.freshness?.banner" in dashboard
     assert "Lot servi : {marketInfo.model_version}" in dashboard
+
+
+def test_model_derived_blocks_hidden_until_a_horizon_is_validated():
+    # 19/11/2026 : le brief affichait « SELL » et une exposition vendeuse tirée des prix du modèle,
+    # et les tableaux par contrat des projections J+1…J+30 non validées.
+    dashboard = _read(ROOT / "frontend" / "src" / "components" / "SimplifiedMarketDashboard.tsx")
+    assert "const modelValidated = (marketInfo?.validated_horizons?.length ?? 0) > 0;" in dashboard
+    history = dashboard.index("<PredictionHistoryPanel")
+    assert dashboard.rindex("{modelValidated && (", 0, history) > dashboard.index("const modelValidated")
+    assert "showModelColumns={modelValidated}" in dashboard
+    assert dashboard.count("modelValidated={modelValidated}") == 2
+
+    brief = _read(ROOT / "frontend" / "src" / "components" / "MarketBrief.tsx")
+    assert "modelValidated = false," in brief
+    badge = brief.index("{brief.signal}</span>")
+    assert brief.rindex("{modelValidated && (", 0, badge) > brief.index("function BriefBody")
+    assert "{modelValidated && brief.recommendation && (" in brief
+    assert "${support.toLocaleString()}" not in brief
+
+    futures = _read(DASH / "FuturesCurvePanel.tsx")
+    assert "showModelColumns = false," in futures
+    for key in ("j1", "j7", "j14", "j30"):
+        line = futures.index(f'dataKey="{key}"')
+        assert futures.rindex("{showModel && (", 0, line) > futures.index("function CurveBlock")
+    cell = futures.index("pickPred(c, 1)} currency")
+    assert futures.rindex("{showModel && (", 0, cell) > futures.index("function CurveBlock")
+
+    analytics = _read(ROOT / "frontend" / "src" / "lib" / "marketAnalytics.ts")
+    assert "if (!opts.modelValidated) {" in analytics
+    assert "toLocaleString('fr-FR')} $`" not in analytics

@@ -20,7 +20,11 @@ interface FuturesCurvePanelProps {
   data: FuturesCurveResponse | null;
   loading?: boolean;
   accentClass?: string;
+  /** Faux tant qu'aucun horizon n'est validé : seuls les cours de clôture sont montrés. */
+  showModelColumns?: boolean;
 }
+
+const MODEL_HIDDEN_NOTE = 'Projections du modèle par contrat masquées : elles ne sont pas validées.';
 
 function pickPred(contract: FuturesContractItem, horizon: number) {
   return contract.predictions.find((p) => p.horizon === horizon)?.price ?? null;
@@ -64,6 +68,7 @@ function CurveBlock({
   currency,
   usdGbp,
   accentClass,
+  showModel,
 }: {
   title: string;
   subtitle: string;
@@ -71,6 +76,7 @@ function CurveBlock({
   currency: 'USD' | 'GBP';
   usdGbp: number | null;
   accentClass: string;
+  showModel: boolean;
 }) {
   const chartData = useMemo(
     () =>
@@ -103,6 +109,7 @@ function CurveBlock({
           {title}
         </h3>
         <p className="text-xs text-slate-500 mt-1">{subtitle}</p>
+        {!showModel && <p className="text-[11px] text-amber-200/80 mt-1">{MODEL_HIDDEN_NOTE}</p>}
       </div>
 
       <div className="h-56 w-full">
@@ -137,10 +144,14 @@ function CurveBlock({
               formatter={(value) => horizonName(String(value))}
             />
             <Line type="monotone" dataKey="actuel" stroke="#fbbf24" strokeWidth={2.5} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="j1" stroke="#34d399" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
-            <Line type="monotone" dataKey="j7" stroke="#60a5fa" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
-            <Line type="monotone" dataKey="j14" stroke="#38bdf8" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
-            <Line type="monotone" dataKey="j30" stroke="#c084fc" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
+            {showModel && (
+              <>
+                <Line type="monotone" dataKey="j1" stroke="#34d399" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
+                <Line type="monotone" dataKey="j7" stroke="#60a5fa" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
+                <Line type="monotone" dataKey="j14" stroke="#38bdf8" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
+                <Line type="monotone" dataKey="j30" stroke="#c084fc" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
+              </>
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -151,10 +162,14 @@ function CurveBlock({
             <tr className="text-slate-500 border-b border-white/[0.06]">
               <th className="text-left py-2 font-medium">Contrat</th>
               <th className="text-right py-2 font-medium">Actuel</th>
-              <th className="text-right py-2 font-medium">J+1</th>
-              <th className="text-right py-2 font-medium">J+7</th>
-              <th className="text-right py-2 font-medium">J+14</th>
-              <th className="text-right py-2 font-medium">J+30</th>
+              {showModel && (
+                <>
+                  <th className="text-right py-2 font-medium">J+1</th>
+                  <th className="text-right py-2 font-medium">J+7</th>
+                  <th className="text-right py-2 font-medium">J+14</th>
+                  <th className="text-right py-2 font-medium">J+30</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -165,10 +180,14 @@ function CurveBlock({
                   <span className="text-slate-600 ml-1">{c.symbol}</span>
                 </td>
                 <PriceCell value={c.price_usd} currency={currency} usdGbp={usdGbp} className="text-amber-300" />
-                <PriceCell value={pickPred(c, 1)} currency={currency} usdGbp={usdGbp} className="text-emerald-300/90" />
-                <PriceCell value={pickPred(c, 7)} currency={currency} usdGbp={usdGbp} className="text-sky-300/90" />
-                <PriceCell value={pickPred(c, 14)} currency={currency} usdGbp={usdGbp} className="text-cyan-300/90" />
-                <PriceCell value={pickPred(c, 30)} currency={currency} usdGbp={usdGbp} className="text-violet-300/90" />
+                {showModel && (
+                  <>
+                    <PriceCell value={pickPred(c, 1)} currency={currency} usdGbp={usdGbp} className="text-emerald-300/90" />
+                    <PriceCell value={pickPred(c, 7)} currency={currency} usdGbp={usdGbp} className="text-sky-300/90" />
+                    <PriceCell value={pickPred(c, 14)} currency={currency} usdGbp={usdGbp} className="text-cyan-300/90" />
+                    <PriceCell value={pickPred(c, 30)} currency={currency} usdGbp={usdGbp} className="text-violet-300/90" />
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
@@ -182,6 +201,7 @@ export function FuturesCurvePanel({
   data,
   loading = false,
   accentClass = 'text-amber-400',
+  showModelColumns = false,
 }: FuturesCurvePanelProps) {
   const usdGbp = useUsdGbpRate();
 
@@ -219,11 +239,12 @@ export function FuturesCurvePanel({
       <div className="glass-card p-5">
         <CurveBlock
           title="Contrats à terme Londres"
-          subtitle={`ICE London £/T · DEC26 / MAR27… · J+1 / J+7 / J+14 / J+30${namedCollected ? ` · MAJ ${namedCollected}` : ''}${data?.source ? ` · ${data.source}` : ''}`}
+          subtitle={`ICE London £/T · DEC26 / MAR27…${namedCollected ? ` · MAJ ${namedCollected}` : ''}${data?.source ? ` · ${data.source}` : ''}`}
           contracts={named}
           currency="GBP"
           usdGbp={usdGbp}
           accentClass={accentClass}
+          showModel={showModelColumns}
         />
       </div>
     );
@@ -242,6 +263,7 @@ export function FuturesCurvePanel({
         currency={namedIsGbp ? 'GBP' : 'USD'}
         usdGbp={usdGbp}
         accentClass={accentClass}
+        showModel={showModelColumns}
       />
       {london.length > 0 && (
         <div className="pt-4 border-t border-white/[0.06]">
@@ -252,6 +274,7 @@ export function FuturesCurvePanel({
             currency="GBP"
             usdGbp={usdGbp}
             accentClass={accentClass}
+            showModel={showModelColumns}
           />
         </div>
       )}

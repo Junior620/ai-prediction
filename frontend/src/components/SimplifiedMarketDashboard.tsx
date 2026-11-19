@@ -313,6 +313,9 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
   const currentPrice = data?.current_price ?? 0;
   const garchVol = data?.predictions?.[0]?.components?.garch_annualized_volatility;
   const highVolRegime = Boolean(data?.predictions?.some(p => p.components?.high_volatility_regime));
+  // Tant qu'aucun horizon n'est validé, les prix du modèle (et ce qui en découle : signal du brief,
+  // projections par contrat, historique des prédictions) ne sont pas montrés comme des prévisions.
+  const modelValidated = (marketInfo?.validated_horizons?.length ?? 0) > 0;
   const metricsByHorizon = Object.fromEntries(
     (validation?.xgb_metrics ?? []).map(m => [m.horizon, m]),
   );
@@ -533,12 +536,14 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 brief={intelligence?.brief}
               />
 
-              <PredictionHistoryPanel
-                items={predictionHistory}
-                loading={loading && !predictionHistory.length}
-                priceCurrency={config.priceCurrency ?? 'USD'}
-                accentClass={theme.accentClass}
-              />
+              {modelValidated && (
+                <PredictionHistoryPanel
+                  items={predictionHistory}
+                  loading={loading && !predictionHistory.length}
+                  priceCurrency={config.priceCurrency ?? 'USD'}
+                  accentClass={theme.accentClass}
+                />
+              )}
 
               {config.market === 'ICE_NY' && (
                 <LondonMicrostructurePanel
@@ -553,6 +558,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                   data={futures}
                   loading={loading && !futures}
                   accentClass={theme.accentClass}
+                  showModelColumns={modelValidated}
                 />
               )}
 
@@ -566,6 +572,7 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 brief={intelligence?.brief}
                 validation={validation}
                 modelVersion={data.model_version}
+                modelValidated={modelValidated}
               />
             </div>
 
@@ -589,6 +596,8 @@ export function SimplifiedMarketDashboard({ config }: { config: MarketDashboardC
                 <MarketBrief
                   market={config.market}
                   accentClass="text-violet-400"
+                  priceCurrency={config.priceCurrency ?? 'USD'}
+                  modelValidated={modelValidated}
                   data={intelligence}
                   loading={briefLoading}
                   error={briefError}

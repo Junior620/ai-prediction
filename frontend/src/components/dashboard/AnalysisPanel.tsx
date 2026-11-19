@@ -25,6 +25,7 @@ interface AnalysisPanelProps {
   brief?: MarketBriefContent | null;
   validation?: ValidationMetricsResponse | null;
   modelVersion?: string;
+  modelValidated?: boolean;
 }
 
 const impactColors = {
@@ -50,6 +51,7 @@ export function AnalysisPanel({
   brief,
   validation,
   modelVersion,
+  modelValidated = false,
 }: AnalysisPanelProps) {
   const pred7 = predictions.find(p => p.horizon === 7);
   const pred30 = predictions.find(p => p.horizon === 30) ?? predictions[predictions.length - 1];
@@ -67,6 +69,8 @@ export function AnalysisPanel({
     sentiment,
     brief,
     pred: pred7,
+    priceCurrency,
+    modelValidated,
   });
 
   const h30 = validation?.xgb_metrics?.find(row => row.horizon === (pred30?.horizon ?? 30));

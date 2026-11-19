@@ -19,6 +19,9 @@ interface MarketBriefProps {
   sticky?: boolean;
   /** Surbrillance temporaire après une alerte TradingView */
   highlight?: boolean;
+  priceCurrency?: 'USD' | 'GBP';
+  /** Faux tant qu'aucun horizon n'est validé : pas de signal ni de recommandation affichés. */
+  modelValidated?: boolean;
 }
 
 const signalStyles = {
@@ -27,13 +30,34 @@ const signalStyles = {
   HOLD: { accent: 'text-amber-400', bg: 'bg-amber-500/15', border: 'border-amber-500/30', Icon: Minus },
 };
 
-function BriefBody({ brief }: { brief: MarketBriefContent }) {
+function formatLevel(value: number, currency: 'USD' | 'GBP') {
+  const n = Math.round(value).toLocaleString('fr-FR');
+  return currency === 'GBP' ? `${n} £` : `${n} $`;
+}
+
+function BriefBody({
+  brief,
+  currency,
+  modelValidated,
+}: {
+  brief: MarketBriefContent;
+  currency: 'USD' | 'GBP';
+  modelValidated: boolean;
+}) {
   const sig = signalStyles[brief.signal] || signalStyles.HOLD;
   const support = brief.key_levels?.support;
   const resistance = brief.key_levels?.resistance;
 
   return (
     <div className="space-y-4">
+      {!modelValidated && (
+        <p className="text-xs text-amber-200/90 flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          Commentaire rédigé par l&apos;IA à partir des prix du modèle, qui ne sont pas validés. Pas de
+          signal d&apos;achat ou de vente : les niveaux cités ne sont pas des prévisions.
+        </p>
+      )}
+      {modelValidated && (
       <div className={`flex items-center gap-3 p-3 rounded-xl border ${sig.bg} ${sig.border}`}>
         <sig.Icon className={`w-5 h-5 ${sig.accent}`} />
         <div>
@@ -42,6 +66,7 @@ function BriefBody({ brief }: { brief: MarketBriefContent }) {
         </div>
         <span className="ml-auto text-xs text-slate-500 capitalize">{brief.trend}</span>
       </div>
+      )}
 
       <p className="text-sm text-slate-300 leading-relaxed">{brief.summary}</p>
 
@@ -57,13 +82,13 @@ function BriefBody({ brief }: { brief: MarketBriefContent }) {
           {support != null && (
             <div className="bg-white/[0.03] rounded-lg p-2.5">
               <p className="text-slate-500 mb-0.5">Support</p>
-              <p className="font-bold text-emerald-400 font-mono-price">${support.toLocaleString()}</p>
+              <p className="font-bold text-emerald-400 font-mono-price">{formatLevel(support, currency)}</p>
             </div>
           )}
           {resistance != null && (
             <div className="bg-white/[0.03] rounded-lg p-2.5">
               <p className="text-slate-500 mb-0.5">Résistance</p>
-              <p className="font-bold text-rose-400 font-mono-price">${resistance.toLocaleString()}</p>
+              <p className="font-bold text-rose-400 font-mono-price">{formatLevel(resistance, currency)}</p>
             </div>
           )}
         </div>
@@ -82,7 +107,7 @@ function BriefBody({ brief }: { brief: MarketBriefContent }) {
         </div>
       )}
 
-      {brief.recommendation && (
+      {modelValidated && brief.recommendation && (
         <p className="text-xs text-slate-300 italic border-t border-white/[0.06] pt-3">
           {brief.recommendation}
         </p>
@@ -101,6 +126,8 @@ export function MarketBrief({
   advancedLoading = false,
   sticky = true,
   highlight = false,
+  priceCurrency = 'USD',
+  modelValidated = false,
 }: MarketBriefProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [question, setQuestion] = useState('');
@@ -158,7 +185,9 @@ export function MarketBrief({
         </div>
       )}
 
-      {data?.brief && <BriefBody brief={data.brief} />}
+      {data?.brief && (
+        <BriefBody brief={data.brief} currency={priceCurrency} modelValidated={modelValidated} />
+      )}
 
       <div className="mt-4 pt-4 border-t border-white/[0.06]">
         <button
